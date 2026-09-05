@@ -1,0 +1,79 @@
+@page "/users"
+@attribute [Authorize(Roles = "Admin")]
+@inject IUserService Users
+@inject AppDbContext Db
+
+<div class="page-head">
+    <h1 class="page-title">Quản lý tài khoản (ATS-01, ATS-02)</h1>
+    <a class="btn-primary" href="/users/new">+ Tạo tài khoản</a>
+</div>
+@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+
+<table class="tbl">
+    <thead>
+        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Phân quyền</th><th>Khóa</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var u in userList)
+        {
+            var isSelf = u.Id == currentUid;
+            <tr>
+                <td>@u.Id</td>
+                <td>@u.FullName @(isSelf ? "(bạn)" : "")</td>
+                <td>@u.Email</td>
+                <td><span class="tag">@Roles.Display(u.Role?.RoleName ?? "")</span></td>
+                <td>@if (u.IsActive) { <span class="ok">● Hoạt động</span> } else { <span class="lock">● Đã khóa</span> }</td>
+                <td>
+                    @if (isSelf)
+                    {
+                        <span class="sub">— (không thể tự đổi)</span>
+                    }
+                    else
+                    {
+                        <form method="post" action="@($"/users/{u.Id}/change-role")" class="inline">
+                            <select name="roleId">
+                                @foreach (var r in roleList)
+                                {
+                                    if (r.Id == u.RoleId) { <option value="@r.Id" selected>@Roles.Display(r.RoleName)</option> }
+                                    else { <option value="@r.Id">@Roles.Display(r.RoleName)</option> }
+                                }
+                            </select>
+                            <button class="btn-sm" type="submit">Lưu</button>
+                        </form>
+                    }
+                </td>
+                <td>
+                    @if (isSelf)
+                    {
+                        <span class="sub">—</span>
+                    }
+                    else
+                    {
+                        <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline">
+                            <button class="btn-sm @(u.IsActive ? "danger" : "")" type="submit">@(u.IsActive ? "Khóa" : "Mở khóa")</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+    private List<User> userList = new();
+    private List<Role> roleList = new();
+    private int currentUid;
+
+    protected override async Task OnInitializedAsync()
+    {
+        userList = Users.GetAll();
+        roleList = Db.Roles.ToList();
+        if (AuthState != null)
+        {
+            var u = (await AuthState).User;
+            int.TryParse(u.FindFirst(ClaimTypes.NameIdentifier)?.Value, out currentUid);
+        }
+    }
+}

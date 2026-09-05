@@ -1,0 +1,47 @@
+@page "/my-applications"
+@attribute [Authorize(Roles = "SinhVienIT")]
+@inject IApplicationService Applications
+
+<h1 class="page-title">Đơn ứng tuyển của tôi</h1>
+<p class="sub">Bạn đã nộp <b>@apps.Count</b> đơn. Bấm "Xem" để đọc <b>đánh giá độ phù hợp & lộ trình gợi ý</b> cho từng vị trí.</p>
+
+<table class="tbl">
+    <thead>
+        <tr><th>ID</th><th>Vị trí</th><th>Danh mục</th><th>Cấp bậc</th><th>% phù hợp</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var a in apps)
+        {
+            <tr>
+                <td>@a.Id</td>
+                <td>@a.JobTitle</td>
+                <td><span class="@Ui.CategoryClass(a.Category)">@a.Category</span></td>
+                <td><span class="@Ui.LevelClass(a.Level)">@a.Level</span></td>
+                <td>
+                    @if (a.AiScore.HasValue) { <span class="@Ui.ScoreClass(a.AiScore)">@a.AiScore%</span> }
+                    else { <span class="sub">Chưa có</span> }
+                </td>
+                <td>@a.AppliedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
+                <td><a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a></td>
+            </tr>
+        }
+        @if (apps.Count == 0)
+        {
+            <tr><td colspan="8" class="sub">Bạn chưa ứng tuyển vị trí nào. <a href="/positions">Xem việc làm IT</a>.</td></tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private List<MyApplicationItem> apps = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+            apps = Applications.GetByCandidate(uid);
+    }
+}

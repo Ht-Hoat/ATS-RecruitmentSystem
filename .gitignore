@@ -1,0 +1,8 @@
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+# KHÔNG commit API key và cấu hình dev cục bộ
+appsettings.Development.json
+TestResults/

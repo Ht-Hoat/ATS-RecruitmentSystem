@@ -1,0 +1,29 @@
+@page "/register"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+
+@* EXT-01: Sinh viên IT đăng ký tài khoản *@
+
+<div class="login-wrap">
+    <div class="login-card">
+        <div class="brand-lg">IT Career<span>PLATFORM</span></div>
+        <h1>Đăng ký — Sinh viên IT</h1>
+        @if (!string.IsNullOrEmpty(ErrorMsg)) { <div class="alert-err">@ErrorMsg</div> }
+        <form method="post" action="/account/register">
+            <label>Họ và tên</label>
+            <input name="fullName" required minlength="2" placeholder="Nguyễn Văn A" />
+            <label>Email</label>
+            <input name="email" type="email" required placeholder="ban@example.com" />
+            <label>Mật khẩu (tối thiểu 8 ký tự)</label>
+            <input name="password" type="password" required minlength="8" placeholder="••••••••" />
+            <label>Xác nhận mật khẩu</label>
+            <input name="confirmPassword" type="password" required minlength="8" placeholder="••••••••" />
+            <button class="btn-primary full" type="submit">Đăng ký tài khoản Sinh viên IT</button>
+        </form>
+        <div class="hint">Đã có tài khoản? <a href="/login">Đăng nhập ngay</a></div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? ErrorMsg { get; set; }
+}

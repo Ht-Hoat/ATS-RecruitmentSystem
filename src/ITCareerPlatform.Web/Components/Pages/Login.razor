@@ -1,0 +1,32 @@
+@page "/login"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+
+<div class="login-wrap">
+    <div class="login-card">
+        <div class="brand-lg">IT Career<span>PLATFORM</span></div>
+        <h1>Đăng nhập hệ thống</h1>
+        @if (Error) { <div class="alert-err">Sai email hoặc mật khẩu, hoặc tài khoản đã bị khóa.</div> }
+        @if (Registered == "1") { <div class="alert-ok">Đăng ký thành công! Vui lòng đăng nhập.</div> }
+        <form method="post" action="/account/login">
+            <label>Email</label>
+            <input name="email" type="email" placeholder="admin@itcp.vn" required />
+            <label>Mật khẩu</label>
+            <input name="password" type="password" placeholder="••••••" required />
+            <button class="btn-primary full" type="submit">Đăng nhập</button>
+        </form>
+        <div class="hint">
+            <b>Tài khoản demo (mật khẩu: 123456):</b><br />
+            Admin: admin@itcp.vn<br />
+            Mentor / HR IT: mentor@itcp.vn<br />
+            Sinh viên IT: lan@itcp.vn
+        </div>
+        <div class="hint">Chưa có tài khoản? <a href="/register">Đăng ký Sinh viên IT</a></div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? Error0 { get; set; }
+    [SupplyParameterFromQuery(Name = "registered")] public string? Registered { get; set; }
+    private bool Error => Error0 == "1";
+}

@@ -1,0 +1,190 @@
+@page "/applications/{AppId:int}"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+@inject IApplicationService Applications
+
+@* ATS-12: chi tiết hồ sơ IT + CV · ATS-13/14: AI · ATS-16: điều chỉnh · ATS-17: trạng thái *@
+
+@if (app is null || app.CandidateProfile is null)
+{
+    <p class="sub">Không tìm thấy đơn ứng tuyển.</p>
+}
+else if (!canAccess)
+{
+    <div class="alert-err">Bạn không có quyền xem đơn này — chỉ Mentor tạo tin hoặc Admin mới được xem.</div>
+    <a class="btn" href="/jobs">← Về danh sách tin</a>
+}
+else
+{
+    var p = app.CandidateProfile;
+    <div class="page-head">
+        <h1 class="page-title">Hồ sơ ứng viên (ATS-12)</h1>
+        <a class="btn" href="@($"/jobs/{app.JobId}/applicants")">← Về danh sách ứng viên</a>
+    </div>
+
+    @if (AiScored == "1") { <div class="alert-ok">Đã đánh giá độ phù hợp & tạo gợi ý lộ trình.</div> }
+    @if (!string.IsNullOrEmpty(AiError)) { <div class="alert-err">Lỗi AI: @AiError</div> }
+    @if (HrSaved == "1") { <div class="alert-ok">Đã lưu điểm đánh giá của Mentor.</div> }
+    @if (!string.IsNullOrEmpty(HrError)) { <div class="alert-err">@HrError</div> }
+    @if (!string.IsNullOrEmpty(StatusMsg)) { <div class="alert-ok">@StatusMsg</div> }
+
+    <!-- Section 1: thông tin ứng tuyển -->
+    <div class="panel">
+        <h2>1 · Thông tin ứng tuyển</h2>
+        <p class="sub">
+            Vị trí: <b>@app.Job?.Title</b>
+            <span class="@Ui.CategoryClass(app.Job?.Category)">@app.Job?.Category</span>
+            <span class="@Ui.LevelClass(app.Job?.Level)">@app.Job?.Level</span>
+            · Ngày nộp: @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")
+            · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
+        </p>
+    </div>
+
+    <!-- Section 2 + 3: hồ sơ IT -->
+    <div class="grid2-wide" style="margin-top:16px">
+        <div class="panel">
+            <h2>2 · Thông tin cá nhân</h2>
+            <table class="tbl-info">
+                <tr><td class="k">Họ và tên</td><td>@p.FullName</td></tr>
+                <tr><td class="k">Email</td><td>@p.Email</td></tr>
+                <tr><td class="k">Số điện thoại</td><td>@p.Phone</td></tr>
+                <tr><td class="k">Ngày sinh</td><td>@(p.DateOfBirth?.ToString("dd/MM/yyyy"))</td></tr>
+                <tr><td class="k">Địa chỉ</td><td>@p.Address</td></tr>
+                <tr><td class="k">Học vấn</td><td>@p.Education</td></tr>
+                <tr><td class="k">Kinh nghiệm</td><td>@p.Experience</td></tr>
+            </table>
+        </div>
+
+        <div class="panel">
+            <h2>3 · Hồ sơ chuyên ngành IT</h2>
+            <div class="it-links">
+                @if (!string.IsNullOrWhiteSpace(p.GithubUrl)) { <a href="@p.GithubUrl" target="_blank" class="it-link">🐙 GitHub</a> }
+                @if (!string.IsNullOrWhiteSpace(p.LinkedInUrl)) { <a href="@p.LinkedInUrl" target="_blank" class="it-link">💼 LinkedIn</a> }
+                @if (!string.IsNullOrWhiteSpace(p.PortfolioUrl)) { <a href="@p.PortfolioUrl" target="_blank" class="it-link">🌐 Portfolio</a> }
+            </div>
+            <p class="k" style="margin-top:14px">Tech Skill Tags</p>
+            <div class="chip-preview">
+                @foreach (var t in p.SkillTagList) { <span class="chip">@t</span> }
+                @if (!p.SkillTagList.Any()) { <span class="sub">Chưa khai báo.</span> }
+            </div>
+            <p class="k" style="margin-top:14px">Kỹ năng (mô tả)</p>
+            <p>@p.Skills</p>
+        </div>
+    </div>
+
+    <!-- Section 4: CV + AI -->
+    <div class="panel" style="margin-top:16px">
+        <h2>4 · CV & Đánh giá độ phù hợp (AI)</h2>
+        @if (app.HasCvSnapshot || p.HasCv)
+        {
+            <p>📎 CV đã nộp: <b>@(app.HasCvSnapshot ? app.CvFileNameSnapshot : p.CvFileName)</b>
+               <span class="sub">(bản chụp tại thời điểm nộp @app.AppliedAt.ToString("dd/MM/yyyy HH:mm") — không đổi khi ứng viên cập nhật CV sau này)</span>
+               &nbsp; <a class="btn-sm" href="@($"/applications/{app.Id}/cv")" target="_blank">Tải CV (PDF/DOCX)</a></p>
+        }
+        else { <p class="sub">Ứng viên chưa tải CV lên.</p> }
+
+        <hr class="sep" />
+
+        <div class="ai-box">
+            @if (!app.HasAiEvaluation)
+            {
+                <div class="ai-placeholder">
+                    <p class="sub">Chưa có đánh giá độ phù hợp cho ứng viên này.</p>
+                    <form method="post" action="@($"/applications/{app.Id}/ai-evaluate")">
+                        <button class="btn-ai" type="submit">🧭 Đánh giá độ phù hợp & Gợi ý lộ trình</button>
+                    </form>
+                    <p class="sub" style="margin-top:8px">🔐 Khi chạy đánh giá, nội dung CV của ứng viên có thể được gửi tới dịch vụ AI (Google Gemini) để phân tích.</p>
+                </div>
+            }
+            else
+            {
+                <AiEvaluationCard App="app" ForStudent="false" />
+                <form method="post" action="@($"/applications/{app.Id}/ai-evaluate")" class="inline">
+                    <button class="btn-sm ghost" type="submit">🔄 Đánh giá lại</button>
+                </form>
+
+                <!-- ATS-16: Mentor duyệt / điều chỉnh % phù hợp -->
+                <div class="hr-adjust">
+                    <h3>Đánh giá của Mentor (ATS-16)</h3>
+                    @if (app.HrScore.HasValue)
+                    {
+                        <p>% Mentor xác nhận: <b class="@Ui.ScoreClass(app.HrScore)">@app.HrScore%</b>
+                           &nbsp;·&nbsp; Ghi chú: <i>@app.HrNote</i></p>
+                    }
+                    <div class="grid2">
+                        <form method="post" action="@($"/applications/{app.Id}/hr-score")">
+                            <input type="hidden" name="agree" value="1" />
+                            <button class="btn-sm" type="submit">✅ Đồng ý với đánh giá AI (@app.AiScore%)</button>
+                        </form>
+                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form">
+                            <input type="hidden" name="agree" value="0" />
+                            <div class="inline">
+                                <input name="hrScore" type="number" min="0" max="100" placeholder="% phù hợp (0-100)" required />
+                            </div>
+                            <textarea name="hrNote" rows="2" minlength="10" placeholder="Lý do điều chỉnh (tối thiểu 10 ký tự)..." required></textarea>
+                            <button class="btn-sm ghost" type="submit">✏️ Lưu điều chỉnh</button>
+                        </form>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Section 5: trạng thái + timeline -->
+    <div class="panel" style="margin-top:16px">
+        <h2>5 · Trạng thái ứng tuyển (ATS-17)</h2>
+        <form method="post" action="@($"/applications/{app.Id}/status")" class="inline">
+            <select name="status">
+                @foreach (var s in ApplicationStatus.All)
+                {
+                    if (s == app.Status) { <option value="@s" selected>@s</option> } else { <option value="@s">@s</option> }
+                }
+            </select>
+            <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
+        </form>
+
+        <div class="timeline">
+            <div class="tl-item">
+                <span class="tl-dot @Ui.StatusClass(ApplicationStatus.Submitted)"></span>
+                <div><b>Nộp đơn</b> — @p.FullName — @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")</div>
+            </div>
+            @foreach (var h in history)
+            {
+                <div class="tl-item">
+                    <span class="tl-dot @Ui.StatusClass(h.ToStatus)"></span>
+                    <div>@h.FromStatus → <b>@h.ToStatus</b> — @(names.GetValueOrDefault(h.ChangedByUserId, "#" + h.ChangedByUserId)) — @h.ChangedAt.ToString("dd/MM/yyyy HH:mm")</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int AppId { get; set; }
+    [SupplyParameterFromQuery(Name = "aiscored")] public string? AiScored { get; set; }
+    [SupplyParameterFromQuery(Name = "aierror")] public string? AiError { get; set; }
+    [SupplyParameterFromQuery(Name = "hrsaved")] public string? HrSaved { get; set; }
+    [SupplyParameterFromQuery(Name = "hrerror")] public string? HrError { get; set; }
+    [SupplyParameterFromQuery(Name = "statusmsg")] public string? StatusMsg { get; set; }
+
+    [Inject] private AppDbContext Db { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Application? app;
+    private List<ApplicationStatusHistory> history = new();
+    private Dictionary<int, string> names = new();
+    private bool canAccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        app = Applications.GetById(AppId);
+        if (app is null || AuthState is null) return;
+
+        var user = (await AuthState).User;
+        int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid);
+        canAccess = user.IsInRole(Roles.Admin) || app.Job?.CreatedById == uid;   // #5
+        if (!canAccess) return;
+
+        history = Applications.GetStatusHistory(AppId);
+        names = Db.Users.ToDictionary(u => u.Id, u => u.FullName);
+    }
+}

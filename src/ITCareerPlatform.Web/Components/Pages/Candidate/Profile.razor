@@ -1,0 +1,119 @@
+@page "/profile"
+@attribute [Authorize(Roles = "SinhVienIT")]
+@inject IProfileService Profiles
+
+@* ATS-08: hồ sơ IT chuyên sâu · ATS-09: tải CV *@
+
+<h1 class="page-title">Hồ sơ IT của tôi (ATS-08, ATS-09)</h1>
+<p class="sub">Hoàn thiện hồ sơ và tải CV để có thể ứng tuyển việc làm IT.</p>
+
+@if (Saved == "1") { <div class="alert-ok">Đã lưu hồ sơ thành công.</div> }
+@if (CvSaved == "1") { <div class="alert-ok">Đã tải CV lên thành công.</div> }
+@if (!string.IsNullOrEmpty(CvError)) { <div class="alert-err">@CvError</div> }
+@if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
+
+<div class="grid2-wide">
+    <form method="post" action="/profile/save" class="form">
+        <h2 class="form-h">1 · Thông tin cá nhân</h2>
+        <label>Họ và tên</label>
+        <input name="fullName" required value="@p.FullName" />
+        <label>Email</label>
+        <input name="email" type="email" value="@p.Email" />
+        <div class="grid2">
+            <div><label>Số điện thoại</label><input name="phone" value="@p.Phone" /></div>
+            <div><label>Ngày sinh</label><input name="dateOfBirth" type="date" value="@(p.DateOfBirth?.ToString("yyyy-MM-dd"))" /></div>
+        </div>
+        <label>Địa chỉ</label>
+        <input name="address" value="@p.Address" />
+
+        <h2 class="form-h">2 · Chuyên môn IT</h2>
+        <label>Học vấn</label>
+        <textarea name="education" rows="2">@p.Education</textarea>
+        <label>Kinh nghiệm làm việc</label>
+        <textarea name="experience" rows="3">@p.Experience</textarea>
+        <label>Kỹ năng (mô tả)</label>
+        <textarea name="skills" rows="2">@p.Skills</textarea>
+
+        <h2 class="form-h">3 · Hồ sơ chuyên ngành IT</h2>
+        <label>GitHub URL</label>
+        <input name="githubUrl" value="@p.GithubUrl" placeholder="https://github.com/username" />
+        <label>LinkedIn URL</label>
+        <input name="linkedInUrl" value="@p.LinkedInUrl" placeholder="https://linkedin.com/in/username" />
+        <label>Portfolio / Website</label>
+        <input name="portfolioUrl" value="@p.PortfolioUrl" placeholder="https://your-portfolio.dev" />
+        <label>Tech Skill Tags (phân cách bằng dấu phẩy)</label>
+        <input id="tagInput" name="techSkillTags" value="@p.TechSkillTags" placeholder="C#, React, Docker" oninput="renderChips()" />
+        <div id="chipPreview" class="chip-preview"></div>
+
+        <div class="actions">
+            <button class="btn-primary" type="submit">Lưu hồ sơ</button>
+        </div>
+    </form>
+
+    <div class="form">
+        <h2 class="form-h">4 · CV của tôi</h2>
+        @if (p.HasCv)
+        {
+            <div class="cv-current">
+                <div class="cv-icon">@(p.CvFileName?.EndsWith(".pdf") == true ? "📄" : "📝")</div>
+                <div>
+                    <b>@p.CvFileName</b>
+                    <div class="sub">Tải lên: @(p.CvUploadedAt?.ToString("dd/MM/yyyy HH:mm"))</div>
+                    <a class="btn-sm" href="/profile/cv/download" target="_blank">Xem / Tải lại CV</a>
+                </div>
+            </div>
+            <hr class="sep" />
+            <p class="sub">Tải CV mới để thay thế:</p>
+        }
+        else
+        {
+            <p class="sub">Bạn chưa tải CV nào lên.</p>
+        }
+        <form method="post" action="/profile/cv" enctype="multipart/form-data">
+            <label>Chọn CV (PDF hoặc DOCX, tối đa 5MB)</label>
+            <input name="cv" type="file" accept=".pdf,.docx" required />
+            <div class="actions">
+                <button class="btn-primary" type="submit">Tải CV lên</button>
+            </div>
+        </form>
+        <p class="sub" style="margin-top:10px">🔒 CV được quét an toàn trước khi lưu (chặn tệp thực thi / mã độc).</p>
+    </div>
+</div>
+
+<script>
+    function renderChips() {
+        var v = document.getElementById('tagInput').value || '';
+        var box = document.getElementById('chipPreview');
+        box.innerHTML = '';
+        v.split(',').map(s => s.trim()).filter(s => s).forEach(function (t) {
+            var el = document.createElement('span');
+            el.className = 'chip'; el.textContent = t;
+            box.appendChild(el);
+        });
+    }
+    document.addEventListener('DOMContentLoaded', renderChips);
+</script>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "saved")] public string? Saved { get; set; }
+    [SupplyParameterFromQuery(Name = "cvsaved")] public string? CvSaved { get; set; }
+    [SupplyParameterFromQuery(Name = "cverror")] public string? CvError { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+
+    private CandidateProfile p = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+        {
+            p = Profiles.GetByUserId(uid) ?? new CandidateProfile
+            {
+                FullName = user.Identity?.Name ?? "",
+                Email = user.FindFirst(ClaimTypes.Email)?.Value ?? ""
+            };
+        }
+    }
+}

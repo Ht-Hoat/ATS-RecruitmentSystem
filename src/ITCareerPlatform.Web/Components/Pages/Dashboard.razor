@@ -1,0 +1,67 @@
+@page "/"
+@attribute [Authorize]
+@inject IUserService Users
+@inject IJobService Jobs
+@inject IApplicationService Applications
+
+<h1 class="page-title">Trang chủ</h1>
+<p class="sub">Xin chào <b>@name</b> — vai trò <b>@Roles.Display(role)</b>.</p>
+
+@if (role == Roles.Student)
+{
+    <div class="cards">
+        <div class="card"><div class="num">@Jobs.GetOpen().Count</div><div class="lbl">Việc làm IT đang tuyển</div></div>
+        <div class="card"><div class="num">@myApps</div><div class="lbl">Đơn đã nộp</div></div>
+    </div>
+    <div class="panel">
+        <h2>Bắt đầu tìm việc IT</h2>
+        <ul class="feat">
+            <li><a href="/profile">Hoàn thiện hồ sơ IT & tải CV</a> — GitHub, LinkedIn, Portfolio, Tech Skills (ATS-08, 09)</li>
+            <li><a href="/positions">Xem & lọc việc làm IT theo Category / Tech Stack / Level</a> rồi ứng tuyển (ATS-07, 10)</li>
+            <li><a href="/my-applications">Theo dõi trạng thái đơn ứng tuyển</a></li>
+            <li><a href="/toolkit">Roadmap & Checklist kỹ năng IT</a> · <a href="/cv-templates">Mẫu CV IT</a></li>
+        </ul>
+    </div>
+}
+else
+{
+    <div class="cards">
+        <div class="card"><div class="num">@Users.GetAll().Count</div><div class="lbl">Tài khoản</div></div>
+        <div class="card"><div class="num">@Jobs.GetAll().Count(j => j.Status == "Open")</div><div class="lbl">Tin đang mở</div></div>
+        <div class="card"><div class="num">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
+        <div class="card"><div class="num">@Jobs.GetAll().Count</div><div class="lbl">Tổng tin tuyển dụng</div></div>
+    </div>
+    <div class="panel">
+        <h2>Công cụ cho Mentor / HR IT</h2>
+        <ul class="feat">
+            <li><a href="/jobs">Quản lý tin tuyển dụng IT</a> — tạo/sửa với Category, Tech Stack, Level (ATS-04, 05, 06)</li>
+            <li>Xem danh sách ứng viên, <b>AI đánh giá độ phù hợp & gợi ý lộ trình</b> và xếp hạng (ATS-11→15)</li>
+            <li>Điều chỉnh điểm (Human-in-the-loop), đổi trạng thái 5 bước (ATS-16, 17)</li>
+            <li><a href="/dashboard">Xem Dashboard thống kê & biểu đồ</a> (ATS-18)</li>
+        </ul>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private string name = "", role = "";
+    private int myApps = 0, totalApps = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var u = (await AuthState).User;
+        name = u.Identity?.Name ?? "";
+        role = u.FindFirst(ClaimTypes.Role)?.Value ?? "";
+        var idStr = u.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (role == Roles.Student)
+        {
+            if (int.TryParse(idStr, out var uid)) myApps = Applications.GetByCandidate(uid).Count;
+        }
+        else
+        {
+            totalApps = Applications.CountAllByJob().Values.Sum();
+        }
+    }
+}

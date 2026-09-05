@@ -1,0 +1,74 @@
+@inherits LayoutComponentBase
+@inject INotificationService Notifs
+@inject IHttpContextAccessor Http
+
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">IT Career<span>PLATFORM</span></div>
+        <AuthorizeView>
+            <Authorized>
+                <nav>
+                    <a href="/">Trang chủ</a>
+
+                    <AuthorizeView Roles="Admin" Context="a">
+                        <a href="/users">Quản lý tài khoản</a>
+                        <a href="/audit">Nhật ký hệ thống</a>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="Admin,Mentor" Context="h">
+                        <a href="/jobs">Tin tuyển dụng IT</a>
+                        <a href="/dashboard">Thống kê</a>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="SinhVienIT" Context="c">
+                        <a href="/positions">Việc làm IT</a>
+                        <a href="/profile">Hồ sơ của tôi</a>
+                        <a href="/my-applications">Đơn của tôi</a>
+                        <div class="nav-group">Tài nguyên IT</div>
+                        <a href="/resources">Cổng tuyển dụng</a>
+                        <a href="/cv-templates">Mẫu CV IT</a>
+                        <a href="/toolkit">Roadmap & Checklist</a>
+                    </AuthorizeView>
+                </nav>
+
+                <div class="userbox">
+                    @{
+                        var uid = int.TryParse(context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+                        var roleName = context.User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+                    }
+                    @if (roleName == Roles.Student && uid > 0)
+                    {
+                        var unread = Notifs.CountUnread(uid);
+                        var items = Notifs.GetForUser(uid, 8);
+                        <details class="bell">
+                            <summary>🔔 Thông báo @if (unread > 0) { <span class="badge-dot">@unread</span> }</summary>
+                            <div class="bell-list">
+                                @if (items.Count == 0)
+                                {
+                                    <div class="bell-empty">Chưa có thông báo.</div>
+                                }
+                                @foreach (var n in items)
+                                {
+                                    <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
+                                        <input type="hidden" name="link" value="@n.Link" />
+                                        <button type="submit">
+                                            <b>@n.Title</b>
+                                            <span>@n.Message</span>
+                                            <i>@n.CreatedAt.ToString("dd/MM HH:mm")</i>
+                                        </button>
+                                    </form>
+                                }
+                            </div>
+                        </details>
+                    }
+                    <div class="uname">@context.User.Identity?.Name</div>
+                    <div class="urole">@Roles.Display(roleName)</div>
+                    <form method="post" action="/account/logout"><button class="btn-out" type="submit">Đăng xuất</button></form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </aside>
+    <main class="content">
+        @Body
+    </main>
+</div>

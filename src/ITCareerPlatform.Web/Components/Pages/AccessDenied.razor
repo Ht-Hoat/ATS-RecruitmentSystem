@@ -1,0 +1,14 @@
+@page "/denied"
+@attribute [AllowAnonymous]
+
+@* ATS-02.3: trang 403 thân thiện thay vì lỗi trắng *@
+
+<div class="denied">
+    <div class="denied-code">403</div>
+    <h1>Không đủ quyền truy cập</h1>
+    <p class="sub">Tài khoản của bạn không có quyền mở trang này. Vui lòng quay lại trang chủ hoặc đăng nhập bằng tài khoản phù hợp.</p>
+    <div class="actions">
+        <a class="btn-primary" href="/">Về trang chủ</a>
+        <a class="btn" href="/login">Đăng nhập tài khoản khác</a>
+    </div>
+</div>

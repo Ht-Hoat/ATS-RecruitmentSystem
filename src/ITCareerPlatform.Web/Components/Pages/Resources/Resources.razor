@@ -1,0 +1,75 @@
+@page "/resources"
+@attribute [Authorize(Roles = "SinhVienIT")]
+
+@* ITC-01: Cổng tuyển dụng IT uy tín *@
+
+<h1 class="page-title">Cổng tuyển dụng IT (ITC-01)</h1>
+<p class="sub">Tổng hợp các nền tảng tìm việc và học tập uy tín cho Sinh viên IT.</p>
+
+<div class="panel">
+    <h2>🇻🇳 Tuyển dụng IT Việt Nam</h2>
+    <div class="link-grid">
+        @foreach (var l in VnJobs)
+        {
+            <a class="res-card" href="@l.Url" target="_blank" rel="noopener"><b>@l.Name</b><span>@l.Desc</span></a>
+        }
+    </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+    <h2>🌏 Tuyển dụng IT Quốc tế & Remote</h2>
+    <div class="link-grid">
+        @foreach (var l in IntlJobs)
+        {
+            <a class="res-card" href="@l.Url" target="_blank" rel="noopener"><b>@l.Name</b><span>@l.Desc</span></a>
+        }
+    </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+    <h2>📚 Học tập & Phát triển</h2>
+    <div class="link-grid">
+        @foreach (var l in Learning)
+        {
+            <a class="res-card" href="@l.Url" target="_blank" rel="noopener"><b>@l.Name</b><span>@l.Desc</span></a>
+        }
+    </div>
+</div>
+
+@code {
+    private record L(string Name, string Url, string Desc);
+
+    private static readonly L[] VnJobs =
+    {
+        new("TopDev", "https://topdev.vn", "Việc làm IT hàng đầu Việt Nam"),
+        new("ITviec", "https://itviec.com", "Việc làm IT chất lượng cao"),
+        new("TopCV", "https://www.topcv.vn", "Tạo CV + tìm việc đa ngành"),
+        new("VietnamWorks", "https://www.vietnamworks.com", "Việc làm chuyên nghiệp"),
+        new("CareerViet", "https://careerviet.vn", "Cổng tuyển dụng lớn"),
+        new("JobsGO", "https://jobsgo.vn", "Tìm việc nhanh"),
+        new("CareerBuilder VN", "https://careerbuilder.vn", "Việc làm & tư vấn nghề"),
+        new("123job", "https://123job.vn", "Việc làm IT & thực tập"),
+    };
+
+    private static readonly L[] IntlJobs =
+    {
+        new("LinkedIn Jobs", "https://www.linkedin.com/jobs", "Mạng nghề nghiệp lớn nhất"),
+        new("Indeed", "https://www.indeed.com", "Công cụ tìm việc toàn cầu"),
+        new("Glassdoor", "https://www.glassdoor.com", "Việc làm + review công ty"),
+        new("Wellfound (AngelList)", "https://wellfound.com", "Việc làm startup"),
+        new("We Work Remotely", "https://weworkremotely.com", "Việc remote"),
+        new("Remote.co", "https://remote.co", "Cộng đồng làm việc từ xa"),
+        new("Stack Overflow Jobs", "https://stackoverflow.com/jobs", "Việc cho developer"),
+        new("RemoteOK", "https://remoteok.com", "Việc remote toàn cầu"),
+    };
+
+    private static readonly L[] Learning =
+    {
+        new("roadmap.sh", "https://roadmap.sh", "Lộ trình học cho từng vị trí IT"),
+        new("freeCodeCamp", "https://www.freecodecamp.org", "Học lập trình miễn phí"),
+        new("Coursera", "https://www.coursera.org", "Khóa học IT từ đại học"),
+        new("edX", "https://www.edx.org", "Khóa học Khoa học máy tính"),
+        new("LeetCode", "https://leetcode.com", "Luyện thuật toán phỏng vấn"),
+        new("HackerRank", "https://www.hackerrank.com", "Luyện code & chứng chỉ kỹ năng"),
+    };
+}

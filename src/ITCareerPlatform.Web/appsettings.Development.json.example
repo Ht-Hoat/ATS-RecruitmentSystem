@@ -1,0 +1,14 @@
+// ======================================================================
+//  HƯỚNG DẪN: đổi tên tệp này thành "appsettings.Development.json"
+//  rồi dán API key Gemini vào. Tệp .Development.json đã được .gitignore
+//  nên KEY KHÔNG bị đẩy lên Git (đúng yêu cầu bảo mật của cô — RSK/SEC).
+//
+//  Lấy key MIỄN PHÍ tại: https://aistudio.google.com/apikey
+//  Nếu để trống, hệ thống tự chấm điểm bằng thuật toán offline (vẫn chạy được).
+// ======================================================================
+{
+  "Gemini": {
+    "ApiKey": "DAN_API_KEY_GEMINI_CUA_BAN_VAO_DAY",
+    "Model": "gemini-1.5-flash"
+  }
+}

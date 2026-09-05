@@ -1,0 +1,18 @@
+@page "/jobs/new"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+
+<h1 class="page-title">Tạo tin tuyển dụng IT (ATS-04)</h1>
+@if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
+
+<form method="post" action="/jobs/create" class="form form-wide">
+    <JobFields Model="model" />
+    <div class="actions">
+        <button class="btn-primary" type="submit">Lưu tin tuyển dụng</button>
+        <a class="btn" href="/jobs">Hủy</a>
+    </div>
+</form>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    private Job model = new() { Category = "Backend", Level = "Junior" };
+}

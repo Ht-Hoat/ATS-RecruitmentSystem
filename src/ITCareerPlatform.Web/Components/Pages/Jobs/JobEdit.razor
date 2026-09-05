@@ -1,0 +1,34 @@
+@page "/jobs/edit/{JobId:int}"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+@inject IJobService Jobs
+
+@* ATS-05: Sửa tin việc IT *@
+
+@if (model is null)
+{
+    <p class="sub">Không tìm thấy tin tuyển dụng.</p>
+}
+else
+{
+    <h1 class="page-title">Sửa tin tuyển dụng IT (ATS-05)</h1>
+    @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
+    @if (model.Status == "Closed")
+    {
+        <div class="alert-err">Tin đang ở trạng thái <b>Đã đóng</b>. Vui lòng mở lại tin trước khi sửa (ATS-05.3).</div>
+    }
+
+    <form method="post" action="@($"/jobs/{model.Id}/update")" class="form form-wide">
+        <JobFields Model="model" />
+        <div class="actions">
+            <button class="btn-primary" type="submit" disabled="@(model.Status == "Closed")">Lưu thay đổi</button>
+            <a class="btn" href="/jobs">Hủy</a>
+        </div>
+    </form>
+}
+
+@code {
+    [Parameter] public int JobId { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    private Job? model;
+    protected override void OnInitialized() => model = Jobs.GetById(JobId);
+}

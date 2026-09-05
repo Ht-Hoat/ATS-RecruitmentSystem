@@ -1,0 +1,135 @@
+@page "/positions"
+@attribute [Authorize(Roles = "SinhVienIT")]
+@inject IJobService Jobs
+@inject IProfileService Profiles
+@inject IApplicationService Applications
+
+@* ATS-07: xem + lọc việc IT · ATS-10: ứng tuyển *@
+
+<h1 class="page-title">Việc làm IT (ATS-07, ATS-10)</h1>
+<p class="sub">Lọc theo Chuyên ngành / Tech Stack / Cấp bậc rồi ứng tuyển. CV hiện tại sẽ được gắn vào đơn.</p>
+
+@if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+@if (!hasProfile)
+{
+    <div class="alert-err">Bạn chưa có hồ sơ IT. Hãy <a href="/profile">tạo hồ sơ + tải CV</a> trước khi ứng tuyển.</div>
+}
+else if (!hasCv)
+{
+    <div class="alert-err">Bạn chưa tải CV. Hãy <a href="/profile">tải CV lên</a> để có thể ứng tuyển.</div>
+}
+
+<form method="get" action="/positions" class="filter-bar">
+    <div>
+        <label>Chuyên ngành</label>
+        <select name="category">
+            <option value="Tất cả">Tất cả</option>
+            @foreach (var c in Job.Categories)
+            {
+                if (c == Category) { <option value="@c" selected>@c</option> } else { <option value="@c">@c</option> }
+            }
+        </select>
+    </div>
+    <div>
+        <label>Cấp bậc</label>
+        <select name="level">
+            <option value="Tất cả">Tất cả</option>
+            @foreach (var l in Job.Levels)
+            {
+                if (l == Level) { <option value="@l" selected>@l</option> } else { <option value="@l">@l</option> }
+            }
+        </select>
+    </div>
+    <div>
+        <label>Tech Stack</label>
+        <input name="tech" value="@Tech" placeholder="React, Python, Docker..." />
+    </div>
+    <div>
+        <label>Sắp xếp</label>
+        <select name="sort">
+            <option value="new" selected="@(Sort != "deadline")">Mới nhất</option>
+            <option value="deadline" selected="@(Sort == "deadline")">Hạn nộp gần nhất</option>
+        </select>
+    </div>
+    <div class="filter-actions">
+        <button class="btn-primary" type="submit">Tìm kiếm</button>
+        <a class="btn" href="/positions">Xóa lọc</a>
+    </div>
+</form>
+
+<p class="sub">Tìm thấy <b>@jobs.Count</b> việc làm phù hợp.</p>
+
+<div class="job-grid">
+    @foreach (var j in jobs)
+    {
+        var daysLeft = (j.Deadline.Date - DateTime.Today).Days;
+        <div class="job-card">
+            <div class="job-card-head">
+                <span class="@Ui.CategoryClass(j.Category)">@j.Category</span>
+                <span class="@Ui.LevelClass(j.Level)">@j.Level</span>
+            </div>
+            <h3>@j.Title</h3>
+            <div class="job-tags">
+                @foreach (var t in j.TechStack.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <span class="chip">@t</span>
+                }
+            </div>
+            <div class="job-meta">
+                <span>📍 @j.Location</span>
+                <span>💰 @j.SalaryMin–@j.SalaryMax tr</span>
+                <span class="@(daysLeft <= 7 ? "deadline-hot" : "")">⏰ @j.Deadline.ToString("dd/MM/yyyy")@(daysLeft <= 7 ? $" (còn {daysLeft} ngày)" : "")</span>
+                <span>👥 @counts.GetValueOrDefault(j.Id) ứng viên</span>
+            </div>
+            <div class="job-card-foot">
+                @if (appliedJobIds.Contains(j.Id))
+                {
+                    <span class="ok">✔ Đã ứng tuyển</span>
+                }
+                else if (!hasProfile || !hasCv)
+                {
+                    <a class="btn-sm ghost" href="/profile">Hoàn thiện hồ sơ để ứng tuyển</a>
+                }
+                else
+                {
+                    <form method="post" action="@($"/jobs/{j.Id}/apply")" class="inline">
+                        <button class="btn-sm" type="submit">Ứng tuyển ngay</button>
+                    </form>
+                }
+            </div>
+        </div>
+    }
+    @if (jobs.Count == 0)
+    {
+        <p class="sub">Không tìm thấy việc làm phù hợp với bộ lọc.</p>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "category")] public string? Category { get; set; }
+    [SupplyParameterFromQuery(Name = "level")] public string? Level { get; set; }
+    [SupplyParameterFromQuery(Name = "tech")] public string? Tech { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
+
+    private List<Job> jobs = new();
+    private HashSet<int> appliedJobIds = new();
+    private Dictionary<int, int> counts = new();
+    private bool hasProfile, hasCv;
+
+    protected override async Task OnInitializedAsync()
+    {
+        jobs = Jobs.Filter(Category, Tech, Level, Sort ?? "new");
+        counts = Applications.CountAllByJob();
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+        {
+            var p = Profiles.GetByUserId(uid);
+            hasProfile = p != null;
+            hasCv = p?.HasCv ?? false;
+            appliedJobIds = Applications.GetByCandidate(uid).Select(a => a.JobId).ToHashSet();
+        }
+    }
+}

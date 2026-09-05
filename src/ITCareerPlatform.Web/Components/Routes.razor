@@ -1,0 +1,17 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Routes).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+                <NotAuthorized>
+                    <div class="auth-msg">
+                        <p>Bạn cần đăng nhập hoặc không có quyền truy cập trang này.</p>
+                        <a class="btn-primary" href="/login">Tới trang đăng nhập</a>
+                    </div>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+        </Found>
+        <NotFound>
+            <LayoutView Layout="typeof(MainLayout)"><p class="sub">Không tìm thấy trang.</p></LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

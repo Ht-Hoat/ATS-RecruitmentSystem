@@ -1,0 +1,101 @@
+@page "/jobs/{JobId:int}/applicants"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+@inject IJobService Jobs
+@inject IApplicationService Applications
+
+@* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp *@
+
+@if (job is null)
+{
+    <p class="sub">Không tìm thấy tin tuyển dụng.</p>
+}
+else if (!canAccess)
+{
+    <div class="alert-err">Bạn không có quyền xem ứng viên của tin này (chỉ người tạo tin hoặc Admin).</div>
+    <a class="btn" href="/jobs">← Về danh sách tin</a>
+}
+else
+{
+    <div class="page-head">
+        <h1 class="page-title">Ứng viên — @job.Title</h1>
+        <a class="btn" href="/jobs">← Về danh sách tin</a>
+    </div>
+    <p class="sub">
+        <span class="@Ui.CategoryClass(job.Category)">@job.Category</span>
+        <span class="@Ui.LevelClass(job.Level)">@job.Level</span>
+        · Trạng thái: @(job.Status == "Open" ? "Đang mở" : "Đã đóng")
+        · Tổng số ứng viên: <b>@apps.Count</b>
+    </p>
+
+    <div class="toolbar">
+        <div class="legend">
+            <span class="score score-high">⭐ &gt;70% Phù hợp cao</span>
+            <span class="score score-mid">⚡ 40–70% Trung bình</span>
+            <span class="score score-low">⚠️ &lt;40% Ít phù hợp</span>
+        </div>
+        <form method="get" class="inline">
+            <label class="inline-lbl">Sắp xếp:</label>
+            <select name="sort" onchange="this.form.submit()">
+                <option value="date" selected="@(Sort != "score")">Mới nhất</option>
+                <option value="score" selected="@(Sort == "score")">% phù hợp cao nhất</option>
+            </select>
+        </form>
+    </div>
+
+    <table class="tbl">
+        <thead>
+            <tr><th>#</th><th>Họ tên</th><th>Email</th><th>Tech Skills</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+        </thead>
+        <tbody>
+            @{ int idx = 1; }
+            @foreach (var a in apps)
+            {
+                <tr class="@(a.FinalScore > 70 ? "row-top" : "")">
+                    <td>@idx</td>
+                    <td>@a.FullName</td>
+                    <td>@a.Email</td>
+                    <td>
+                        @foreach (var tg in (a.TechSkillTags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(3))
+                        {
+                            <span class="chip">@tg</span>
+                        }
+                    </td>
+                    <td><span class="@Ui.ScoreClass(a.AiScore)">@Ui.ScoreIcon(a.AiScore) @(a.AiScore.HasValue ? a.AiScore + "%" : "Chưa đánh giá")</span></td>
+                    <td>
+                        @if (a.HrScore.HasValue) { <span class="@Ui.ScoreClass(a.HrScore)">👤 @a.HrScore%</span> }
+                        else if (a.AiScore.HasValue) { <span class="sub">(theo AI)</span> }
+                        else { <span class="sub">—</span> }
+                    </td>
+                    <td>@a.AppliedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
+                    <td><a class="btn-sm" href="@($"/applications/{a.Id}")">Chi tiết</a></td>
+                </tr>
+                idx++;
+            }
+            @if (apps.Count == 0)
+            {
+                <tr><td colspan="9" class="sub">Chưa có ứng viên nào nộp hồ sơ vào tin này.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public int JobId { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Job? job;
+    private List<ApplicantListItem> apps = new();
+    private bool canAccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        job = Jobs.GetById(JobId);
+        if (job is null || AuthState is null) return;
+        var user = (await AuthState).User;
+        int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid);
+        canAccess = user.IsInRole(Roles.Admin) || job.CreatedById == uid;   // #5
+        if (canAccess) apps = Applications.GetByJob(JobId, Sort ?? "date");
+    }
+}

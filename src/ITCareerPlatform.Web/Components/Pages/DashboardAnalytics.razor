@@ -1,0 +1,95 @@
+@page "/dashboard"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+@inject AppDbContext Db
+@using System.Text.Json
+
+@* ATS-18: Dashboard thống kê IT Career Platform *@
+
+<h1 class="page-title">Dashboard thống kê (ATS-18)</h1>
+<p class="sub">Tổng quan tuyển dụng IT Career Platform.</p>
+
+<div class="cards">
+    <div class="card"><div class="num">@openJobs</div><div class="lbl">Việc làm IT đang mở</div></div>
+    <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@students</div><div class="lbl">Sinh viên IT đã đăng ký</div></div>
+    <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
+    <div class="card" style="border-color:#ca8a04"><div class="num" style="color:#ca8a04">@pending</div><div class="lbl">Đơn đang chờ xử lý</div></div>
+</div>
+
+<div class="chart-row">
+    <div class="panel chart-box">
+        <h2>Phân bố ứng tuyển theo Chuyên ngành IT</h2>
+        <canvas id="catChart" height="220"></canvas>
+    </div>
+    <div class="panel chart-box">
+        <h2>Phân bố trạng thái xử lý hồ sơ</h2>
+        <canvas id="statusChart" height="220"></canvas>
+        <p class="sub" style="margin-top:12px">Tỷ lệ trúng tuyển: <b>@conversionRate%</b> (@accepted/@totalApps đơn)</p>
+    </div>
+</div>
+
+@((MarkupString)$"<script>window.__dash={{catLabels:{catLabels},catData:{catData},catColors:{catColors},stLabels:{stLabels},stData:{stData},stColors:{stColors}}};</script>")
+
+<script>
+    (function () {
+        function draw() {
+            if (typeof Chart === 'undefined' || !window.__dash) { return setTimeout(draw, 150); }
+            var d = window.__dash;
+            new Chart(document.getElementById('catChart'), {
+                type: 'pie',
+                data: { labels: d.catLabels, datasets: [{ data: d.catData, backgroundColor: d.catColors }] },
+                options: { plugins: { legend: { position: 'right' } } }
+            });
+            new Chart(document.getElementById('statusChart'), {
+                type: 'bar',
+                data: { labels: d.stLabels, datasets: [{ label: 'Số đơn', data: d.stData, backgroundColor: d.stColors }] },
+                options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+            });
+        }
+        draw();
+    })();
+</script>
+
+@code {
+    private int openJobs, students, totalApps, pending, accepted, conversionRate;
+    private string catLabels = "[]", catData = "[]", catColors = "[]";
+    private string stLabels = "[]", stData = "[]", stColors = "[]";
+
+    private static readonly Dictionary<string, string> CatColor = new()
+    {
+        ["Backend"] = "#2563eb", ["Frontend"] = "#16a34a", ["Mobile"] = "#7c3aed",
+        ["DevOps"] = "#ea580c", ["Data/AI"] = "#dc2626", ["QA"] = "#ca8a04",
+        ["Design"] = "#db2777", ["Khác"] = "#64748b"
+    };
+
+    private static readonly Dictionary<string, string> StColor = new()
+    {
+        [ApplicationStatus.Submitted] = "#3b82f6", [ApplicationStatus.Reviewing] = "#eab308",
+        [ApplicationStatus.Interview] = "#f97316", [ApplicationStatus.Accepted] = "#22c55e",
+        [ApplicationStatus.Rejected] = "#ef4444"
+    };
+
+    protected override void OnInitialized()
+    {
+        openJobs = Db.Jobs.Count(j => j.Status == "Open");
+        students = Db.Users.Count(u => u.RoleId == Roles.StudentId);
+        totalApps = Db.Applications.Count();
+        pending = Db.Applications.Count(a => a.Status == ApplicationStatus.Submitted);
+        accepted = Db.Applications.Count(a => a.Status == ApplicationStatus.Accepted);
+        conversionRate = totalApps == 0 ? 0 : (int)Math.Round(100.0 * accepted / totalApps);
+
+        // Pie theo Category (JOIN Applications - Jobs)
+        var byCat = Db.Applications.Join(Db.Jobs, a => a.JobId, j => j.Id, (a, j) => j.Category)
+                                   .GroupBy(c => c)
+                                   .Select(g => new { Cat = g.Key, Count = g.Count() })
+                                   .OrderByDescending(x => x.Count).ToList();
+        catLabels = JsonSerializer.Serialize(byCat.Select(x => x.Cat));
+        catData = JsonSerializer.Serialize(byCat.Select(x => x.Count));
+        catColors = JsonSerializer.Serialize(byCat.Select(x => CatColor.GetValueOrDefault(x.Cat, "#64748b")));
+
+        // Bar theo Status (đủ 5 trạng thái)
+        var counts = Db.Applications.GroupBy(a => a.Status).ToDictionary(g => g.Key, g => g.Count());
+        stLabels = JsonSerializer.Serialize(ApplicationStatus.All);
+        stData = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => counts.GetValueOrDefault(s, 0)));
+        stColors = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => StColor.GetValueOrDefault(s, "#64748b")));
+    }
+}

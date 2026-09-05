@@ -1,0 +1,58 @@
+@page "/my-applications/{AppId:int}"
+@attribute [Authorize(Roles = "SinhVienIT")]
+@inject IApplicationService Applications
+
+@* Sinh viên xem chi tiết đơn của MÌNH + đánh giá độ phù hợp & lộ trình (ATS-14) *@
+
+@if (app is null || !isOwner)
+{
+    <div class="page-head">
+        <h1 class="page-title">Không tìm thấy đơn</h1>
+        <a class="btn" href="/my-applications">← Về danh sách đơn</a>
+    </div>
+    <p class="sub">Đơn ứng tuyển không tồn tại hoặc không thuộc về bạn.</p>
+}
+else
+{
+    <div class="page-head">
+        <h1 class="page-title">Chi tiết đơn ứng tuyển</h1>
+        <a class="btn" href="/my-applications">← Về danh sách đơn</a>
+    </div>
+
+    <div class="panel">
+        <h2>Vị trí ứng tuyển</h2>
+        <p class="sub">
+            <b>@app.Job?.Title</b>
+            <span class="@Ui.CategoryClass(app.Job?.Category)">@app.Job?.Category</span>
+            <span class="@Ui.LevelClass(app.Job?.Level)">@app.Job?.Level</span>
+            · Ngày nộp: @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")
+            · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
+        </p>
+        <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.Job?.TechStack</b></p>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+        <h2>🧭 Đánh giá độ phù hợp & Gợi ý lộ trình cho bạn</h2>
+        <AiEvaluationCard App="app" ForStudent="true" />
+        @if (!app.HasAiEvaluation)
+        {
+            <p class="sub">Nhà tuyển dụng chưa chạy đánh giá cho đơn này. Hãy hoàn thiện hồ sơ & CV để có kết quả tốt nhất.</p>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int AppId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private Application? app;
+    private bool isOwner;
+
+    protected override async Task OnInitializedAsync()
+    {
+        app = Applications.GetById(AppId);
+        if (app?.CandidateProfile is null || AuthState is null) return;
+        var user = (await AuthState).User;
+        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+            isOwner = app.CandidateProfile.UserId == uid;
+    }
+}

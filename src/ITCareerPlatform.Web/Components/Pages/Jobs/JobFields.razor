@@ -1,0 +1,53 @@
+@* Các trường nhập của tin việc IT — dùng chung cho Tạo (ATS-04) và Sửa (ATS-05) *@
+
+<label>Tiêu đề công việc</label>
+<input name="title" required value="@Model.Title" placeholder="Lập trình viên Backend .NET" />
+
+<label>Mô tả công việc (JD)</label>
+<textarea name="description" rows="3" placeholder="Mô tả chi tiết...">@Model.Description</textarea>
+
+<label>Yêu cầu ứng viên</label>
+<textarea name="requirements" rows="2" placeholder="Kỹ năng, kinh nghiệm...">@Model.Requirements</textarea>
+
+<div class="grid3">
+    <div>
+        <label>Danh mục (Category)</label>
+        <select name="category">
+            @foreach (var c in Job.Categories)
+            {
+                if (c == Model.Category) { <option value="@c" selected>@c</option> }
+                else { <option value="@c">@c</option> }
+            }
+        </select>
+    </div>
+    <div>
+        <label>Cấp bậc (Level)</label>
+        <select name="level">
+            @foreach (var l in Job.Levels)
+            {
+                if (l == Model.Level) { <option value="@l" selected>@l</option> }
+                else { <option value="@l">@l</option> }
+            }
+        </select>
+    </div>
+    <div>
+        <label>Địa điểm</label>
+        <input name="location" value="@Model.Location" placeholder="Hà Nội" />
+    </div>
+</div>
+
+<label>Tech Stack (phân cách bằng dấu phẩy)</label>
+<input name="techStack" value="@Model.TechStack" placeholder="C#, .NET, SQL Server, Docker" />
+
+<div class="grid3">
+    <div><label>Lương tối thiểu (triệu)</label><input name="salaryMin" type="number" step="0.1" value="@Model.SalaryMin" /></div>
+    <div><label>Lương tối đa (triệu)</label><input name="salaryMax" type="number" step="0.1" value="@Model.SalaryMax" /></div>
+    <div><label>Hạn nộp</label><input name="deadline" type="date" value="@DeadlineValue" /></div>
+</div>
+
+@code {
+    [Parameter] public Job Model { get; set; } = new();
+    private string DeadlineValue => Model.Deadline == default
+        ? DateTime.Today.AddMonths(1).ToString("yyyy-MM-dd")
+        : Model.Deadline.ToString("yyyy-MM-dd");
+}

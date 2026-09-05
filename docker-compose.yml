@@ -1,0 +1,30 @@
+# Chạy toàn bộ hệ thống (App .NET 10 + SQL Server 2022) bằng 1 lệnh:
+#   docker compose up --build
+# Sau đó mở http://localhost:8080
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_password123"
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Your_password123 -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: ./src/ITCareerPlatform.Web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=db;Database=ITCareerPlatform;User Id=sa;Password=Your_password123;TrustServerCertificate=True"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      # Tùy chọn: bật AI Gemini (miễn phí). Bỏ trống thì dùng chấm điểm offline.
+      Gemini__ApiKey: "${GEMINI_API_KEY:-}"
+      Gemini__Model: "gemini-1.5-flash"
+    ports:
+      - "8080:8080"

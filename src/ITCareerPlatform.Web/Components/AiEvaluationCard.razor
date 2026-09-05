@@ -1,0 +1,34 @@
+@* Thẻ hiển thị "Đánh giá độ phù hợp & Gợi ý lộ trình" (ATS-13/14).
+   Dùng chung cho Mentor (ApplicantDetail) và Sinh viên (MyApplicationDetail). *@
+
+@if (App.HasAiEvaluation)
+{
+    <div class="ai-eval">
+        <div class="score-circle @Ui.ScoreClass(App.AiScore)">
+            <span class="score-num">@App.AiScore%</span>
+            <span class="score-cap">Phù hợp</span>
+        </div>
+        <div class="ai-eval-detail">
+            <div class="ai-line ai-strength"><b>✅ Điểm mạnh:</b> @App.AiStrengths</div>
+            <div class="ai-line ai-missing"><b>❌ Thiếu sót:</b> @App.AiMissing</div>
+            <div class="ai-line ai-roadmap"><b>🚀 Lộ trình gợi ý:</b> @App.AiRoadmap</div>
+        </div>
+    </div>
+    @if (ForStudent)
+    {
+        <p class="sub warn-note">💡 Đây là gợi ý tham khảo từ AI để bạn cải thiện hồ sơ — không phải quyết định tuyển dụng cuối cùng.</p>
+    }
+    else
+    {
+        <p class="sub warn-note">⚠️ AI chỉ hỗ trợ tham khảo — quyết định cuối cùng thuộc về bạn (Human-in-the-loop).</p>
+    }
+}
+else
+{
+    <p class="sub">Chưa có đánh giá AI cho hồ sơ này.</p>
+}
+
+@code {
+    [Parameter, EditorRequired] public Application App { get; set; } = default!;
+    [Parameter] public bool ForStudent { get; set; }
+}
