@@ -73,10 +73,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<Notification>().HasIndex(n => new { n.UserId, n.IsRead });
 
         // ===== Seed 3 vai trò IT Career Platform =====
+        // Dùng ITCareerPlatform.Models.Roles để tránh bị DbSet<Role> Roles property che khuất
         b.Entity<Role>().HasData(
-            new Role { Id = Roles.AdminId, RoleName = Roles.Admin, Description = "Quản trị toàn hệ thống IT Career Platform" },
-            new Role { Id = Roles.MentorId, RoleName = Roles.Mentor, Description = "Cố vấn tuyển dụng IT — đăng việc, xem hồ sơ SV" },
-            new Role { Id = Roles.StudentId, RoleName = Roles.Student, Description = "Sinh viên IT sắp tốt nghiệp — tìm việc, tạo hồ sơ, ứng tuyển" }
+            new Role { Id = ITCareerPlatform.Models.Roles.AdminId, RoleName = ITCareerPlatform.Models.Roles.Admin, Description = "Quản trị toàn hệ thống IT Career Platform" },
+            new Role { Id = ITCareerPlatform.Models.Roles.MentorId, RoleName = ITCareerPlatform.Models.Roles.Mentor, Description = "Cố vấn tuyển dụng IT — đăng việc, xem hồ sơ SV" },
+            new Role { Id = ITCareerPlatform.Models.Roles.StudentId, RoleName = ITCareerPlatform.Models.Roles.Student, Description = "Sinh viên IT sắp tốt nghiệp — tìm việc, tạo hồ sơ, ứng tuyển" }
         );
     }
 }
