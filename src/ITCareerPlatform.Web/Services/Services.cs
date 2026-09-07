@@ -681,10 +681,15 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
                        .Select(g => new { Status = g.Key, Count = g.Count() })
                        .ToDictionary(x => x.Status, x => x.Count);
 
+    // Phần gộp phải chiếu vào anonymous type: EF không dịch được GroupBy khi Select dựng
+    // thẳng một kiểu record tự định nghĩa. Sắp xếp và ánh xạ làm sau khi đã có kết quả —
+    // chỉ vài dòng (mỗi chuyên ngành một dòng), nên không phải chi phí đáng kể.
     public List<CategoryCount> CountGroupedByCategory() =>
         db.Applications.GroupBy(a => a.Job!.Category)
-                       .Select(g => new CategoryCount(g.Key, g.Count()))
+                       .Select(g => new { Category = g.Key, Count = g.Count() })
+                       .ToList()
                        .OrderByDescending(x => x.Count)
+                       .Select(x => new CategoryCount(x.Category, x.Count))
                        .ToList();
 
     /// <summary>Chỉ lấy cột JobId. Bản cũ dựng cả DTO có JOIN sang Jobs rồi vứt hết đi.</summary>
