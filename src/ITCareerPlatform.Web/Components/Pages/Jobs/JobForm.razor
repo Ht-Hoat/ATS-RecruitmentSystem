@@ -1,5 +1,5 @@
 @page "/jobs/new"
-@attribute [Authorize(Roles = "Admin,Mentor")]
+@attribute [Authorize(Roles = Roles.AdminOrMentor)]
 
 <h1 class="page-title">Tạo tin tuyển dụng IT (ATS-04)</h1>
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }

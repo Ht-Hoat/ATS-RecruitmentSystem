@@ -17,6 +17,9 @@
     </PackageReference>
     <!-- Băm mật khẩu -->
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <!-- Đọc chữ trong PDF: nội dung trang PDF nằm trong stream nén FlateDecode,
+         không thể lấy ra bằng cách lọc byte in được. -->
+    <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
 </Project>

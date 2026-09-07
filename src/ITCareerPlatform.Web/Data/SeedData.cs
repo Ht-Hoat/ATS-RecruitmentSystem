@@ -30,7 +30,7 @@ public static class SeedData
             Description = "Phát triển REST API và hệ thống web bằng ASP.NET Core cho sản phẩm tuyển dụng IT.",
             Requirements = "Thành thạo C#, EF Core, SQL Server; hiểu Docker; 1 năm kinh nghiệm.",
             Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = DateTime.Today.AddDays(20),
-            Status = "Open", CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-5)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-5)
         };
         var jFrontend = new Job
         {
@@ -39,7 +39,7 @@ public static class SeedData
             Description = "Xây dựng giao diện người dùng bằng React cho nền tảng IT Career.",
             Requirements = "React, TypeScript, kinh nghiệm 2 năm; hiểu REST API.",
             Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = DateTime.Today.AddDays(4), // sắp hết hạn
-            Status = "Open", CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-3)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-3)
         };
         var jDevOps = new Job
         {
@@ -48,7 +48,7 @@ public static class SeedData
             Description = "Vận hành hạ tầng, xây dựng pipeline CI/CD.",
             Requirements = "Docker, Kubernetes, GitHub Actions; 3 năm kinh nghiệm.",
             Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = DateTime.Today.AddDays(25),
-            Status = "Open", CreatedById = mentor2.Id, CreatedAt = DateTime.Now.AddDays(-2)
+            Status = JobStatus.Open, CreatedById = mentor2.Id, CreatedAt = DateTime.Now.AddDays(-2)
         };
         var jDataAi = new Job
         {
@@ -57,7 +57,7 @@ public static class SeedData
             Description = "Xây dựng module sàng lọc CV bằng AI.",
             Requirements = "Python, SQL, hiểu ML cơ bản, LLM API.",
             Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = DateTime.Today.AddDays(15),
-            Status = "Open", CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-1)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-1)
         };
         var jIntern = new Job
         {
@@ -66,7 +66,7 @@ public static class SeedData
             Description = "Kiểm thử chức năng hệ thống.",
             Requirements = "Sinh viên năm cuối CNTT.",
             Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = DateTime.Today.AddDays(-2),
-            Status = "Closed", CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-10)
+            Status = JobStatus.Closed, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-10)
         };
         db.Jobs.AddRange(jBackend, jFrontend, jDevOps, jDataAi, jIntern);
         db.SaveChanges();
@@ -109,16 +109,21 @@ public static class SeedData
         // ===== Đơn ứng tuyển mẫu (ATS-10) + điểm AI mẫu (heuristic offline) =====
         Application MakeApp(Job job, CandidateProfile p, int daysAgo)
         {
-            var candidateText = $"{p.TechSkillTags} {p.Skills} {p.Experience} {p.Education}";
-            var jobText = $"{job.TechStack} {job.Requirements} {job.Description} {job.Level} {job.Category}";
-            var e = GeminiAiService.HeuristicEvaluate(candidateText, jobText);
+            // Danh sách công nghệ đi vào ô có cấu trúc; phần mô tả tự do chỉ là văn bản
+            // tham khảo. Trộn hai thứ vào một chuỗi chính là nguyên nhân khiến điểm
+            // đối chiếu trước đây vô nghĩa.
+            var e = GeminiAiService.HeuristicEvaluate(new AiEvaluationInput(
+                CandidateText: $"{p.Skills} {p.Experience} {p.Education}",
+                JobText: $"{job.Requirements} {job.Description}",
+                CandidateTech: p.TechSkillTags,
+                RequiredTech: job.TechStack));
             return new Application
             {
                 JobId = job.Id, CandidateProfileId = p.Id,
                 CvFileNameSnapshot = p.CvFileName!, CvDataSnapshot = p.CvData, CvContentTypeSnapshot = p.CvContentType,
                 Status = ApplicationStatus.Submitted, AppliedAt = DateTime.Now.AddDays(-daysAgo),
                 AiScore = e.MatchPercent, AiStrengths = e.Strengths, AiMissing = e.Missing,
-                AiRoadmap = e.Roadmap, AiSummary = e.Raw, AiScoredAt = DateTime.Now
+                AiRoadmap = e.Roadmap, AiSource = e.Source, AiScoredAt = DateTime.Now
             };
         }
         // Lan (Backend stack) ứng tuyển Backend → điểm cao; Khoa (React) ứng tuyển Backend → điểm thấp hơn

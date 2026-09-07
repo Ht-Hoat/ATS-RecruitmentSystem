@@ -1,7 +1,6 @@
 @page "/users"
-@attribute [Authorize(Roles = "Admin")]
+@attribute [Authorize(Roles = Roles.Admin)]
 @inject IUserService Users
-@inject AppDbContext Db
 
 <div class="page-head">
     <h1 class="page-title">Quản lý tài khoản (ATS-01, ATS-02)</h1>
@@ -34,8 +33,7 @@
                             <select name="roleId">
                                 @foreach (var r in roleList)
                                 {
-                                    if (r.Id == u.RoleId) { <option value="@r.Id" selected>@Roles.Display(r.RoleName)</option> }
-                                    else { <option value="@r.Id">@Roles.Display(r.RoleName)</option> }
+                                    <option value="@r.Id" selected="@(r.Id == u.RoleId)">@Roles.Display(r.RoleName)</option>
                                 }
                             </select>
                             <button class="btn-sm" type="submit">Lưu</button>
@@ -59,6 +57,11 @@
     </tbody>
 </table>
 
+<p class="sub" style="margin-top:12px">
+    Khóa tài khoản hoặc đổi vai trò có hiệu lực <b>ngay lập tức</b>: phiên đăng nhập đang mở
+    của tài khoản đó bị từ chối ở request kế tiếp.
+</p>
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
@@ -69,11 +72,8 @@
     protected override async Task OnInitializedAsync()
     {
         userList = Users.GetAll();
-        roleList = Db.Roles.ToList();
-        if (AuthState != null)
-        {
-            var u = (await AuthState).User;
-            int.TryParse(u.FindFirst(ClaimTypes.NameIdentifier)?.Value, out currentUid);
-        }
+        // Danh sách vai trò lấy qua service — trang không còn tự inject AppDbContext.
+        roleList = Users.GetRoles();
+        if (AuthState != null) currentUid = CurrentUser.Id((await AuthState).User);
     }
 }

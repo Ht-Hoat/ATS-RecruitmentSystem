@@ -1,15 +1,15 @@
-@using System.Net.Http
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Web
-@using static Microsoft.AspNetCore.Components.Web.RenderMode
-@using Microsoft.AspNetCore.Components.Web.Virtualization
 @using ITCareerPlatform
 @using ITCareerPlatform.Components
 @using ITCareerPlatform.Components.Layout
 @using ITCareerPlatform.Models
 @using ITCareerPlatform.Services
-@using ITCareerPlatform.Data
+
+@* Chặn theo mặc định: một trang mới quên khai báo quyền sẽ bị từ chối thay vì phục vụ
+   cho khách vãng lai. Bốn trang công khai (đăng nhập, đăng ký, 403, lỗi) tự khai
+   [AllowAnonymous] để ghi đè. *@
+@attribute [Authorize]

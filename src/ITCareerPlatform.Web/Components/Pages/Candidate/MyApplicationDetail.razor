@@ -1,5 +1,5 @@
 @page "/my-applications/{AppId:int}"
-@attribute [Authorize(Roles = "SinhVienIT")]
+@attribute [Authorize(Roles = Roles.Student)]
 @inject IApplicationService Applications
 
 @* Sinh viên xem chi tiết đơn của MÌNH + đánh giá độ phù hợp & lộ trình (ATS-14) *@
@@ -22,18 +22,18 @@ else
     <div class="panel">
         <h2>Vị trí ứng tuyển</h2>
         <p class="sub">
-            <b>@app.Job?.Title</b>
-            <span class="@Ui.CategoryClass(app.Job?.Category)">@app.Job?.Category</span>
-            <span class="@Ui.LevelClass(app.Job?.Level)">@app.Job?.Level</span>
-            · Ngày nộp: @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")
+            <b>@app.JobTitle</b>
+            <span class="@Ui.CategoryClass(app.JobCategory)">@app.JobCategory</span>
+            <span class="@Ui.LevelClass(app.JobLevel)">@app.JobLevel</span>
+            · Ngày nộp: @Ui.DateTimeText(app.AppliedAt)
             · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
         </p>
-        <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.Job?.TechStack</b></p>
+        <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.JobTechStack</b></p>
     </div>
 
     <div class="panel" style="margin-top:16px">
         <h2>🧭 Đánh giá độ phù hợp & Gợi ý lộ trình cho bạn</h2>
-        <AiEvaluationCard App="app" ForStudent="true" />
+        <AiEvaluationCard Eval="app.Ai" ForStudent="true" />
         @if (!app.HasAiEvaluation)
         {
             <p class="sub">Nhà tuyển dụng chưa chạy đánh giá cho đơn này. Hãy hoàn thiện hồ sơ & CV để có kết quả tốt nhất.</p>
@@ -44,15 +44,16 @@ else
 @code {
     [Parameter] public int AppId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-    private Application? app;
+    private ApplicationDetail? app;
     private bool isOwner;
 
     protected override async Task OnInitializedAsync()
     {
-        app = Applications.GetById(AppId);
-        if (app?.CandidateProfile is null || AuthState is null) return;
-        var user = (await AuthState).User;
-        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
-            isOwner = app.CandidateProfile.UserId == uid;
+        // Bản chiếu, không kèm byte[] CV — trang này không hiển thị nội dung CV.
+        app = Applications.GetDetail(AppId);
+        if (app is null || AuthState is null) return;
+
+        var uid = CurrentUser.Id((await AuthState).User);
+        isOwner = uid > 0 && app.CandidateUserId == uid;
     }
 }

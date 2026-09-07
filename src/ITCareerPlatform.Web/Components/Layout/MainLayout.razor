@@ -1,6 +1,5 @@
 @inherits LayoutComponentBase
 @inject INotificationService Notifs
-@inject IHttpContextAccessor Http
 
 <div class="app">
     <aside class="sidebar">
@@ -10,17 +9,17 @@
                 <nav>
                     <a href="/">Trang chủ</a>
 
-                    <AuthorizeView Roles="Admin" Context="a">
+                    <AuthorizeView Roles="@Roles.Admin" Context="a">
                         <a href="/users">Quản lý tài khoản</a>
                         <a href="/audit">Nhật ký hệ thống</a>
                     </AuthorizeView>
 
-                    <AuthorizeView Roles="Admin,Mentor" Context="h">
+                    <AuthorizeView Roles="@Roles.AdminOrMentor" Context="h">
                         <a href="/jobs">Tin tuyển dụng IT</a>
                         <a href="/dashboard">Thống kê</a>
                     </AuthorizeView>
 
-                    <AuthorizeView Roles="SinhVienIT" Context="c">
+                    <AuthorizeView Roles="@Roles.Student" Context="c">
                         <a href="/positions">Việc làm IT</a>
                         <a href="/profile">Hồ sơ của tôi</a>
                         <a href="/my-applications">Đơn của tôi</a>
@@ -32,14 +31,8 @@
                 </nav>
 
                 <div class="userbox">
-                    @{
-                        var uid = int.TryParse(context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
-                        var roleName = context.User.FindFirst(ClaimTypes.Role)?.Value ?? "";
-                    }
-                    @if (roleName == Roles.Student && uid > 0)
+                    @if (showBell)
                     {
-                        var unread = Notifs.CountUnread(uid);
-                        var items = Notifs.GetForUser(uid, 8);
                         <details class="bell">
                             <summary>🔔 Thông báo @if (unread > 0) { <span class="badge-dot">@unread</span> }</summary>
                             <div class="bell-list">
@@ -49,12 +42,13 @@
                                 }
                                 @foreach (var n in items)
                                 {
+                                    @* Chỉ gửi id. Đường dẫn chuyển tới được đọc từ CSDL ở phía server —
+                                       trước đây nó là một ô ẩn trong form, tức là do client quyết định. *@
                                     <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
-                                        <input type="hidden" name="link" value="@n.Link" />
                                         <button type="submit">
                                             <b>@n.Title</b>
                                             <span>@n.Message</span>
-                                            <i>@n.CreatedAt.ToString("dd/MM HH:mm")</i>
+                                            <i>@Ui.ShortDateTimeText(n.CreatedAt)</i>
                                         </button>
                                     </form>
                                 }
@@ -72,3 +66,28 @@
         @Body
     </main>
 </div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string roleName = "";
+    private bool showBell;
+    private int unread;
+    private List<Notification> items = new();
+
+    // Hai truy vấn thông báo trước đây nằm thẳng trong markup, nên chúng chạy lại mỗi lần
+    // render mọi trang sinh viên — kể cả /toolkit và /cv-templates vốn không đọc CSDL.
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        roleName = CurrentUser.RoleName(user);
+
+        var uid = CurrentUser.Id(user);
+        showBell = CurrentUser.IsStudent(user) && uid > 0;
+        if (!showBell) return;
+
+        items = Notifs.GetForUser(uid, 8);
+        unread = Notifs.CountUnread(uid);
+    }
+}

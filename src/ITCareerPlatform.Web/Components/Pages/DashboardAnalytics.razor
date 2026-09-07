@@ -1,6 +1,8 @@
 @page "/dashboard"
-@attribute [Authorize(Roles = "Admin,Mentor")]
-@inject AppDbContext Db
+@attribute [Authorize(Roles = Roles.AdminOrMentor)]
+@inject IUserService Users
+@inject IJobService Jobs
+@inject IApplicationService Applications
 @using System.Text.Json
 
 @* ATS-18: Dashboard thống kê IT Career Platform *@
@@ -27,7 +29,9 @@
     </div>
 </div>
 
-@((MarkupString)$"<script>window.__dash={{catLabels:{catLabels},catData:{catData},catColors:{catColors},stLabels:{stLabels},stData:{stData},stColors:{stColors}}};</script>")
+@* Một đối tượng JSON duy nhất. Trước đây có 6 chuỗi rời phải tự khớp nhau theo thứ tự
+   và tên được gõ lại trong chuỗi nội suy — không gì đảm bảo nhãn và số liệu cùng độ dài. *@
+@((MarkupString)$"<script>window.__dash={chartJson};</script>")
 
 <script>
     (function () {
@@ -51,45 +55,32 @@
 
 @code {
     private int openJobs, students, totalApps, pending, accepted, conversionRate;
-    private string catLabels = "[]", catData = "[]", catColors = "[]";
-    private string stLabels = "[]", stData = "[]", stColors = "[]";
-
-    private static readonly Dictionary<string, string> CatColor = new()
-    {
-        ["Backend"] = "#2563eb", ["Frontend"] = "#16a34a", ["Mobile"] = "#7c3aed",
-        ["DevOps"] = "#ea580c", ["Data/AI"] = "#dc2626", ["QA"] = "#ca8a04",
-        ["Design"] = "#db2777", ["Khác"] = "#64748b"
-    };
-
-    private static readonly Dictionary<string, string> StColor = new()
-    {
-        [ApplicationStatus.Submitted] = "#3b82f6", [ApplicationStatus.Reviewing] = "#eab308",
-        [ApplicationStatus.Interview] = "#f97316", [ApplicationStatus.Accepted] = "#22c55e",
-        [ApplicationStatus.Rejected] = "#ef4444"
-    };
+    private string chartJson = "{}";
 
     protected override void OnInitialized()
     {
-        openJobs = Db.Jobs.Count(j => j.Status == "Open");
-        students = Db.Users.Count(u => u.RoleId == Roles.StudentId);
-        totalApps = Db.Applications.Count();
-        pending = Db.Applications.Count(a => a.Status == ApplicationStatus.Submitted);
-        accepted = Db.Applications.Count(a => a.Status == ApplicationStatus.Accepted);
+        openJobs = Jobs.CountOpen();
+        students = Users.CountByRole(Roles.StudentId);
+        totalApps = Applications.CountAll();
+
+        // Một lần GROUP BY cho cả 5 trạng thái, thay cho ba truy vấn COUNT riêng lẻ.
+        var byStatus = Applications.CountGroupedByStatus();
+        pending = byStatus.GetValueOrDefault(ApplicationStatus.Submitted);
+        accepted = byStatus.GetValueOrDefault(ApplicationStatus.Accepted);
         conversionRate = totalApps == 0 ? 0 : (int)Math.Round(100.0 * accepted / totalApps);
 
-        // Pie theo Category (JOIN Applications - Jobs)
-        var byCat = Db.Applications.Join(Db.Jobs, a => a.JobId, j => j.Id, (a, j) => j.Category)
-                                   .GroupBy(c => c)
-                                   .Select(g => new { Cat = g.Key, Count = g.Count() })
-                                   .OrderByDescending(x => x.Count).ToList();
-        catLabels = JsonSerializer.Serialize(byCat.Select(x => x.Cat));
-        catData = JsonSerializer.Serialize(byCat.Select(x => x.Count));
-        catColors = JsonSerializer.Serialize(byCat.Select(x => CatColor.GetValueOrDefault(x.Cat, "#64748b")));
+        var byCat = Applications.CountGroupedByCategory();
 
-        // Bar theo Status (đủ 5 trạng thái)
-        var counts = Db.Applications.GroupBy(a => a.Status).ToDictionary(g => g.Key, g => g.Count());
-        stLabels = JsonSerializer.Serialize(ApplicationStatus.All);
-        stData = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => counts.GetValueOrDefault(s, 0)));
-        stColors = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => StColor.GetValueOrDefault(s, "#64748b")));
+        // Màu lấy từ CategoryInfo — cùng một bảng đã sinh ra lớp CSS của badge, nên thêm
+        // một chuyên ngành không thể quên cập nhật màu biểu đồ nữa.
+        chartJson = JsonSerializer.Serialize(new
+        {
+            catLabels = byCat.Select(x => x.Category),
+            catData = byCat.Select(x => x.Count),
+            catColors = byCat.Select(x => Ui.CategoryColor(x.Category)),
+            stLabels = ApplicationStatus.All,
+            stData = ApplicationStatus.All.Select(s => byStatus.GetValueOrDefault(s)),
+            stColors = ApplicationStatus.All.Select(Ui.StatusColor)
+        });
     }
 }

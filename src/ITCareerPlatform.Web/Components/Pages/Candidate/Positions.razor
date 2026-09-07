@@ -1,5 +1,5 @@
 @page "/positions"
-@attribute [Authorize(Roles = "SinhVienIT")]
+@attribute [Authorize(Roles = Roles.Student)]
 @inject IJobService Jobs
 @inject IProfileService Profiles
 @inject IApplicationService Applications
@@ -26,7 +26,7 @@ else if (!hasCv)
             <option value="Tất cả">Tất cả</option>
             @foreach (var c in Job.Categories)
             {
-                if (c == Category) { <option value="@c" selected>@c</option> } else { <option value="@c">@c</option> }
+                <option value="@c" selected="@(c == Category)">@c</option>
             }
         </select>
     </div>
@@ -36,7 +36,7 @@ else if (!hasCv)
             <option value="Tất cả">Tất cả</option>
             @foreach (var l in Job.Levels)
             {
-                if (l == Level) { <option value="@l" selected>@l</option> } else { <option value="@l">@l</option> }
+                <option value="@l" selected="@(l == Level)">@l</option>
             }
         </select>
     </div>
@@ -70,15 +70,15 @@ else if (!hasCv)
             </div>
             <h3>@j.Title</h3>
             <div class="job-tags">
-                @foreach (var t in j.TechStack.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                @foreach (var t in j.TechStackList)
                 {
                     <span class="chip">@t</span>
                 }
             </div>
             <div class="job-meta">
                 <span>📍 @j.Location</span>
-                <span>💰 @j.SalaryMin–@j.SalaryMax tr</span>
-                <span class="@(daysLeft <= 7 ? "deadline-hot" : "")">⏰ @j.Deadline.ToString("dd/MM/yyyy")@(daysLeft <= 7 ? $" (còn {daysLeft} ngày)" : "")</span>
+                <span>💰 @Ui.SalaryText(j.SalaryMin, j.SalaryMax)</span>
+                <span class="@(daysLeft <= 7 ? "deadline-hot" : "")">⏰ @Ui.DateText(j.Deadline)@(daysLeft <= 7 ? $" (còn {daysLeft} ngày)" : "")</span>
                 <span>👥 @counts.GetValueOrDefault(j.Id) ứng viên</span>
             </div>
             <div class="job-card-foot">
@@ -121,15 +121,18 @@ else if (!hasCv)
     protected override async Task OnInitializedAsync()
     {
         jobs = Jobs.Filter(Category, Tech, Level, Sort ?? "new");
-        counts = Applications.CountAllByJob();
+        // Chỉ gộp theo những tin đang hiển thị. Bản cũ gộp cả bảng Applications, nên chi phí
+        // tỉ lệ với toàn bộ lịch sử ứng tuyển chứ không phải với vài tin trên màn hình.
+        counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
+
         if (AuthState is null) return;
-        var user = (await AuthState).User;
-        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
-        {
-            var p = Profiles.GetByUserId(uid);
-            hasProfile = p != null;
-            hasCv = p?.HasCv ?? false;
-            appliedJobIds = Applications.GetByCandidate(uid).Select(a => a.JobId).ToHashSet();
-        }
+        var uid = CurrentUser.Id((await AuthState).User);
+        if (uid == 0) return;
+
+        var p = Profiles.GetByUserId(uid);
+        hasProfile = p != null;
+        hasCv = p?.HasCv ?? false;
+        // Chỉ cần tập JobId; bản cũ dựng DTO đầy đủ (kèm JOIN sang Jobs và 8 cột) rồi vứt đi.
+        appliedJobIds = Applications.AppliedJobIds(uid);
     }
 }
