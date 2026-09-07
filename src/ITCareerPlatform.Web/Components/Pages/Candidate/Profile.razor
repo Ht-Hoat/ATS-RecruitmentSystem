@@ -1,5 +1,5 @@
 @page "/profile"
-@attribute [Authorize(Roles = "SinhVienIT")]
+@attribute [Authorize(Roles = Roles.Student)]
 @inject IProfileService Profiles
 
 @* ATS-08: hồ sơ IT chuyên sâu · ATS-09: tải CV *@
@@ -21,7 +21,7 @@
         <input name="email" type="email" value="@p.Email" />
         <div class="grid2">
             <div><label>Số điện thoại</label><input name="phone" value="@p.Phone" /></div>
-            <div><label>Ngày sinh</label><input name="dateOfBirth" type="date" value="@(p.DateOfBirth?.ToString("yyyy-MM-dd"))" /></div>
+            <div><label>Ngày sinh</label><input name="dateOfBirth" type="date" value="@(p.DateOfBirth.HasValue ? Ui.InputDate(p.DateOfBirth) : "")" /></div>
         </div>
         <label>Địa chỉ</label>
         <input name="address" value="@p.Address" />
@@ -58,7 +58,7 @@
                 <div class="cv-icon">@(p.CvFileName?.EndsWith(".pdf") == true ? "📄" : "📝")</div>
                 <div>
                     <b>@p.CvFileName</b>
-                    <div class="sub">Tải lên: @(p.CvUploadedAt?.ToString("dd/MM/yyyy HH:mm"))</div>
+                    <div class="sub">Tải lên: @Ui.DateTimeText(p.CvUploadedAt)</div>
                     <a class="btn-sm" href="/profile/cv/download" target="_blank">Xem / Tải lại CV</a>
                 </div>
             </div>
@@ -107,12 +107,13 @@
     {
         if (AuthState is null) return;
         var user = (await AuthState).User;
-        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+        var uid = CurrentUser.Id(user);
+        if (uid > 0)
         {
             p = Profiles.GetByUserId(uid) ?? new CandidateProfile
             {
                 FullName = user.Identity?.Name ?? "",
-                Email = user.FindFirst(ClaimTypes.Email)?.Value ?? ""
+                Email = user.FindFirstValue(ClaimTypes.Email) ?? ""
             };
         }
     }

@@ -1,21 +1,21 @@
 @page "/applications/{AppId:int}"
-@attribute [Authorize(Roles = "Admin,Mentor")]
+@attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IApplicationService Applications
+@inject IUserService Users
 
 @* ATS-12: chi tiết hồ sơ IT + CV · ATS-13/14: AI · ATS-16: điều chỉnh · ATS-17: trạng thái *@
 
-@if (app is null || app.CandidateProfile is null)
-{
-    <p class="sub">Không tìm thấy đơn ứng tuyển.</p>
-}
-else if (!canAccess)
+@if (!canAccess)
 {
     <div class="alert-err">Bạn không có quyền xem đơn này — chỉ Mentor tạo tin hoặc Admin mới được xem.</div>
     <a class="btn" href="/jobs">← Về danh sách tin</a>
 }
+else if (app is null)
+{
+    <p class="sub">Không tìm thấy đơn ứng tuyển.</p>
+}
 else
 {
-    var p = app.CandidateProfile;
     <div class="page-head">
         <h1 class="page-title">Hồ sơ ứng viên (ATS-12)</h1>
         <a class="btn" href="@($"/jobs/{app.JobId}/applicants")">← Về danh sách ứng viên</a>
@@ -31,10 +31,10 @@ else
     <div class="panel">
         <h2>1 · Thông tin ứng tuyển</h2>
         <p class="sub">
-            Vị trí: <b>@app.Job?.Title</b>
-            <span class="@Ui.CategoryClass(app.Job?.Category)">@app.Job?.Category</span>
-            <span class="@Ui.LevelClass(app.Job?.Level)">@app.Job?.Level</span>
-            · Ngày nộp: @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")
+            Vị trí: <b>@app.JobTitle</b>
+            <span class="@Ui.CategoryClass(app.JobCategory)">@app.JobCategory</span>
+            <span class="@Ui.LevelClass(app.JobLevel)">@app.JobLevel</span>
+            · Ngày nộp: @Ui.DateTimeText(app.AppliedAt)
             · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
         </p>
     </div>
@@ -44,40 +44,40 @@ else
         <div class="panel">
             <h2>2 · Thông tin cá nhân</h2>
             <table class="tbl-info">
-                <tr><td class="k">Họ và tên</td><td>@p.FullName</td></tr>
-                <tr><td class="k">Email</td><td>@p.Email</td></tr>
-                <tr><td class="k">Số điện thoại</td><td>@p.Phone</td></tr>
-                <tr><td class="k">Ngày sinh</td><td>@(p.DateOfBirth?.ToString("dd/MM/yyyy"))</td></tr>
-                <tr><td class="k">Địa chỉ</td><td>@p.Address</td></tr>
-                <tr><td class="k">Học vấn</td><td>@p.Education</td></tr>
-                <tr><td class="k">Kinh nghiệm</td><td>@p.Experience</td></tr>
+                <tr><td class="k">Họ và tên</td><td>@app.FullName</td></tr>
+                <tr><td class="k">Email</td><td>@app.Email</td></tr>
+                <tr><td class="k">Số điện thoại</td><td>@app.Phone</td></tr>
+                <tr><td class="k">Ngày sinh</td><td>@Ui.DateText(app.DateOfBirth)</td></tr>
+                <tr><td class="k">Địa chỉ</td><td>@app.Address</td></tr>
+                <tr><td class="k">Học vấn</td><td>@app.Education</td></tr>
+                <tr><td class="k">Kinh nghiệm</td><td>@app.Experience</td></tr>
             </table>
         </div>
 
         <div class="panel">
             <h2>3 · Hồ sơ chuyên ngành IT</h2>
             <div class="it-links">
-                @if (!string.IsNullOrWhiteSpace(p.GithubUrl)) { <a href="@p.GithubUrl" target="_blank" class="it-link">🐙 GitHub</a> }
-                @if (!string.IsNullOrWhiteSpace(p.LinkedInUrl)) { <a href="@p.LinkedInUrl" target="_blank" class="it-link">💼 LinkedIn</a> }
-                @if (!string.IsNullOrWhiteSpace(p.PortfolioUrl)) { <a href="@p.PortfolioUrl" target="_blank" class="it-link">🌐 Portfolio</a> }
+                @if (!string.IsNullOrWhiteSpace(app.GithubUrl)) { <a href="@app.GithubUrl" target="_blank" rel="noopener noreferrer" class="it-link">🐙 GitHub</a> }
+                @if (!string.IsNullOrWhiteSpace(app.LinkedInUrl)) { <a href="@app.LinkedInUrl" target="_blank" rel="noopener noreferrer" class="it-link">💼 LinkedIn</a> }
+                @if (!string.IsNullOrWhiteSpace(app.PortfolioUrl)) { <a href="@app.PortfolioUrl" target="_blank" rel="noopener noreferrer" class="it-link">🌐 Portfolio</a> }
             </div>
             <p class="k" style="margin-top:14px">Tech Skill Tags</p>
             <div class="chip-preview">
-                @foreach (var t in p.SkillTagList) { <span class="chip">@t</span> }
-                @if (!p.SkillTagList.Any()) { <span class="sub">Chưa khai báo.</span> }
+                @foreach (var t in app.SkillTagList) { <span class="chip">@t</span> }
+                @if (app.SkillTagList.Count == 0) { <span class="sub">Chưa khai báo.</span> }
             </div>
             <p class="k" style="margin-top:14px">Kỹ năng (mô tả)</p>
-            <p>@p.Skills</p>
+            <p>@app.Skills</p>
         </div>
     </div>
 
     <!-- Section 4: CV + AI -->
     <div class="panel" style="margin-top:16px">
         <h2>4 · CV & Đánh giá độ phù hợp (AI)</h2>
-        @if (app.HasCvSnapshot || p.HasCv)
+        @if (app.HasCv)
         {
-            <p>📎 CV đã nộp: <b>@(app.HasCvSnapshot ? app.CvFileNameSnapshot : p.CvFileName)</b>
-               <span class="sub">(bản chụp tại thời điểm nộp @app.AppliedAt.ToString("dd/MM/yyyy HH:mm") — không đổi khi ứng viên cập nhật CV sau này)</span>
+            <p>📎 CV đã nộp: <b>@app.CvFileNameSnapshot</b>
+               <span class="sub">(bản chụp tại thời điểm nộp @Ui.DateTimeText(app.AppliedAt) — không đổi khi ứng viên cập nhật CV sau này)</span>
                &nbsp; <a class="btn-sm" href="@($"/applications/{app.Id}/cv")" target="_blank">Tải CV (PDF/DOCX)</a></p>
         }
         else { <p class="sub">Ứng viên chưa tải CV lên.</p> }
@@ -97,7 +97,7 @@ else
             }
             else
             {
-                <AiEvaluationCard App="app" ForStudent="false" />
+                <AiEvaluationCard Eval="app.Ai" ForStudent="false" />
                 <form method="post" action="@($"/applications/{app.Id}/ai-evaluate")" class="inline">
                     <button class="btn-sm ghost" type="submit">🔄 Đánh giá lại</button>
                 </form>
@@ -120,7 +120,7 @@ else
                             <div class="inline">
                                 <input name="hrScore" type="number" min="0" max="100" placeholder="% phù hợp (0-100)" required />
                             </div>
-                            <textarea name="hrNote" rows="2" minlength="10" placeholder="Lý do điều chỉnh (tối thiểu 10 ký tự)..." required></textarea>
+                            <textarea name="hrNote" rows="2" minlength="10" maxlength="500" placeholder="Lý do điều chỉnh (tối thiểu 10 ký tự)..." required></textarea>
                             <button class="btn-sm ghost" type="submit">✏️ Lưu điều chỉnh</button>
                         </form>
                     </div>
@@ -136,7 +136,7 @@ else
             <select name="status">
                 @foreach (var s in ApplicationStatus.All)
                 {
-                    if (s == app.Status) { <option value="@s" selected>@s</option> } else { <option value="@s">@s</option> }
+                    <option value="@s" selected="@(s == app.Status)">@s</option>
                 }
             </select>
             <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
@@ -145,13 +145,13 @@ else
         <div class="timeline">
             <div class="tl-item">
                 <span class="tl-dot @Ui.StatusClass(ApplicationStatus.Submitted)"></span>
-                <div><b>Nộp đơn</b> — @p.FullName — @app.AppliedAt.ToString("dd/MM/yyyy HH:mm")</div>
+                <div><b>Nộp đơn</b> — @app.FullName — @Ui.DateTimeText(app.AppliedAt)</div>
             </div>
             @foreach (var h in history)
             {
                 <div class="tl-item">
                     <span class="tl-dot @Ui.StatusClass(h.ToStatus)"></span>
-                    <div>@h.FromStatus → <b>@h.ToStatus</b> — @(names.GetValueOrDefault(h.ChangedByUserId, "#" + h.ChangedByUserId)) — @h.ChangedAt.ToString("dd/MM/yyyy HH:mm")</div>
+                    <div>@h.FromStatus → <b>@h.ToStatus</b> — @(names.GetValueOrDefault(h.ChangedByUserId, "#" + h.ChangedByUserId)) — @Ui.DateTimeText(h.ChangedAt)</div>
                 </div>
             }
         </div>
@@ -166,25 +166,30 @@ else
     [SupplyParameterFromQuery(Name = "hrerror")] public string? HrError { get; set; }
     [SupplyParameterFromQuery(Name = "statusmsg")] public string? StatusMsg { get; set; }
 
-    [Inject] private AppDbContext Db { get; set; } = default!;
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    private Application? app;
+    private ApplicationDetail? app;
     private List<ApplicationStatusHistory> history = new();
     private Dictionary<int, string> names = new();
     private bool canAccess;
 
     protected override async Task OnInitializedAsync()
     {
-        app = Applications.GetById(AppId);
-        if (app is null || AuthState is null) return;
-
+        if (AuthState is null) return;
         var user = (await AuthState).User;
-        int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid);
-        canAccess = user.IsInRole(Roles.Admin) || app.Job?.CreatedById == uid;   // #5
+
+        // Luật "Admin hoặc chủ tin" hỏi qua service — cùng một hàm mà các endpoint dùng,
+        // thay vì viết lại vị ngữ trong @code và để nó lệch dần khỏi bản của server.
+        canAccess = Applications.CanAccess(AppId, CurrentUser.Id(user), CurrentUser.IsAdmin(user));
         if (!canAccess) return;
 
+        // Bản chiếu: không kéo về hai cột byte[] (mỗi cột tới 5MB) mà trang này không hiển thị.
+        app = Applications.GetDetail(AppId);
+        if (app is null) return;
+
         history = Applications.GetStatusHistory(AppId);
-        names = Db.Users.ToDictionary(u => u.Id, u => u.FullName);
+        // Chỉ hỏi tên của đúng những người xuất hiện trong dòng thời gian (nhiều nhất 4 người),
+        // thay vì nạp toàn bộ bảng Users.
+        names = Users.GetNames(history.Select(h => h.ChangedByUserId));
     }
 }

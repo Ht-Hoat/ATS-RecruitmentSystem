@@ -1,6 +1,7 @@
 @page "/login"
 @layout EmptyLayout
 @attribute [AllowAnonymous]
+@inject IWebHostEnvironment Env
 
 <div class="login-wrap">
     <div class="login-card">
@@ -15,12 +16,18 @@
             <input name="password" type="password" placeholder="••••••" required />
             <button class="btn-primary full" type="submit">Đăng nhập</button>
         </form>
-        <div class="hint">
-            <b>Tài khoản demo (mật khẩu: 123456):</b><br />
-            Admin: admin@itcp.vn<br />
-            Mentor / HR IT: mentor@itcp.vn<br />
-            Sinh viên IT: lan@itcp.vn
-        </div>
+        @* Gợi ý tài khoản demo là THÔNG TIN ĐĂNG NHẬP CÒN DÙNG ĐƯỢC, và dữ liệu mẫu
+           chỉ được nạp ở môi trường phát triển. In nó ra cho khách vãng lai ở môi trường
+           thật là trao sẵn tài khoản Admin. *@
+        @if (Env.IsDevelopment())
+        {
+            <div class="hint">
+                <b>Tài khoản demo (mật khẩu: 123456):</b><br />
+                Admin: admin@itcp.vn<br />
+                Mentor / HR IT: mentor@itcp.vn<br />
+                Sinh viên IT: lan@itcp.vn
+            </div>
+        }
         <div class="hint">Chưa có tài khoản? <a href="/register">Đăng ký Sinh viên IT</a></div>
     </div>
 </div>

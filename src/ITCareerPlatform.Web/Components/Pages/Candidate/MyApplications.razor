@@ -1,5 +1,5 @@
 @page "/my-applications"
-@attribute [Authorize(Roles = "SinhVienIT")]
+@attribute [Authorize(Roles = Roles.Student)]
 @inject IApplicationService Applications
 
 <h1 class="page-title">Đơn ứng tuyển của tôi</h1>
@@ -18,10 +18,14 @@
                 <td><span class="@Ui.CategoryClass(a.Category)">@a.Category</span></td>
                 <td><span class="@Ui.LevelClass(a.Level)">@a.Level</span></td>
                 <td>
-                    @if (a.AiScore.HasValue) { <span class="@Ui.ScoreClass(a.AiScore)">@a.AiScore%</span> }
+                    @if (a.AiScore.HasValue)
+                    {
+                        <span class="@Ui.ScoreClass(a.AiScore)">@a.AiScore%</span>
+                        @if (a.AiSource == EvaluationSource.Offline) { <span class="sub" title="Tính bằng công thức đối chiếu ngoại tuyến, không phải mô hình AI">📴</span> }
+                    }
                     else { <span class="sub">Chưa có</span> }
                 </td>
-                <td>@a.AppliedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                <td>@Ui.DateTimeText(a.AppliedAt)</td>
                 <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
                 <td><a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a></td>
             </tr>
@@ -40,8 +44,7 @@
     protected override async Task OnInitializedAsync()
     {
         if (AuthState is null) return;
-        var user = (await AuthState).User;
-        if (int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
-            apps = Applications.GetByCandidate(uid);
+        var uid = CurrentUser.Id((await AuthState).User);
+        if (uid > 0) apps = Applications.GetByCandidate(uid);
     }
 }

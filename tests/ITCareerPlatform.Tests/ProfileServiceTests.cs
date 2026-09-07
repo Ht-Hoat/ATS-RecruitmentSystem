@@ -17,7 +17,8 @@ public class ProfileServiceTests
 
         svc.Save(sv.Id, new CandidateProfile
         {
-            FullName = "SV", GithubUrl = "https://github.com/abc",
+            FullName = "SV", Email = "sv@itcp.vn",
+            GithubUrl = "https://github.com/abc",
             LinkedInUrl = "https://linkedin.com/in/abc",
             PortfolioUrl = "https://abc.dev", TechSkillTags = "C#,React"
         });
@@ -36,8 +37,14 @@ public class ProfileServiceTests
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var svc = new ProfileService(t.Db);
 
+        // Họ tên + email hợp lệ, để lỗi ném ra chắc chắn đến từ luật URL chứ không phải
+        // từ ràng buộc bắt buộc của hồ sơ.
         Assert.Throws<ArgumentException>(() =>
-            svc.Save(sv.Id, new CandidateProfile { GithubUrl = "http://facebook.com/abc" }));
+            svc.Save(sv.Id, new CandidateProfile
+            {
+                FullName = "SV", Email = "sv@itcp.vn",
+                GithubUrl = "http://facebook.com/abc"
+            }));
     }
 
     // ATS-09: upload CV hợp lệ -> HasCv = true

@@ -10,7 +10,7 @@
 @if (role == Roles.Student)
 {
     <div class="cards">
-        <div class="card"><div class="num">@Jobs.GetOpen().Count</div><div class="lbl">Việc làm IT đang tuyển</div></div>
+        <div class="card"><div class="num">@openJobs</div><div class="lbl">Việc làm IT đang tuyển</div></div>
         <div class="card"><div class="num">@myApps</div><div class="lbl">Đơn đã nộp</div></div>
     </div>
     <div class="panel">
@@ -26,10 +26,10 @@
 else
 {
     <div class="cards">
-        <div class="card"><div class="num">@Users.GetAll().Count</div><div class="lbl">Tài khoản</div></div>
-        <div class="card"><div class="num">@Jobs.GetAll().Count(j => j.Status == "Open")</div><div class="lbl">Tin đang mở</div></div>
+        <div class="card"><div class="num">@totalUsers</div><div class="lbl">Tài khoản</div></div>
+        <div class="card"><div class="num">@openJobs</div><div class="lbl">Tin đang mở</div></div>
         <div class="card"><div class="num">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
-        <div class="card"><div class="num">@Jobs.GetAll().Count</div><div class="lbl">Tổng tin tuyển dụng</div></div>
+        <div class="card"><div class="num">@totalJobs</div><div class="lbl">Tổng tin tuyển dụng</div></div>
     </div>
     <div class="panel">
         <h2>Công cụ cho Mentor / HR IT</h2>
@@ -45,23 +45,30 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private string name = "", role = "";
-    private int myApps = 0, totalApps = 0;
+    private int myApps, totalApps, totalUsers, totalJobs, openJobs;
 
+    // Bốn ô số này trước đây được tính ngay trong markup bằng Users.GetAll().Count và
+    // Jobs.GetAll() gọi HAI lần — tức là ba lần quét bảng đầy đủ, kèm dựng entity cho
+    // từng dòng, trên chính trang mọi người mở ngay sau khi đăng nhập.
     protected override async Task OnInitializedAsync()
     {
         if (AuthState is null) return;
         var u = (await AuthState).User;
         name = u.Identity?.Name ?? "";
-        role = u.FindFirst(ClaimTypes.Role)?.Value ?? "";
-        var idStr = u.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        role = CurrentUser.RoleName(u);
+
+        openJobs = Jobs.CountOpen();
 
         if (role == Roles.Student)
         {
-            if (int.TryParse(idStr, out var uid)) myApps = Applications.GetByCandidate(uid).Count;
+            var uid = CurrentUser.Id(u);
+            if (uid > 0) myApps = Applications.AppliedJobIds(uid).Count;
         }
         else
         {
-            totalApps = Applications.CountAllByJob().Values.Sum();
+            totalUsers = Users.CountAll();
+            totalJobs = Jobs.CountAll();
+            totalApps = Applications.CountAll();
         }
     }
 }

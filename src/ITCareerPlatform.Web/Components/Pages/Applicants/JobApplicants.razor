@@ -1,5 +1,5 @@
 @page "/jobs/{JobId:int}/applicants"
-@attribute [Authorize(Roles = "Admin,Mentor")]
+@attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
 
@@ -23,7 +23,7 @@ else
     <p class="sub">
         <span class="@Ui.CategoryClass(job.Category)">@job.Category</span>
         <span class="@Ui.LevelClass(job.Level)">@job.Level</span>
-        · Trạng thái: @(job.Status == "Open" ? "Đang mở" : "Đã đóng")
+        · Trạng thái: @Ui.JobStatusLabel(job.Status)
         · Tổng số ứng viên: <b>@apps.Count</b>
     </p>
 
@@ -55,7 +55,7 @@ else
                     <td>@a.FullName</td>
                     <td>@a.Email</td>
                     <td>
-                        @foreach (var tg in (a.TechSkillTags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(3))
+                        @foreach (var tg in a.SkillTagList.Take(3))
                         {
                             <span class="chip">@tg</span>
                         }
@@ -66,7 +66,7 @@ else
                         else if (a.AiScore.HasValue) { <span class="sub">(theo AI)</span> }
                         else { <span class="sub">—</span> }
                     </td>
-                    <td>@a.AppliedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>@Ui.DateTimeText(a.AppliedAt)</td>
                     <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
                     <td><a class="btn-sm" href="@($"/applications/{a.Id}")">Chi tiết</a></td>
                 </tr>
@@ -93,9 +93,9 @@ else
     {
         job = Jobs.GetById(JobId);
         if (job is null || AuthState is null) return;
-        var user = (await AuthState).User;
-        int.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid);
-        canAccess = user.IsInRole(Roles.Admin) || job.CreatedById == uid;   // #5
+
+        // #5: luật "Admin hoặc chủ tin" hỏi qua service, không viết lại tại chỗ.
+        canAccess = Jobs.CanModify(JobId, CurrentUser.Id((await AuthState).User));
         if (canAccess) apps = Applications.GetByJob(JobId, Sort ?? "date");
     }
 }

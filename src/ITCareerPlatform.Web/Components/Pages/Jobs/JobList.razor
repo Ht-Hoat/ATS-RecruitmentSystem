@@ -1,5 +1,5 @@
 @page "/jobs"
-@attribute [Authorize(Roles = "Admin,Mentor")]
+@attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
 
@@ -8,6 +8,7 @@
     <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a>
 </div>
 <p class="sub">Danh sách tin IT — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.</p>
+@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
 
 <table class="tbl">
     <thead>
@@ -16,22 +17,33 @@
     <tbody>
         @foreach (var j in jobs)
         {
+            var mine = isAdmin || j.CreatedById == uid;
             <tr>
                 <td>@j.Id</td>
                 <td>@j.Title</td>
                 <td><span class="@Ui.CategoryClass(j.Category)">@j.Category</span></td>
                 <td>
-                    @{ var tags = (j.TechStack ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries); }
+                    @{ var tags = j.TechStackList; }
                     @foreach (var tg in tags.Take(3)) { <span class="chip">@tg</span> }
-                    @if (tags.Length > 3) { <span class="chip chip-more">+@(tags.Length - 3)</span> }
+                    @if (tags.Count > 3) { <span class="chip chip-more">+@(tags.Count - 3)</span> }
                 </td>
                 <td><span class="@Ui.LevelClass(j.Level)">@j.Level</span></td>
-                <td>@j.Deadline.ToString("dd/MM/yyyy")</td>
+                <td>@Ui.DateText(j.Deadline)</td>
                 <td><a href="@($"/jobs/{j.Id}/applicants")">@counts.GetValueOrDefault(j.Id)</a></td>
-                <td>@if (j.Status == "Open") { <span class="ok">● Đang mở</span> } else { <span class="lock">● Đã đóng</span> }</td>
+                <td>
+                    @if (j.Status == JobStatus.Open) { <span class="ok">● Đang mở</span> }
+                    else { <span class="lock">● Đã đóng</span> }
+                </td>
                 <td class="nowrap">
                     <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                    @if (j.Status == "Open")
+                    @if (!mine)
+                    {
+                        @* Tin của Mentor khác: chỉ xem. Trước đây nút Đóng/Mở lại hiện cho mọi
+                           Mentor và endpoint cũng không kiểm tra quyền sở hữu, nên một cú bấm
+                           là đóng được tin tuyển dụng của người khác. *@
+                        <span class="sub">— (tin của người khác)</span>
+                    }
+                    else if (j.Status == JobStatus.Open)
                     {
                         <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
                         <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline"><button class="btn-sm danger" type="submit">Đóng</button></form>
@@ -49,11 +61,23 @@
 </table>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+
     private List<Job> jobs = new();
     private Dictionary<int, int> counts = new();
-    protected override void OnInitialized()
+    private int uid;
+    private bool isAdmin;
+
+    protected override async Task OnInitializedAsync()
     {
         jobs = Jobs.GetAll();
-        counts = Applications.CountAllByJob();   // #2: đếm 1 lần thay vì N+1
+        // Đếm theo đúng những tin đang hiển thị thay vì gộp cả bảng Applications.
+        counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
+
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        uid = CurrentUser.Id(user);
+        isAdmin = CurrentUser.IsAdmin(user);
     }
 }

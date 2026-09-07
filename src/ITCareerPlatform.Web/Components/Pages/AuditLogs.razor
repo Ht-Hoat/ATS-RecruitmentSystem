@@ -1,35 +1,47 @@
 @page "/audit"
-@attribute [Authorize(Roles = "Admin")]
-@inject AppDbContext Db
+@attribute [Authorize(Roles = Roles.Admin)]
+@inject IAuditService Audit
 
 <h1 class="page-title">Nhật ký hệ thống (AuditLog)</h1>
-<p class="sub">Ghi lại các thao tác quan trọng, ví dụ đổi vai trò người dùng (ATS-02).</p>
+<p class="sub">
+    Ghi lại các thao tác quan trọng: tạo tài khoản, khóa/mở khóa, đổi vai trò,
+    tạo/sửa/đóng tin tuyển dụng, chốt điểm ứng viên và đổi trạng thái đơn.
+</p>
 
 <table class="tbl">
     <thead><tr><th>ID</th><th>Người thực hiện</th><th>Hành động</th><th>Bảng</th><th>Chi tiết</th><th>Thời điểm</th></tr></thead>
     <tbody>
-        @foreach (var a in logs)
+        @foreach (var a in log.Items)
         {
             <tr>
                 <td>@a.Id</td>
-                <td>@(userNames.TryGetValue(a.UserId, out var n) ? n : ("#" + a.UserId))</td>
+                <td>@a.ActorName</td>
                 <td><span class="tag">@a.Action</span></td>
                 <td>@a.TableName</td>
                 <td>@a.Details</td>
-                <td>@a.Timestamp.ToString("dd/MM/yyyy HH:mm")</td>
+                <td>@Ui.DateTimeText(a.Timestamp)</td>
             </tr>
         }
-        @if (logs.Count == 0) { <tr><td colspan="6" class="sub">Chưa có nhật ký.</td></tr> }
+        @if (log.Items.Count == 0) { <tr><td colspan="6" class="sub">Chưa có nhật ký.</td></tr> }
     </tbody>
 </table>
 
-@code {
-    private List<AuditLog> logs = new();
-    private Dictionary<int, string> userNames = new();
+<div class="toolbar" style="margin-top:12px">
+    <span class="sub">Trang @log.Page / @log.TotalPages — tổng @log.Total bản ghi</span>
+    <span class="nowrap">
+        @if (log.HasPrev) { <a class="btn-sm" href="@($"/audit?p={log.Page - 1}")">← Trước</a> }
+        @if (log.HasNext) { <a class="btn-sm" href="@($"/audit?p={log.Page + 1}")">Sau →</a> }
+    </span>
+</div>
 
-    protected override void OnInitialized()
-    {
-        logs = Db.AuditLogs.OrderByDescending(x => x.Id).ToList();
-        userNames = Db.Users.ToDictionary(u => u.Id, u => u.FullName);
-    }
+@code {
+    private const int PageSize = 50;
+
+    [SupplyParameterFromQuery(Name = "p")] public int? PageNumber { get; set; }
+
+    // Bảng AuditLogs chỉ tăng và không có cơ chế dọn. Nạp toàn bộ như trước đây nghĩa là
+    // chi phí trang không có trần: 100k dòng là 100k entity và một phản hồi HTML vài MB.
+    private AuditPage log = new(Array.Empty<AuditEntry>(), 0, 1, PageSize);
+
+    protected override void OnInitialized() => log = Audit.GetPage(PageNumber ?? 1, PageSize);
 }

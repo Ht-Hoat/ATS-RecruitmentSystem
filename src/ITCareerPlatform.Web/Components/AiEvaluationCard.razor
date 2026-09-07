@@ -1,20 +1,31 @@
 @* Thẻ hiển thị "Đánh giá độ phù hợp & Gợi ý lộ trình" (ATS-13/14).
    Dùng chung cho Mentor (ApplicantDetail) và Sinh viên (MyApplicationDetail). *@
 
-@if (App.HasAiEvaluation)
+@if (Eval.HasEvaluation)
 {
     <div class="ai-eval">
-        <div class="score-circle @Ui.ScoreClass(App.AiScore)">
-            <span class="score-num">@App.AiScore%</span>
+        <div class="score-circle @Ui.ScoreClass(Eval.Score)">
+            <span class="score-num">@Eval.Score%</span>
             <span class="score-cap">Phù hợp</span>
         </div>
         <div class="ai-eval-detail">
-            <div class="ai-line ai-strength"><b>✅ Điểm mạnh:</b> @App.AiStrengths</div>
-            <div class="ai-line ai-missing"><b>❌ Thiếu sót:</b> @App.AiMissing</div>
-            <div class="ai-line ai-roadmap"><b>🚀 Lộ trình gợi ý:</b> @App.AiRoadmap</div>
+            <div class="ai-line ai-strength"><b>✅ Điểm mạnh:</b> @Eval.Strengths</div>
+            <div class="ai-line ai-missing"><b>❌ Thiếu sót:</b> @Eval.Missing</div>
+            <div class="ai-line ai-roadmap"><b>🚀 Lộ trình gợi ý:</b> @Eval.Roadmap</div>
         </div>
     </div>
-    @if (ForStudent)
+
+    @* Nguồn của điểm được nói thẳng. Trước đây một lần Gemini lỗi (hoặc chưa cấu hình key)
+       cho ra con số trông y hệt một lần chấm thành công, nên không ai phân biệt được
+       kết quả mô hình với kết quả đối chiếu từ khóa. *@
+    @if (Eval.IsOffline)
+    {
+        <p class="sub warn-note">
+            📴 Điểm này do <b>công thức đối chiếu Tech Stack ngoại tuyến</b> tính, không phải mô hình AI
+            (chưa cấu hình khóa Gemini, hoặc lần gọi vừa rồi thất bại). Chỉ nên xem là ước lượng thô.
+        </p>
+    }
+    else if (ForStudent)
     {
         <p class="sub warn-note">💡 Đây là gợi ý tham khảo từ AI để bạn cải thiện hồ sơ — không phải quyết định tuyển dụng cuối cùng.</p>
     }
@@ -25,10 +36,10 @@
 }
 else
 {
-    <p class="sub">Chưa có đánh giá AI cho hồ sơ này.</p>
+    <p class="sub">Chưa có đánh giá cho hồ sơ này.</p>
 }
 
 @code {
-    [Parameter, EditorRequired] public Application App { get; set; } = default!;
+    [Parameter, EditorRequired] public AiResult Eval { get; set; } = default!;
     [Parameter] public bool ForStudent { get; set; }
 }

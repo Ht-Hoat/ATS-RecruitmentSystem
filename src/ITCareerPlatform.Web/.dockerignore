@@ -1,0 +1,7 @@
+# Không đưa build artifact của máy local vào build context —
+# obj/project.assets.json chứa đường dẫn Windows, sẽ đè kết quả `dotnet restore` trong container.
+bin/
+obj/
+.vs/
+.vscode/
+appsettings.Development.json
