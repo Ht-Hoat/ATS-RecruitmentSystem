@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using ITCareerPlatform.Data;
 using ITCareerPlatform.Models;
 using Microsoft.EntityFrameworkCore;
@@ -95,6 +96,12 @@ public interface IApplicationService
     // Mentor lẫn trang Sinh viên. Chỗ gọi phải đi qua CanAccess trước.
     InternalNoteView? GetInternalNote(int appId);
     void SaveInternalNote(int appId, string? note, int actorUserId);
+
+    // ===== N1.C: bộ câu hỏi phỏng vấn do AI sinh =====
+    // Cũng nằm ngoài ApplicationDetail, cùng lý do với ghi chú nội bộ: đưa trước bộ câu
+    // hỏi cho ứng viên thì buổi phỏng vấn không còn đo được gì nữa.
+    InterviewQuestionSet? GetAiQuestions(int appId);
+    void SaveAiQuestions(int appId, InterviewQuestionSet set);
 }
 
 /// <summary>Ghi nhật ký thao tác quan trọng (ATS-02) — trước đây chỉ đổi vai trò được ghi.</summary>
@@ -1074,6 +1081,56 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         var s = value?.Trim();
         if (string.IsNullOrEmpty(s)) return null;
         return s.Length > max ? s[..max] : s;
+    }
+
+    // ===== N1.C: bộ câu hỏi phỏng vấn =====
+    // Lưu JSON trong một cột chứ không tách bảng riêng: bộ câu hỏi luôn được đọc và ghi
+    // trọn gói theo đơn, không bao giờ truy vấn hay sắp xếp theo từng câu.
+    private const int QuestionsColumnLimit = 4000;
+
+    public void SaveAiQuestions(int appId, InterviewQuestionSet set)
+    {
+        var a = db.Applications.Find(appId);
+        if (a is null || !set.HasQuestions) return;
+
+        // Bỏ bớt câu cuối cho tới khi vừa cột, thay vì để chuỗi JSON bị cắt ngang —
+        // chuỗi cắt ngang đọc lại sẽ ném JsonException chứ không hỏng một cách im lặng.
+        var items = set.Items.ToList();
+        var json = JsonSerializer.Serialize(items);
+        while (json.Length > QuestionsColumnLimit && items.Count > 1)
+        {
+            items.RemoveAt(items.Count - 1);
+            json = JsonSerializer.Serialize(items);
+        }
+        if (json.Length > QuestionsColumnLimit) return;   // một câu mà vẫn quá dài: không lưu còn hơn lưu hỏng
+
+        a.AiQuestions = json;
+        a.AiQuestionsSource = set.Source;
+        a.AiQuestionsAt = DateTime.Now;
+        db.SaveChanges();
+    }
+
+    public InterviewQuestionSet? GetAiQuestions(int appId)
+    {
+        var row = db.Applications.AsNoTracking()
+            .Where(a => a.Id == appId && a.AiQuestions != null)
+            .Select(a => new { a.AiQuestions, a.AiQuestionsSource })
+            .FirstOrDefault();
+        if (row?.AiQuestions is null) return null;
+
+        try
+        {
+            var items = JsonSerializer.Deserialize<List<InterviewQuestion>>(row.AiQuestions);
+            return items is null || items.Count == 0
+                ? null
+                : new InterviewQuestionSet(items, row.AiQuestionsSource ?? EvaluationSource.Offline);
+        }
+        catch (JsonException)
+        {
+            // Dữ liệu cũ hoặc bị sửa tay trong CSDL: coi như chưa có để Mentor sinh lại,
+            // thay vì để cả trang chi tiết ứng viên đổ lỗi 500 vì một cột hỏng.
+            return null;
+        }
     }
 
     // ===== N1.B: ghi chú nội bộ của Mentor =====

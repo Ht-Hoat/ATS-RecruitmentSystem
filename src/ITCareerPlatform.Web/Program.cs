@@ -393,22 +393,17 @@ app.MapGet("/applications/{id:int}/cv", (int id, HttpContext ctx, IApplicationSe
     return Results.File(p.CvData!, p.CvContentType ?? "application/octet-stream", p.CvFileName ?? "CV");
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
-// ATS-13/14: AI đánh giá độ phù hợp + gợi ý lộ trình
-app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai) =>
+// Dựng dữ liệu đưa vào AI từ một đơn. Dùng chung cho chấm điểm (ATS-13/14) và sinh câu
+// hỏi (N1.C): hai đường phải đọc CÙNG một nguồn, nếu không thì điểm chấm trên CV bản chụp
+// còn câu hỏi lại soạn từ CV hiện tại của hồ sơ — hai kết quả nói về hai ứng viên khác nhau.
+static AiEvaluationInput BuildAiInput(Application a, CandidateProfile p)
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
-
-    var a = svc.GetById(id);
-    if (a?.CandidateProfile is null || a.Job is null)
-        return Results.Redirect($"/applications/{id}?aierror=" + Enc("Không tìm thấy dữ liệu đơn."));
-
-    var p = a.CandidateProfile;
-    // Đánh giá trên CV đã nộp (bản chụp), không phải CV hiện tại của hồ sơ
+    // Luôn là CV ĐÃ NỘP (bản chụp), không phải CV hiện tại của hồ sơ.
     var cvText = CvTextExtractor.Extract(a.CvDataSnapshot ?? p.CvData,
                                          a.HasCvSnapshot ? a.CvFileNameSnapshot : p.CvFileName);
 
     // Danh sách công nghệ đi vào ô riêng có cấu trúc; phần văn bản tự do chỉ để mô hình đọc.
-    var input = new AiEvaluationInput(
+    return new AiEvaluationInput(
         CandidateText: string.Join("\n", new[]
         {
             "Kỹ năng: " + p.Skills,
@@ -418,23 +413,56 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
         }),
         JobText: string.Join("\n", new[]
         {
-            "Vị trí: " + a.Job.Title + " (" + a.Job.Level + ")",
+            "Vị trí: " + a.Job!.Title + " (" + a.Job.Level + ")",
             "Danh mục: " + a.Job.Category,
             "Yêu cầu: " + a.Job.Requirements,
             "Mô tả: " + a.Job.Description
         }),
         CandidateTech: p.TechSkillTags,
         RequiredTech: a.Job.TechStack);
+}
+
+// ATS-13/14: AI đánh giá độ phù hợp + gợi ý lộ trình
+app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai) =>
+{
+    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+
+    var a = svc.GetById(id);
+    if (a?.CandidateProfile is null || a.Job is null)
+        return Results.Redirect($"/applications/{id}?aierror=" + Enc("Không tìm thấy dữ liệu đơn."));
 
     try
     {
-        var eval = await ai.EvaluateAsync(input, ctx.RequestAborted);
+        var eval = await ai.EvaluateAsync(BuildAiInput(a, a.CandidateProfile), ctx.RequestAborted);
         svc.SaveAiEvaluation(id, eval);
         return Results.Redirect($"/applications/{id}?aiscored=1");
     }
     catch (Exception ex)
     {
         return Results.Redirect($"/applications/{id}?aierror=" + Enc(ex.Message));
+    }
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+
+// N1.C: sinh bộ câu hỏi phỏng vấn từ CV đã nộp + JD. Kết quả được LƯU, vì trang render
+// tĩnh: sinh xong rồi redirect thì không còn gì để hiển thị, và mỗi lần mở lại trang sẽ
+// tốn thêm một lượt gọi Gemini.
+app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai) =>
+{
+    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+
+    var a = svc.GetById(id);
+    if (a?.CandidateProfile is null || a.Job is null)
+        return Results.Redirect($"/applications/{id}?qerror=" + Enc("Không tìm thấy dữ liệu đơn."));
+
+    try
+    {
+        var set = await ai.GenerateQuestionsAsync(BuildAiInput(a, a.CandidateProfile), ctx.RequestAborted);
+        svc.SaveAiQuestions(id, set);
+        return Results.Redirect($"/applications/{id}?qgenerated=1");
+    }
+    catch (Exception ex)
+    {
+        return Results.Redirect($"/applications/{id}?qerror=" + Enc(ex.Message));
     }
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
 
