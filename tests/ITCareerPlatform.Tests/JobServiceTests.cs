@@ -178,6 +178,24 @@ public class JobServiceTests
         Assert.Equal("Job HaNoi", result[0].Title);
     }
 
+    [Theory]
+    [InlineData("HÀ NỘI", "hà nội")]
+    [InlineData("hà nội", "HÀ NỘI")]
+    [InlineData("hÀ NộI", "Hà Nội")]
+    [InlineData("Hà Nội", "hÀ NộI")]
+    public void Filter_ByLocation_VaryingDatabaseAndQueryCasing(string dbLocation, string queryLocation)
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        t.AddJob(m.Id, "Job HaNoi", location: dbLocation);
+        var svc = new JobService(t.Db);
+
+        var result = svc.Filter(null, null, null, "new", location: queryLocation);
+
+        Assert.Single(result);
+        Assert.Equal("Job HaNoi", result[0].Title);
+    }
+
     [Fact]
     public void Filter_CombinedFilters_MatchesAllCriteria()
     {

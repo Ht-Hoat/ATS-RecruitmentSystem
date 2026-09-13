@@ -8,7 +8,7 @@
         <h1>Đăng nhập hệ thống</h1>
         @if (Error) { <div class="alert-err">Sai email hoặc mật khẩu, hoặc tài khoản đã bị khóa.</div> }
         @if (Registered == "1") { <div class="alert-ok">Đăng ký thành công! Vui lòng đăng nhập.</div> }
-        <form method="post" action="/account/login">
+        <form method="post" action="/account/login" data-vi-validate>
             <label>Email</label>
             <input name="email" type="email" value="@Email" placeholder="admin@itcp.vn" required />
             <label>Mật khẩu</label>

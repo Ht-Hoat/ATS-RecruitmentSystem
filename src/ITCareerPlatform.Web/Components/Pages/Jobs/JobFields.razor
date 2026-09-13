@@ -1,13 +1,13 @@
 @* Các trường nhập của tin việc IT — dùng chung cho Tạo và Sửa *@
 
 <label>Tiêu đề công việc</label>
-<input name="title" required value="@Model.Title" placeholder="Lập trình viên Backend .NET" />
+<input name="title" required minlength="5" value="@Model.Title" placeholder="Lập trình viên Backend .NET" />
 
 <label>Mô tả công việc (JD)</label>
-<textarea name="description" rows="3" placeholder="Mô tả chi tiết...">@Model.Description</textarea>
+<textarea name="description" rows="3" required minlength="20" placeholder="Mô tả chi tiết...">@Model.Description</textarea>
 
 <label>Yêu cầu ứng viên</label>
-<textarea name="requirements" rows="2" placeholder="Kỹ năng, kinh nghiệm...">@Model.Requirements</textarea>
+<textarea name="requirements" rows="2" required minlength="10" placeholder="Kỹ năng, kinh nghiệm...">@Model.Requirements</textarea>
 
 <div class="grid3">
     <div>
@@ -45,17 +45,17 @@
 <div class="grid2" style="margin-top:10px">
     <div>
         <label>Địa điểm</label>
-        <input name="location" required value="@Model.Location" placeholder="Hà Nội" />
+        <input name="location" required minlength="2" value="@Model.Location" placeholder="Hà Nội" />
     </div>
     <div>
         <label>Tech Stack (phân cách bằng dấu phẩy)</label>
-        <input name="techStack" required value="@Model.TechStack" placeholder="C#, .NET, SQL Server, Docker" />
+        <input name="techStack" required minlength="2" value="@Model.TechStack" placeholder="C#, .NET, SQL Server, Docker" />
     </div>
 </div>
 
 <div class="grid3" style="margin-top:10px">
-    <div><label>Lương tối thiểu (triệu)</label><input name="salaryMin" type="number" step="0.1" value="@Model.SalaryMin" /></div>
-    <div><label>Lương tối đa (triệu)</label><input name="salaryMax" type="number" step="0.1" value="@Model.SalaryMax" /></div>
+    <div><label>Lương tối thiểu (triệu)</label><input name="salaryMin" type="number" min="0" max="999" step="0.1" value="@Model.SalaryMin" /></div>
+    <div><label>Lương tối đa (triệu)</label><input name="salaryMax" type="number" min="0" max="999" step="0.1" value="@Model.SalaryMax" /></div>
     <div><label>Hạn nộp</label><input name="deadline" type="date" required value="@DeadlineValue" /></div>
 </div>
 

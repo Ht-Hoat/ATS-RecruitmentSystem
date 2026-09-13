@@ -13,12 +13,12 @@
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
 <div class="grid2-wide">
-    <form method="post" action="/profile/save" class="form">
+    <form method="post" action="/profile/save" class="form" data-vi-validate>
         <h2 class="form-h">1 · Thông tin cá nhân</h2>
         <label>Họ và tên</label>
-        <input name="fullName" required value="@p.FullName" />
+        <input name="fullName" required minlength="2" value="@p.FullName" />
         <label>Email</label>
-        <input name="email" type="email" value="@p.Email" />
+        <input name="email" type="email" required value="@p.Email" />
         <div class="grid2">
             <div><label>Số điện thoại</label><input name="phone" value="@p.Phone" /></div>
             <div><label>Ngày sinh</label><input name="dateOfBirth" type="date" value="@(p.DateOfBirth?.ToString("yyyy-MM-dd"))" /></div>
@@ -69,7 +69,7 @@
         {
             <p class="sub">Bạn chưa tải CV nào lên.</p>
         }
-        <form method="post" action="/profile/cv" enctype="multipart/form-data">
+        <form method="post" action="/profile/cv" enctype="multipart/form-data" data-vi-validate>
             <label>Chọn CV (PDF hoặc DOCX, tối đa 5MB)</label>
             <input name="cv" type="file" accept=".pdf,.docx" required />
             <div class="actions">
