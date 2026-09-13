@@ -9,7 +9,10 @@
 <h1 class="page-title">Việc làm IT</h1>
 <p class="sub">Lọc theo Chuyên ngành / Tech Stack / Cấp bậc / Mức lương / Hình thức / Địa điểm rồi ứng tuyển.</p>
 
+@* Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
+   ("Tin tuyển dụng đã quá hạn nộp hồ sơ") hiện ra trong khung báo thành công màu xanh. *@
 @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
 @if (!hasProfile)
 {
     <div class="alert-err">Bạn chưa có hồ sơ IT. Hãy <a href="/profile">tạo hồ sơ + tải CV</a> trước khi ứng tuyển.</div>
@@ -46,7 +49,7 @@ else if (!hasCv)
             <option value="Tất cả">Tất cả</option>
             @foreach (var et in Job.EmploymentTypes)
             {
-                if (et == EmploymentType) { <option value="@et" selected>@et</option> } else { <option value="@et">@et</option> }
+                <option value="@et" selected="@(et == EmploymentType)">@et</option>
             }
         </select>
     </div>
@@ -127,6 +130,7 @@ else if (!hasCv)
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
     [SupplyParameterFromQuery(Name = "category")] public string? Category { get; set; }
     [SupplyParameterFromQuery(Name = "level")] public string? Level { get; set; }
     [SupplyParameterFromQuery(Name = "tech")] public string? Tech { get; set; }

@@ -115,10 +115,11 @@ else
     </form>
 
     <div class="toolbar">
+        @* Chú giải màu đọc thẳng từ ScoreBand — cùng bộ ngưỡng mà ô lọc "% phù hợp" dùng. *@
         <div class="legend">
-            <span class="score score-high">⭐ &gt;70% Phù hợp cao</span>
-            <span class="score score-mid">⚡ 40–70% Trung bình</span>
-            <span class="score score-low">⚠️ &lt;40% Ít phù hợp</span>
+            <span class="score score-high">⭐ @ScoreBand.High Phù hợp cao</span>
+            <span class="score score-mid">⚡ @ScoreBand.Mid Trung bình</span>
+            <span class="score score-low">⚠️ @ScoreBand.Low Ít phù hợp</span>
         </div>
     </div>
 
@@ -130,7 +131,7 @@ else
             @{ int idx = 1; }
             @foreach (var a in apps)
             {
-                <tr class="@(a.FinalScore > 70 ? "row-top" : "")">
+                <tr class="@(Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
                     <td>@idx</td>
                     <td>@a.FullName</td>
                     <td>@a.Email</td>

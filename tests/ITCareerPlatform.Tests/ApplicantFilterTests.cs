@@ -295,6 +295,47 @@ public class ApplicantFilterTests
         Assert.Equal(new int?[] { 78, 55 }, got.Select(x => x.FinalScore).ToArray());
     }
 
+    // ===== Ngưỡng điểm dùng chung =====
+
+    /// <summary>
+    /// Nhãn hiển thị của ScoreBand phải sinh ra đúng con số mà bộ lọc dùng. Trước đây nhãn
+    /// ghi "> 80%" còn Ui.ScoreClass lại cắt ở 70, nên một ứng viên 75 điểm hiện huy hiệu
+    /// "phù hợp cao" nhưng lại rơi khỏi kết quả lọc "> 80%".
+    /// </summary>
+    [Fact]
+    public void ScoreBandLabels_MatchTheNumericThresholds()
+    {
+        Assert.True(ScoreBand.LabelsMatchThresholds);
+    }
+
+    /// <summary>Huy hiệu, dòng tô sáng và bộ lọc phải phân loại cùng một điểm giống nhau.</summary>
+    [Theory]
+    [InlineData(100, ScoreBand.High, "score score-high", true)]
+    [InlineData(81, ScoreBand.High, "score score-high", true)]
+    [InlineData(80, ScoreBand.Mid, "score score-mid", false)]
+    [InlineData(50, ScoreBand.Mid, "score score-mid", false)]
+    [InlineData(49, ScoreBand.Low, "score score-low", false)]
+    [InlineData(0, ScoreBand.Low, "score score-low", false)]
+    public void Badge_RowHighlight_AndFilter_AgreeOnEveryScore(
+        int score, string expectedBand, string expectedCss, bool expectedTopRow)
+    {
+        using var t = new TestDb();
+        var (job, _) = SeedJob(t);
+        AddApplicant(t, job, "x", ai: score);
+        var svc = NewSvc(t);
+
+        // 1) màu huy hiệu
+        Assert.Equal(expectedCss, Ui.ScoreClass(score));
+        // 2) dòng có được tô sáng không
+        Assert.Equal(expectedTopRow, Ui.IsTopScore(score));
+        // 3) rơi vào đúng một khoảng lọc, và là khoảng được chờ đợi
+        foreach (var band in ScoreBand.All)
+        {
+            var hit = svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: band)).Count;
+            Assert.Equal(band == expectedBand ? 1 : 0, hit);
+        }
+    }
+
     [Fact]
     public void Filter_NeverLeaksApplicantsFromAnotherJob()
     {

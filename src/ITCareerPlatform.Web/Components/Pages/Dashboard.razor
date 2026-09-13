@@ -17,7 +17,17 @@
     <div class="cards">
         <div class="card"><div class="num">@openJobCount</div><div class="lbl">Việc làm IT đang tuyển</div></div>
         <div class="card"><div class="num">@myApps</div><div class="lbl">Đơn đã nộp</div></div>
-        <div class="card"><div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div><div class="lbl">Độ phù hợp AI</div></div>
+        <div class="card">
+            @if (avgAiScore.HasValue)
+            {
+                <div class="num @Ui.ScoreClass(avgAiScore)">@avgAiScore%</div>
+            }
+            else
+            {
+                <div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div>
+            }
+            <div class="lbl">Độ phù hợp AI (trung bình)</div>
+        </div>
     </div>
 
     <div class="panel" style="margin-top:16px">
@@ -36,7 +46,7 @@
                             <td><span class="@Ui.CategoryClass(j.Category)">@j.Category</span></td>
                             <td><span class="@Ui.LevelClass(j.Level)">@j.Level</span></td>
                             <td>@j.Location</td>
-                            <td>@j.Deadline.ToString("dd/MM/yyyy")</td>
+                            <td>@Ui.DateText(j.Deadline)</td>
                             <td><a class="btn-sm" href="/positions">Xem việc làm</a></td>
                         </tr>
                     }
@@ -66,7 +76,17 @@ else if (role == Roles.Mentor)
         <div class="card"><div class="num">@totalMentorApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
         <div class="card" style="border-color:#2563eb"><div class="num" style="color:#2563eb">@recentApps</div><div class="lbl">Hồ sơ mới trong 24h</div></div>
         <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@unreviewedApps</div><div class="lbl">Hồ sơ chưa xem xét</div></div>
-        <div class="card"><div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div><div class="lbl">Tỷ lệ tuyển dụng</div></div>
+        <div class="card">
+            @if (totalMentorApps > 0)
+            {
+                <div class="num">@conversionRate%</div>
+            }
+            else
+            {
+                <div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div>
+            }
+            <div class="lbl">Tỷ lệ tuyển dụng</div>
+        </div>
     </div>
 
     <!-- Top 5 ứng viên chưa xem xét -->
@@ -100,7 +120,7 @@ else if (role == Roles.Mentor)
                                     <span class="sub">Chưa đánh giá</span>
                                 }
                             </td>
-                            <td>@a.AppliedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@Ui.DateTimeText(a.AppliedAt)</td>
                             <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
                             <td><a class="btn-sm" href="@($"/applications/{a.Id}")">Chi tiết</a></td>
                         </tr>
@@ -134,8 +154,8 @@ else if (role == Roles.Mentor)
                             <td><b>@j.Title</b></td>
                             <td><span class="@Ui.CategoryClass(j.Category)">@j.Category</span></td>
                             <td><span class="@Ui.LevelClass(j.Level)">@j.Level</span></td>
-                            <td>@(j.Status == "Open" ? "Đang mở" : "Đã đóng")</td>
-                            <td>@j.Deadline.ToString("dd/MM/yyyy")</td>
+                            <td>@Ui.JobStatusLabel(j.Status)</td>
+                            <td>@Ui.DateText(j.Deadline)</td>
                             <td><b>@allCounts.GetValueOrDefault(j.Id, 0)</b> ứng viên</td>
                             <td><a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Xem ứng viên</a></td>
                         </tr>
@@ -163,7 +183,7 @@ else
 {
     @* N2.J — Admin Overview *@
     <div class="cards">
-        <div class="card"><div class="num">@allUsers.Count</div><div class="lbl">Tài khoản</div></div>
+        <div class="card"><div class="num">@totalUsers</div><div class="lbl">Tài khoản</div></div>
         <div class="card"><div class="num">@openJobCount</div><div class="lbl">Tin đang mở (@totalJobCount tổng)</div></div>
         <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
         <div class="card" style="border-color:#7c3aed">
@@ -223,6 +243,7 @@ else
 
     // Student data (N2.G)
     private int myApps = 0;
+    private int? avgAiScore;
     private List<Job> suggestedJobs = new();
 
     // Mentor data (N2.I)
@@ -231,10 +252,11 @@ else
     private int totalMentorApps = 0;
     private int recentApps = 0;
     private int unreviewedApps = 0;
+    private int conversionRate = 0;
     private List<MentorApplicantItem> topUnreviewed = new();
 
     // Admin data (N2.J)
-    private List<User> allUsers = new();
+    private int totalUsers = 0;
     private Dictionary<int, int> usersByRole = new();
     private int openJobCount = 0;
     private int totalJobCount = 0;
@@ -258,23 +280,39 @@ else
 
         if (role == Roles.Student)
         {
-            myApps = Applications.AppliedJobIds(uid).Count;
-            suggestedJobs = Jobs.GetOpen().Take(3).ToList();
+            // Một truy vấn cho cả hai thẻ: số đơn và % phù hợp trung bình. Danh sách này là
+            // đơn của CHÍNH sinh viên đang đăng nhập nên kích thước có trần.
+            var mine = Applications.GetByCandidate(uid);
+            myApps = mine.Count;
+            var scored = mine.Where(a => a.AiScore.HasValue).Select(a => a.AiScore!.Value).ToList();
+            // Phân biệt "chưa đơn nào được chấm" với "trung bình bằng 0": thẻ hiển thị khác nhau.
+            avgAiScore = scored.Count == 0 ? null : (int)Math.Round(scored.Average());
+            // Qua Filter thay vì GetOpen: gợi ý phải theo đúng bộ luật mà /positions dùng,
+            // nếu không sinh viên được mời xem những tin đã quá hạn nộp.
+            suggestedJobs = Jobs.Filter(null, null, null, "new").Take(3).ToList();
         }
         else if (role == Roles.Mentor)
         {
-            myJobs = Jobs.GetAll().Where(j => j.CreatedById == uid).ToList();
+            // Lọc bằng WHERE CreatedById: bản cũ nạp TOÀN BỘ bảng Jobs rồi mới lọc ở C#.
+            myJobs = Jobs.GetByOwner(uid);
             // Chỉ gộp theo tin của chính Mentor này, thay vì gộp cả bảng Applications.
             allCounts = Applications.CountForJobs(myJobs.Select(j => j.Id).ToList());
-            totalMentorApps = allCounts.Values.Sum();
+            // Một GROUP BY trả lời cả ba thẻ: tổng đơn, số chưa xem xét, tỷ lệ trúng tuyển —
+            // và cả ba đến từ cùng một lát cắt nên không thể mâu thuẫn nhau trên màn hình.
+            var byStatus = Applications.CountGroupedByStatus(uid);
+            totalMentorApps = byStatus.Values.Sum();
+            unreviewedApps = byStatus.GetValueOrDefault(ApplicationStatus.Submitted);
+            conversionRate = totalMentorApps == 0 ? 0
+                : (int)Math.Round(100.0 * byStatus.GetValueOrDefault(ApplicationStatus.Accepted) / totalMentorApps);
             recentApps = Applications.CountRecentApplicants(uid, isAdmin: false, withinHours: 24);
-            unreviewedApps = Applications.CountUnreviewed(uid, isAdmin: false);
             topUnreviewed = Applications.TopUnreviewed(uid, isAdmin: false, take: 5);
         }
         else // Admin
         {
-            allUsers = Users.GetAll();
-            usersByRole = allUsers.GroupBy(x => x.RoleId).ToDictionary(g => g.Key, g => g.Count());
+            // Đếm bằng COUNT(*). Bản cũ nạp cả bảng Users (kèm cột PasswordHash) chỉ để
+            // lấy .Count và gộp theo vai trò — đúng thứ mà CountAll/CountByRole sinh ra để thay.
+            totalUsers = Users.CountAll();
+            usersByRole = Roles.AllIds.ToDictionary(id => id, Users.CountByRole);
             totalJobCount = Jobs.CountAll();
             totalApps = Applications.CountAll();
             // Đọc qua IAuditService: trang Razor không tự inject AppDbContext, và tên người

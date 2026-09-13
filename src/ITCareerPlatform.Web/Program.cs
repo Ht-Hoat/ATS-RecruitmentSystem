@@ -378,8 +378,11 @@ app.MapPost("/jobs/{id:int}/apply", (int id, HttpContext ctx, IApplicationServic
 {
     var uid = CurrentUserId(ctx);
     if (uid == 0) return Results.LocalRedirect("/login");
-    svc.Apply(id, uid, out var message);
-    return Results.Redirect("/positions?msg=" + Enc(message));
+    // Cùng quy ước với /applications/{id}/status: thành công và thất bại đi về hai tham số
+    // khác nhau. Bản cũ vứt giá trị trả về đi, nên "Tin đã quá hạn nộp hồ sơ" hiện lên
+    // trong khung báo thành công màu xanh.
+    var ok = svc.Apply(id, uid, out var message);
+    return Results.Redirect("/positions?" + (ok ? "msg=" : "err=") + Enc(message));
 }).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
 
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================

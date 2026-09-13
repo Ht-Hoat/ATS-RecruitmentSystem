@@ -33,6 +33,8 @@ public interface IJobService
 {
     List<Job> GetAll();
     List<Job> GetOpen();
+    /// <summary>Tin do một người cụ thể đăng — lọc bằng WHERE, không nạp cả bảng rồi lọc ở C#.</summary>
+    List<Job> GetByOwner(int ownerUserId);
     int CountAll();
     int CountOpen();
     Job? GetById(int id);
@@ -207,6 +209,14 @@ public static class ScoreBand
     public const string High = "> 80%";
     public const string Mid = "50 - 80%";
     public const string Low = "< 50%";
+
+    // Nhan o tren chi la chu hien ra man hinh; con so that nam o ScoreThreshold và được
+    // dùng cho cả badge lẫn truy vấn lọc. Hai dòng kiểm tra dưới đây chặn việc sửa một
+    // bên mà quên bên kia — sai lệch sẽ lộ ra ngay ở lần chạy test đầu tiên.
+    public static bool LabelsMatchThresholds =>
+        High == $"> {ScoreThreshold.HighAbove}%"
+        && Mid == $"{ScoreThreshold.MidFrom} - {ScoreThreshold.HighAbove}%"
+        && Low == $"< {ScoreThreshold.MidFrom}%";
     public const string Unscored = "Chưa đánh giá";
 
     public static readonly string[] All = { High, Mid, Low, Unscored };
@@ -497,10 +507,13 @@ public class AuditService(AppDbContext db) : IAuditService
 
     public AuditPage GetPage(int page, int pageSize)
     {
-        page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
         var total = db.AuditLogs.Count();
+        // Kẹp cả trần trên, không chỉ trần dưới: ?p=9999 trên 3 trang dữ liệu trước đây cho
+        // ra một bảng rỗng kèm dòng "Trang 9999 / 3" và không có nút nào quay lại được.
+        var lastPage = total == 0 ? 1 : (int)Math.Ceiling((double)total / pageSize);
+        page = Math.Clamp(page, 1, lastPage);
         // Tên người thực hiện lấy kèm trong cùng truy vấn. Bản cũ nạp toàn bộ bảng Users
         // (kể cả PasswordHash) chỉ để dựng từ điển id -> tên.
         var items = db.AuditLogs.AsNoTracking()
@@ -529,6 +542,10 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
 
     public List<Job> GetOpen() =>
         db.Jobs.Where(j => j.Status == JobStatus.Open)
+               .OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
+
+    public List<Job> GetByOwner(int ownerUserId) =>
+        db.Jobs.AsNoTracking().Where(j => j.CreatedById == ownerUserId)
                .OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
 
     public int CountAll() => db.Jobs.Count();
@@ -569,6 +586,9 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
         j.Category = input.Category;
         j.TechStack = input.TechStack;
         j.Level = input.Level;
+        // N2.C: hình thức làm việc cũng phải được chép sang. Thiếu dòng này thì form sửa
+        // gửi lên đúng giá trị, Validate() kiểm tra đúng giá trị, rồi giá trị bị bỏ đi.
+        j.EmploymentType = input.EmploymentType;
         db.SaveChanges();
 
         audit?.Record(actorUserId, "Update Job", "Jobs", $"Sửa tin #{j.Id} '{j.Title}'.");
@@ -616,6 +636,14 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
     /// <summary>ATS-04.3: luật nghiệp vụ dùng chung cho cả tạo mới và cập nhật.</summary>
     private static void Validate(Job job)
     {
+        // Ràng buộc khai báo trên entity (bắt buộc, độ dài, khoảng lương) kiểm tra lại ở
+        // đây — giống ProfileService.Save. Thuộc tính maxlength trong form chỉ ràng buộc
+        // trình duyệt; một request không qua trình duyệt với tiêu đề 500 ký tự trước đây
+        // đi thẳng xuống SQL Server và nổ thành lỗi "string or binary data would be truncated".
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(job, new ValidationContext(job), results, validateAllProperties: true))
+            throw new ArgumentException(results[0].ErrorMessage ?? "Dữ liệu tin tuyển dụng không hợp lệ.");
+
         if (string.IsNullOrWhiteSpace(job.Title))
             throw new ArgumentException("Tiêu đề công việc không được để trống.");
         if (job.SalaryMin < 0 || job.SalaryMax < 0)
@@ -817,9 +845,14 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         if (!string.IsNullOrWhiteSpace(filter.Status))
             q = q.Where(a => a.Status == filter.Status);
 
+        // "Có CV" phải nói cùng một điều mà nút Tải CV làm được: endpoint /applications/{id}/cv
+        // phục vụ bản chụp, và nếu không có thì lùi về CV hiện tại của hồ sơ. Chỉ xét bản chụp
+        // thì đơn cũ (chưa có cột snapshot) hiện "Thiếu CV" trong khi vẫn tải được CV.
         // So sánh cột blob với null dịch thành IS NOT NULL — nội dung CV KHÔNG bị kéo về.
-        if (filter.HasCv == true) q = q.Where(a => a.CvDataSnapshot != null);
-        else if (filter.HasCv == false) q = q.Where(a => a.CvDataSnapshot == null);
+        if (filter.HasCv == true)
+            q = q.Where(a => a.CvDataSnapshot != null || a.CandidateProfile!.CvData != null);
+        else if (filter.HasCv == false)
+            q = q.Where(a => a.CvDataSnapshot == null && a.CandidateProfile!.CvData == null);
 
         // Lọc theo điểm chốt ngay trong SQL: (HrScore ?? AiScore) dịch thành COALESCE.
         // Không lọc trên FinalScore — đó là property tính ở C#, EF không dịch được, và
@@ -828,9 +861,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         // phải có khoảng "Chưa đánh giá" riêng.
         q = filter.Band switch
         {
-            ScoreBand.High => q.Where(a => (a.HrScore ?? a.AiScore) > 80),
-            ScoreBand.Mid => q.Where(a => (a.HrScore ?? a.AiScore) >= 50 && (a.HrScore ?? a.AiScore) <= 80),
-            ScoreBand.Low => q.Where(a => (a.HrScore ?? a.AiScore) < 50),
+            ScoreBand.High => q.Where(a => (a.HrScore ?? a.AiScore) > ScoreThreshold.HighAbove),
+            ScoreBand.Mid => q.Where(a => (a.HrScore ?? a.AiScore) >= ScoreThreshold.MidFrom
+                                       && (a.HrScore ?? a.AiScore) <= ScoreThreshold.HighAbove),
+            ScoreBand.Low => q.Where(a => (a.HrScore ?? a.AiScore) < ScoreThreshold.MidFrom),
             ScoreBand.Unscored => q.Where(a => a.HrScore == null && a.AiScore == null),
             _ => q
         };
@@ -845,7 +879,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         var list = q.Select(a => new ApplicantListItem(
                 a.Id, a.CandidateProfile!.FullName, a.CandidateProfile.Email,
                 a.CandidateProfile.TechSkillTags, a.AiScore, a.HrScore, a.Status, a.AppliedAt,
-                a.CvDataSnapshot != null, a.CandidateProfile.YearsOfExperience))
+                a.CvDataSnapshot != null || a.CandidateProfile.CvData != null,
+                a.CandidateProfile.YearsOfExperience))
             .ToList();
 
         // Lọc tech làm SAU khi đã chiếu, ở phía C#. Chuẩn hóa của TechList (thường hóa,
@@ -1057,10 +1092,13 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         var a = db.Applications.Find(appId);
         if (a is null) return;
         a.AiScore = Math.Clamp(eval.MatchPercent, 0, 100);
-        a.AiStrengths = eval.Strengths;
-        a.AiMissing = eval.Missing;
-        a.AiRoadmap = eval.Roadmap;
-        a.AiSource = eval.Source;      // Gemini hay Offline — hiển thị cho Mentor biết
+        // Cắt đúng giới hạn cột (nvarchar(1000)). Ba trường này đến từ một mô hình ngoài:
+        // không có gì buộc Gemini trả về dưới 1000 ký tự, và trên SQL Server thì vượt cột
+        // là một lần ghi HỎNG — đơn mất luôn kết quả vừa chấm — chứ không phải chuỗi bị cắt.
+        a.AiStrengths = Clip(eval.Strengths, 1000);
+        a.AiMissing = Clip(eval.Missing, 1000);
+        a.AiRoadmap = Clip(eval.Roadmap, 1000);
+        a.AiSource = Clip(eval.Source, 20);      // Gemini hay Offline — hiển thị cho Mentor biết
         a.AiScoredAt = DateTime.Now;
         db.SaveChanges();
     }

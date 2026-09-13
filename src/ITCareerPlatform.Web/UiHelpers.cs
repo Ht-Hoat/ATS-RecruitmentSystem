@@ -30,9 +30,24 @@ public sealed record CategoryInfo(string Name, string CssClass, string Color)
         name is not null && ByName.TryGetValue(name, out var c) ? c : null;
 }
 
+/// <summary>
+/// Hai ngưỡng chia % phù hợp thành ba khoảng. Khai báo đúng MỘT chỗ vì ba nơi cùng đọc:
+/// màu badge (Ui.ScoreClass), dòng được tô sáng trong bảng ứng viên, và bộ lọc khoảng
+/// điểm của N1.F. Ba nơi đó nằm trên cùng một màn hình — lệch nhau một con số là ứng viên
+/// hiện huy hiệu "phù hợp cao" nhưng lại rơi khỏi kết quả lọc "&gt; 80%".
+/// </summary>
+public static class ScoreThreshold
+{
+    public const int HighAbove = 80;   // > 80  : phù hợp cao
+    public const int MidFrom = 50;     // 50-80 : trung bình
+}
+
 // Ánh xạ dữ liệu -> lớp CSS màu + định dạng hiển thị (dùng chung cho mọi trang).
 public static class Ui
 {
+    /// <summary>Dòng có được tô sáng trong bảng ứng viên không — cùng ngưỡng với badge.</summary>
+    public static bool IsTopScore(int? score) => score > ScoreThreshold.HighAbove;
+
     public static string CategoryClass(string? category) =>
         CategoryInfo.Find(category)?.CssClass ?? "cat cat-other";
 
@@ -48,20 +63,23 @@ public static class Ui
         _ => "lv lv-junior"
     };
 
-    // ATS-15: phân màu theo ngưỡng điểm AI/Final
+    // ATS-15: phân màu theo ngưỡng điểm AI/Final.
+    // Dùng ĐÚNG ngưỡng của ScoreBand (bộ lọc N1.F). Trước đây màu chạy theo 70/40 còn bộ
+    // lọc theo 80/50, nên trên cùng một bảng, một ứng viên 75% hiện huy hiệu "⭐ phù hợp
+    // cao" nhưng chỉ tìm thấy được ở khoảng "50 - 80%".
     public static string ScoreClass(int? score) => score switch
     {
         null => "score score-none",
-        > 70 => "score score-high",
-        >= 40 => "score score-mid",
+        > ScoreThreshold.HighAbove => "score score-high",
+        >= ScoreThreshold.MidFrom => "score score-mid",
         _ => "score score-low"
     };
 
     public static string ScoreIcon(int? score) => score switch
     {
         null => "—",
-        > 70 => "⭐",
-        >= 40 => "⚡",
+        > 80 => "⭐",
+        >= 50 => "⚡",
         _ => "⚠️"
     };
 

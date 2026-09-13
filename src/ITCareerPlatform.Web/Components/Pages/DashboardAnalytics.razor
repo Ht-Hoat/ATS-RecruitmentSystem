@@ -1,18 +1,28 @@
 @page "/dashboard"
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IUserService Users
-@inject IJobService Jobs
 @inject IApplicationService Applications
 @using System.Text.Json
 
 @* Dashboard thống kê IT Career Platform *@
 
 <h1 class="page-title">Dashboard thống kê</h1>
-<p class="sub">Tổng quan tuyển dụng IT Career Platform.</p>
+<p class="sub">
+    @(isAdmin
+        ? "Tổng quan tuyển dụng toàn hệ thống IT Career Platform."
+        : "Tổng quan tuyển dụng trên những tin do chính bạn đăng.")
+</p>
 
 <div class="cards">
     <div class="card"><div class="num">@openJobs</div><div class="lbl">Việc làm IT đang mở</div></div>
-    <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@students</div><div class="lbl">Sinh viên IT đã đăng ký</div></div>
+    @if (isAdmin)
+    {
+        <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@students</div><div class="lbl">Sinh viên IT đã đăng ký</div></div>
+    }
+    else
+    {
+        <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@totalJobs</div><div class="lbl">Tin tuyển dụng của bạn</div></div>
+    }
     <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
     <div class="card" style="border-color:#ca8a04"><div class="num" style="color:#ca8a04">@pending</div><div class="lbl">Đơn đang chờ xử lý</div></div>
 </div>
@@ -193,22 +203,39 @@
 </script>
 
 @code {
-    private int openJobs, students, totalApps, pending, accepted, conversionRate;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool isAdmin;
+    private int openJobs, totalJobs, students, totalApps, pending, accepted, conversionRate;
     private string chartJson = "{}";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        openJobs = Jobs.CountOpen();
-        students = Users.CountByRole(Roles.StudentId);
-        totalApps = Applications.CountAll();
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        isAdmin = CurrentUser.IsAdmin(user);
+
+        // N1.G: Mentor chỉ được thấy số liệu trên tin của CHÍNH MÌNH — cùng ranh giới mà
+        // CanAccess/CanModify giữ ở mọi trang khác. Đếm trên toàn bảng nghĩa là một Mentor
+        // đọc được lưu lượng tuyển dụng của mọi Mentor khác, trong khi chính người đó không
+        // mở nổi một đơn lẻ nào của họ. null = toàn hệ thống (Admin).
+        int? scope = isAdmin ? null : CurrentUser.Id(user);
+
+        var stats = Applications.GetMentorStats(scope);
+        openJobs = stats.OpenJobs;
+        totalJobs = stats.TotalJobs;
+        if (isAdmin) students = Users.CountByRole(Roles.StudentId);   // thẻ này chỉ Admin thấy
 
         // Một lần GROUP BY cho cả 5 trạng thái, thay cho ba truy vấn COUNT riêng lẻ.
-        var byStatus = Applications.CountGroupedByStatus();
+        // Bốn con số ứng tuyển bên dưới đều đọc từ CHÍNH từ điển này — cùng nguồn với hai
+        // biểu đồ, nên tổng các trạng thái không thể lệch khỏi tổng số đơn trên màn hình.
+        var byStatus = Applications.CountGroupedByStatus(scope);
+        totalApps = byStatus.Values.Sum();
         pending = byStatus.GetValueOrDefault(ApplicationStatus.Submitted);
         accepted = byStatus.GetValueOrDefault(ApplicationStatus.Accepted);
         conversionRate = totalApps == 0 ? 0 : (int)Math.Round(100.0 * accepted / totalApps);
 
-        var byCat = Applications.CountGroupedByCategory();
+        var byCat = Applications.CountGroupedByCategory(scope);
 
         // Màu lấy từ CategoryInfo — cùng một bảng đã sinh ra lớp CSS của badge, nên thêm
         // một chuyên ngành không thể quên cập nhật màu biểu đồ nữa.

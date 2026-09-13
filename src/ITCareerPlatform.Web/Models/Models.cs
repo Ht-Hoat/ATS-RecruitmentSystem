@@ -26,6 +26,9 @@ public static class Roles
     public const int MentorId = 2;
     public const int StudentId = 3;
 
+    /// <summary>Ba vai trò theo thứ tự hiển thị — để không phải gõ lại danh sách khi duyệt vai trò.</summary>
+    public static readonly int[] AllIds = { AdminId, MentorId, StudentId };
+
     /// <summary>Nhãn tiếng Việt để hiển thị UI.</summary>
     public static string Display(string role) => role switch
     {

@@ -211,8 +211,8 @@ public class GeminiAiService(IHttpClientFactory httpFactory, IConfiguration conf
     // =====================================================================
     public static InterviewQuestionSet HeuristicQuestions(AiEvaluationInput input)
     {
-        var required = SkillSet(input.RequiredTech, input.JobText);
-        var candidateNorm = SkillSet(input.CandidateTech, input.CandidateText)
+        var required = SkillSet(input.RequiredTech);
+        var candidateNorm = SkillSet(input.CandidateTech)
             .Select(TechList.Normalize).ToHashSet();
 
         var matched = required.Where(r => candidateNorm.Contains(TechList.Normalize(r))).ToList();
@@ -415,8 +415,8 @@ public class GeminiAiService(IHttpClientFactory httpFactory, IConfiguration conf
     // =====================================================================
     public static AiEvaluation HeuristicEvaluate(AiEvaluationInput input)
     {
-        var required = SkillSet(input.RequiredTech, input.JobText);
-        var candidate = SkillSet(input.CandidateTech, input.CandidateText);
+        var required = SkillSet(input.RequiredTech);
+        var candidate = SkillSet(input.CandidateTech);
 
         if (required.Count == 0)
             return new AiEvaluation(50,
@@ -459,15 +459,20 @@ public class GeminiAiService(IHttpClientFactory httpFactory, IConfiguration conf
         HeuristicEvaluate(new AiEvaluationInput(candidateText, jobText, candidateText, jobText));
 
     /// <summary>
-    /// Danh sách kỹ năng: ưu tiên trường có cấu trúc; nếu rỗng thì mới thử tách chuỗi tự do.
+    /// Danh sách kỹ năng — CHỈ từ trường có cấu trúc.
+    ///
+    /// Không lùi về tách chuỗi tự do khi trường có cấu trúc rỗng: JD tiếng Việt tách ra
+    /// thành "Backend", "Thành thạo C#", "có kinh nghiệm 2 năm"... và những mảnh đó đi
+    /// thẳng vào mẫu số của tỷ lệ khớp rồi được in cho sinh viên như "kỹ năng còn thiếu".
+    /// Đó đúng là lỗi mà phần chú thích của HeuristicEvaluate nói là đã bỏ — nhưng nhánh
+    /// dự phòng vẫn dựng lại nó mỗi khi tin tuyển dụng để trống Tech Stack.
+    /// Tech Stack rỗng thì câu trả lời đúng là "chưa đủ dữ liệu để so khớp", không phải
+    /// một con số dựng từ chữ trong mô tả.
     /// Mỗi mục bỏ tiền tố nhãn kiểu "Tech Stack yêu cầu: C#" -> "C#".
     /// </summary>
-    private static List<string> SkillSet(string? structured, string? freeText)
+    private static List<string> SkillSet(string? structured)
     {
-        var items = TechList.Parse(structured);
-        if (items.Count == 0) items = TechList.Parse(freeText);
-
-        return items
+        return TechList.Parse(structured)
             .Select(StripLabel)
             .Where(s => s.Length is > 0 and <= 40)
             .Distinct(StringComparer.OrdinalIgnoreCase)
