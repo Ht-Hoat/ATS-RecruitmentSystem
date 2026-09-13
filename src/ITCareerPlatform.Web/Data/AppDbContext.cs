@@ -40,6 +40,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<Job>().Property(j => j.SalaryMin).HasColumnType("decimal(18,2)");
         b.Entity<Job>().Property(j => j.SalaryMax).HasColumnType("decimal(18,2)");
+        b.Entity<Job>().Property(j => j.EmploymentType).HasMaxLength(20).HasDefaultValue("Onsite");
 
         // Users (1) --- (1) CandidateProfile
         b.Entity<CandidateProfile>()

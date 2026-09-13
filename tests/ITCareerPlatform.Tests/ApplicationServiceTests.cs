@@ -231,4 +231,294 @@ public class ApplicationServiceTests
         Assert.Equal(90, ranked[0].FinalScore);
         Assert.Equal(40, ranked[1].FinalScore);
     }
+
+    // =====================================================================
+    // N1.G TESTS: CountRecentApplicants, CountUnreviewed, TopUnreviewed
+    // =====================================================================
+
+    [Fact]
+    public void CountRecentApplicants_Admin_CountsAllWithinHours()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var admin = t.AddUser("Admin", "admin@itcp.vn", Roles.AdminId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j1 = t.AddJob(m1.Id, "Job 1");
+        var j2 = t.AddJob(m2.Id, "Job 2");
+
+        var svc = NewSvc(t);
+        svc.Apply(j1.Id, sv1.Id, out _);
+        svc.Apply(j2.Id, sv2.Id, out _);
+
+        // Admin thấy toàn bộ đơn trong 24 giờ
+        var count = svc.CountRecentApplicants(admin.Id, isAdmin: true, withinHours: 24);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public void CountRecentApplicants_Mentor_CountsOnlyOwnJobs()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j1 = t.AddJob(m1.Id, "Job 1");
+        var j2 = t.AddJob(m2.Id, "Job 2");
+
+        var svc = NewSvc(t);
+        svc.Apply(j1.Id, sv1.Id, out _);
+        svc.Apply(j2.Id, sv2.Id, out _);
+
+        // M1 chỉ thấy đơn của tin mình tạo (Job 1)
+        var countM1 = svc.CountRecentApplicants(m1.Id, isAdmin: false, withinHours: 24);
+        Assert.Equal(1, countM1);
+
+        // M2 chỉ thấy đơn của tin mình tạo (Job 2)
+        var countM2 = svc.CountRecentApplicants(m2.Id, isAdmin: false, withinHours: 24);
+        Assert.Equal(1, countM2);
+    }
+
+    [Fact]
+    public void CountRecentApplicants_ExcludesOutsideHours()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j = t.AddJob(m.Id, "Job");
+        var svc = NewSvc(t);
+        svc.Apply(j.Id, sv1.Id, out _);
+        svc.Apply(j.Id, sv2.Id, out _);
+
+        // Cập nhật 1 đơn thành quá 24 giờ trước
+        var firstApp = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
+        firstApp.AppliedAt = DateTime.Now.AddHours(-25);
+        t.Db.SaveChanges();
+
+        var count = svc.CountRecentApplicants(m.Id, isAdmin: false, withinHours: 24);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void CountRecentApplicants_InvalidHours_ThrowsArgumentException()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var svc = NewSvc(t);
+
+        Assert.Throws<ArgumentException>(() => svc.CountRecentApplicants(m.Id, isAdmin: false, withinHours: 0));
+        Assert.Throws<ArgumentException>(() => svc.CountRecentApplicants(m.Id, isAdmin: false, withinHours: -5));
+    }
+
+    [Fact]
+    public void CountUnreviewed_Admin_CountsAllSubmitted()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var admin = t.AddUser("Admin", "admin@itcp.vn", Roles.AdminId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j1 = t.AddJob(m1.Id, "Job 1");
+        var j2 = t.AddJob(m2.Id, "Job 2");
+
+        var svc = NewSvc(t);
+        svc.Apply(j1.Id, sv1.Id, out _);
+        svc.Apply(j2.Id, sv2.Id, out _);
+
+        // Đơn mới có trạng thái mặc định Submitted -> Admin đếm được cả 2
+        var count = svc.CountUnreviewed(admin.Id, isAdmin: true);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public void CountUnreviewed_Mentor_CountsOnlyOwnSubmitted()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j1 = t.AddJob(m1.Id, "Job 1");
+        var j2 = t.AddJob(m2.Id, "Job 2");
+
+        var svc = NewSvc(t);
+        svc.Apply(j1.Id, sv1.Id, out _);
+        svc.Apply(j2.Id, sv2.Id, out _);
+
+        var countM1 = svc.CountUnreviewed(m1.Id, isAdmin: false);
+        Assert.Equal(1, countM1);
+
+        var countM2 = svc.CountUnreviewed(m2.Id, isAdmin: false);
+        Assert.Equal(1, countM2);
+    }
+
+    [Fact]
+    public void CountUnreviewed_ExcludesOtherStatuses()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j = t.AddJob(m.Id, "Job");
+        var svc = NewSvc(t);
+        svc.Apply(j.Id, sv1.Id, out _);
+        svc.Apply(j.Id, sv2.Id, out _);
+
+        // Chuyển sv1 sang trạng thái Reviewing
+        var app1 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
+        svc.UpdateStatus(app1.Id, ApplicationStatus.Reviewing, m.Id, out _);
+
+        var count = svc.CountUnreviewed(m.Id, isAdmin: false);
+        Assert.Equal(1, count); // Chỉ còn sv2 ở trạng thái Submitted
+    }
+
+    [Fact]
+    public void TopUnreviewed_RespectsTakeLimit()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var j = t.AddJob(m.Id, "Job");
+        var svc = NewSvc(t);
+
+        for (int i = 1; i <= 7; i++)
+        {
+            var sv = t.AddUser($"SV{i}", $"sv{i}@itcp.vn", Roles.StudentId);
+            t.AddProfile(sv.Id);
+            svc.Apply(j.Id, sv.Id, out _);
+        }
+
+        var top3 = svc.TopUnreviewed(m.Id, isAdmin: false, take: 3);
+        Assert.Equal(3, top3.Count);
+    }
+
+    [Fact]
+    public void TopUnreviewed_InvalidTake_ReturnsEmpty()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv.Id);
+        var j = t.AddJob(m.Id, "Job");
+        var svc = NewSvc(t);
+        svc.Apply(j.Id, sv.Id, out _);
+
+        var zero = svc.TopUnreviewed(m.Id, isAdmin: false, take: 0);
+        var neg = svc.TopUnreviewed(m.Id, isAdmin: false, take: -1);
+
+        Assert.Empty(zero);
+        Assert.Empty(neg);
+    }
+
+    [Fact]
+    public void TopUnreviewed_OrdersByAppliedAtDesc()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV Cũ", "old@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV Mới", "new@itcp.vn", Roles.StudentId);
+        var p1 = t.AddProfile(sv1.Id); p1.FullName = "SV Cũ";
+        var p2 = t.AddProfile(sv2.Id); p2.FullName = "SV Mới";
+        t.Db.SaveChanges();
+
+        var j = t.AddJob(m.Id, "Job");
+        var svc = NewSvc(t);
+        svc.Apply(j.Id, sv1.Id, out _);
+        svc.Apply(j.Id, sv2.Id, out _);
+
+        // Giả lập thời gian nộp khác nhau
+        var app1 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
+        var app2 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv2.Id);
+        app1.AppliedAt = DateTime.Now.AddDays(-2);
+        app2.AppliedAt = DateTime.Now.AddMinutes(-5);
+        t.Db.SaveChanges();
+
+        var top = svc.TopUnreviewed(m.Id, isAdmin: false, take: 2);
+        Assert.Equal(2, top.Count);
+        Assert.Equal("SV Mới", top[0].FullName);
+        Assert.Equal("SV Cũ", top[1].FullName);
+    }
+
+    [Fact]
+    public void TopUnreviewed_IncludesJobContext()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var sv = t.AddUser("Nguyen Van A", "a@itcp.vn", Roles.StudentId);
+        var p = t.AddProfile(sv.Id);
+        p.FullName = "Nguyen Van A";
+        p.Email = "a@itcp.vn";
+        t.Db.SaveChanges();
+
+        var j = t.AddJob(m.Id, "Backend .NET Senior");
+        var svc = NewSvc(t);
+        svc.Apply(j.Id, sv.Id, out _);
+
+        var top = svc.TopUnreviewed(m.Id, isAdmin: false, take: 1);
+        Assert.Single(top);
+        Assert.Equal(j.Id, top[0].JobId);
+        Assert.Equal("Backend .NET Senior", top[0].JobTitle);
+        Assert.Equal("Nguyen Van A", top[0].FullName);
+        Assert.Equal("a@itcp.vn", top[0].Email);
+        Assert.Equal(ApplicationStatus.Submitted, top[0].Status);
+    }
+
+    [Fact]
+    public void TopUnreviewed_Mentor_RestrictedToOwnJobs()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var sv1 = t.AddUser("SV1", "sv1@itcp.vn", Roles.StudentId);
+        var sv2 = t.AddUser("SV2", "sv2@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv1.Id); t.AddProfile(sv2.Id);
+
+        var j1 = t.AddJob(m1.Id, "Job của M1");
+        var j2 = t.AddJob(m2.Id, "Job của M2");
+
+        var svc = NewSvc(t);
+        svc.Apply(j1.Id, sv1.Id, out _);
+        svc.Apply(j2.Id, sv2.Id, out _);
+
+        var topM1 = svc.TopUnreviewed(m1.Id, isAdmin: false, take: 10);
+        Assert.Single(topM1);
+        Assert.Equal("Job của M1", topM1[0].JobTitle);
+
+        var topM2 = svc.TopUnreviewed(m2.Id, isAdmin: false, take: 10);
+        Assert.Single(topM2);
+        Assert.Equal("Job của M2", topM2[0].JobTitle);
+    }
+
+    [Fact]
+    public void TopUnreviewed_Mentor_CannotSeeOtherMentorApplications()
+    {
+        using var t = new TestDb();
+        var m1 = t.AddUser("M1", "m1@itcp.vn", Roles.MentorId);
+        var m2 = t.AddUser("M2", "m2@itcp.vn", Roles.MentorId);
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        t.AddProfile(sv.Id);
+
+        var j2 = t.AddJob(m2.Id, "Chỉ của M2");
+        var svc = NewSvc(t);
+        svc.Apply(j2.Id, sv.Id, out _);
+
+        // M1 không có tin nào -> không thể thấy đơn của M2
+        var topM1 = svc.TopUnreviewed(m1.Id, isAdmin: false, take: 5);
+        Assert.Empty(topM1);
+    }
 }

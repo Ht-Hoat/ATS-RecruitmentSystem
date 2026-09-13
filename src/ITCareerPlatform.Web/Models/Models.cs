@@ -77,6 +77,10 @@ public class Job
         { "Backend", "Frontend", "Mobile", "DevOps", "Data/AI", "QA", "Design", "Khác" };
 
     public static readonly string[] Levels = { "Intern", "Junior", "Middle", "Senior" };
+
+    // ===== N2.C: Hình thức làm việc =====
+    public string EmploymentType { get; set; } = "Onsite";   // Onsite, Remote, Hybrid
+    public static readonly string[] EmploymentTypes = { "Onsite", "Remote", "Hybrid" };
 }
 
 public class AuditLog

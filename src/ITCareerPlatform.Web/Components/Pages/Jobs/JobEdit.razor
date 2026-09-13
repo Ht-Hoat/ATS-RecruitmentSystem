@@ -2,7 +2,7 @@
 @attribute [Authorize(Roles = "Admin,Mentor")]
 @inject IJobService Jobs
 
-@* ATS-05: Sửa tin việc IT *@
+@* Sửa tin việc IT *@
 
 @if (model is null)
 {
@@ -10,14 +10,14 @@
 }
 else
 {
-    <h1 class="page-title">Sửa tin tuyển dụng IT (ATS-05)</h1>
+    <h1 class="page-title">Sửa tin tuyển dụng IT</h1>
     @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
     @if (model.Status == "Closed")
     {
-        <div class="alert-err">Tin đang ở trạng thái <b>Đã đóng</b>. Vui lòng mở lại tin trước khi sửa (ATS-05.3).</div>
+        <div class="alert-err">Tin đang ở trạng thái <b>Đã đóng</b>. Vui lòng mở lại tin trước khi sửa.</div>
     }
 
-    <form method="post" action="@($"/jobs/{model.Id}/update")" class="form form-wide">
+    <form method="post" action="@($"/jobs/{model.Id}/update")" class="form form-wide" data-vi-validate>
         <JobFields Model="model" />
         <div class="actions">
             <button class="btn-primary" type="submit" disabled="@(model.Status == "Closed")">Lưu thay đổi</button>

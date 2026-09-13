@@ -29,8 +29,9 @@ public interface IJobService
     void Update(int id, Job input, int actorUserId);   // ATS-05
     void Close(int id);
     void Reopen(int id);
-    // ATS-07: lọc việc IT theo Category + TechStack + Level + sắp xếp
-    List<Job> Filter(string? category, string? techStack, string? level, string sort);
+    // ATS-07 + N2.C: lọc việc IT theo Category + TechStack + Level + Lương + Hình thức + Địa điểm + sắp xếp
+    List<Job> Filter(string? category, string? techStack, string? level, string sort,
+        decimal? minSalary = null, string? employmentType = null, string? location = null);
 }
 
 public interface IProfileService
@@ -54,6 +55,9 @@ public interface IApplicationService
     void SaveHrScore(int appId, int hrScore, string note);                // ATS-16
     bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message); // ATS-17
     List<ApplicationStatusHistory> GetStatusHistory(int appId);
+    int CountRecentApplicants(int actorUserId, bool isAdmin, int withinHours);
+    int CountUnreviewed(int actorUserId, bool isAdmin);
+    List<MentorApplicantItem> TopUnreviewed(int actorUserId, bool isAdmin, int take);
 }
 
 // DTO nhẹ cho danh sách — CHỈ các cột cần hiển thị, KHÔNG kèm byte[] CV (chống nghẽn RAM/băng thông)
@@ -61,6 +65,12 @@ public record ApplicantListItem(int Id, string FullName, string Email, string Te
     int? AiScore, int? HrScore, string Status, DateTime AppliedAt)
 {
     public int? FinalScore => HrScore ?? AiScore;   // ATS-16.2
+}
+
+public record MentorApplicantItem(int Id, string FullName, string Email, string TechSkillTags,
+    int? AiScore, int? HrScore, string Status, DateTime AppliedAt, int JobId, string JobTitle)
+{
+    public int? FinalScore => HrScore ?? AiScore;
 }
 
 public record MyApplicationItem(int Id, int JobId, string JobTitle, string Category, string Level,
@@ -235,8 +245,9 @@ public class JobService(AppDbContext db) : IJobService
         db.SaveChanges();
     }
 
-    // ATS-07: lọc + sắp xếp (chỉ tin Open — dành cho Sinh viên IT)
-    public List<Job> Filter(string? category, string? techStack, string? level, string sort)
+    // ATS-07 + N2.C: lọc + sắp xếp (chỉ tin Open — dành cho Sinh viên IT)
+    public List<Job> Filter(string? category, string? techStack, string? level, string sort,
+        decimal? minSalary = null, string? employmentType = null, string? location = null)
     {
         var today = DateTime.Today;
         // #9: chỉ hiện tin Open và CÒN hạn nộp
@@ -253,6 +264,18 @@ public class JobService(AppDbContext db) : IJobService
             var kw = techStack.Trim().ToLower();
             // LIKE '%kw%' không phân biệt hoa thường
             q = q.Where(j => j.TechStack.ToLower().Contains(kw));
+        }
+
+        if (minSalary.HasValue && minSalary.Value > 0)
+            q = q.Where(j => j.SalaryMax >= minSalary.Value);
+
+        if (!string.IsNullOrWhiteSpace(employmentType) && employmentType != "Tất cả")
+            q = q.Where(j => j.EmploymentType == employmentType);
+
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            var loc = location.Trim().ToLower();
+            q = q.Where(j => j.Location.ToLower().Contains(loc));
         }
 
         q = sort switch
@@ -502,6 +525,58 @@ public class ApplicationService(AppDbContext db, INotificationService notify) : 
     public List<ApplicationStatusHistory> GetStatusHistory(int appId) =>
         db.ApplicationStatusHistories.Where(h => h.ApplicationId == appId)
                                      .OrderBy(h => h.ChangedAt).ToList();
+
+    // N1.G: Thống kê số hồ sơ ứng tuyển mới nộp trong withinHours gần nhất
+    public int CountRecentApplicants(int actorUserId, bool isAdmin, int withinHours)
+    {
+        if (withinHours <= 0)
+            throw new ArgumentException("Số giờ phải lớn hơn 0.", nameof(withinHours));
+
+        var now = DateTime.Now;
+        var cutoff = now.AddHours(-withinHours);
+
+        var q = db.Applications.Where(a => a.AppliedAt >= cutoff);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.Count();
+    }
+
+    // N1.G: Thống kê số hồ sơ chưa review (Status == ApplicationStatus.Submitted)
+    public int CountUnreviewed(int actorUserId, bool isAdmin)
+    {
+        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.Count();
+    }
+
+    // N1.G: Lấy danh sách top hồ sơ chưa review mới nhất kèm Job context
+    public List<MentorApplicantItem> TopUnreviewed(int actorUserId, bool isAdmin, int take)
+    {
+        if (take <= 0) return new List<MentorApplicantItem>();
+        take = Math.Min(take, 50);
+
+        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.OrderByDescending(a => a.AppliedAt)
+                .Take(take)
+                .Select(a => new MentorApplicantItem(
+                    a.Id,
+                    a.CandidateProfile!.FullName,
+                    a.CandidateProfile.Email,
+                    a.CandidateProfile.TechSkillTags,
+                    a.AiScore,
+                    a.HrScore,
+                    a.Status,
+                    a.AppliedAt,
+                    a.JobId,
+                    a.Job!.Title))
+                .ToList();
+    }
 }
 
 // =====================================================================

@@ -74,8 +74,9 @@ static string Enc(string s) => Uri.EscapeDataString(s);
 app.MapPost("/account/login", async (HttpContext ctx, IAuthService auth) =>
 {
     var f = await ctx.Request.ReadFormAsync();
-    var user = auth.Validate(f["email"].ToString(), f["password"].ToString());
-    if (user is null) return Results.Redirect("/login?error=1");
+    var emailVal = f["email"].ToString();
+    var user = auth.Validate(emailVal, f["password"].ToString());
+    if (user is null) return Results.Redirect("/login?error=1&email=" + Enc(emailVal));
 
     var claims = new List<Claim>
     {
@@ -130,20 +131,27 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
 
 // ============================ JOBS (ATS-04, 05, 06) ============================
-static Job ReadJobForm(IFormCollection f, int actor) => new()
+static Job ReadJobForm(IFormCollection f, int actor)
 {
-    Title = f["title"].ToString(),
-    Description = f["description"].ToString(),
-    Requirements = f["requirements"].ToString(),
-    Location = f["location"].ToString(),
-    SalaryMin = decimal.TryParse(f["salaryMin"], out var mn) ? mn : 0,
-    SalaryMax = decimal.TryParse(f["salaryMax"], out var mx) ? mx : 0,
-    Deadline = DateTime.TryParse(f["deadline"], out var d) ? d : DateTime.Today.AddMonths(1),
-    Category = string.IsNullOrEmpty(f["category"]) ? "Khác" : f["category"].ToString(),
-    TechStack = f["techStack"].ToString(),
-    Level = string.IsNullOrEmpty(f["level"]) ? "Junior" : f["level"].ToString(),
-    CreatedById = actor
-};
+    var rawEmploymentType = f["employmentType"].ToString();
+    var safeEmploymentType = Job.EmploymentTypes.Contains(rawEmploymentType) ? rawEmploymentType : "Onsite";
+
+    return new()
+    {
+        Title = f["title"].ToString(),
+        Description = f["description"].ToString(),
+        Requirements = f["requirements"].ToString(),
+        Location = f["location"].ToString(),
+        SalaryMin = decimal.TryParse(f["salaryMin"], out var mn) ? mn : 0,
+        SalaryMax = decimal.TryParse(f["salaryMax"], out var mx) ? mx : 0,
+        Deadline = DateTime.TryParse(f["deadline"], out var d) ? d : DateTime.Today.AddMonths(1),
+        Category = string.IsNullOrEmpty(f["category"]) ? "Khác" : f["category"].ToString(),
+        TechStack = f["techStack"].ToString(),
+        Level = string.IsNullOrEmpty(f["level"]) ? "Junior" : f["level"].ToString(),
+        EmploymentType = safeEmploymentType,
+        CreatedById = actor
+    };
+}
 
 app.MapPost("/jobs/create", async (HttpContext ctx, IJobService svc) =>
 {

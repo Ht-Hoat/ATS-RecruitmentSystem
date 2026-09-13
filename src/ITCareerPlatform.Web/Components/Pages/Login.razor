@@ -10,7 +10,7 @@
         @if (Registered == "1") { <div class="alert-ok">Đăng ký thành công! Vui lòng đăng nhập.</div> }
         <form method="post" action="/account/login">
             <label>Email</label>
-            <input name="email" type="email" placeholder="admin@itcp.vn" required />
+            <input name="email" type="email" value="@Email" placeholder="admin@itcp.vn" required />
             <label>Mật khẩu</label>
             <input name="password" type="password" placeholder="••••••" required />
             <button class="btn-primary full" type="submit">Đăng nhập</button>
@@ -28,5 +28,6 @@
 @code {
     [SupplyParameterFromQuery(Name = "error")] public string? Error0 { get; set; }
     [SupplyParameterFromQuery(Name = "registered")] public string? Registered { get; set; }
+    [SupplyParameterFromQuery(Name = "email")] public string? Email { get; set; }
     private bool Error => Error0 == "1";
 }

@@ -1,4 +1,4 @@
-@* Các trường nhập của tin việc IT — dùng chung cho Tạo (ATS-04) và Sửa (ATS-05) *@
+@* Các trường nhập của tin việc IT — dùng chung cho Tạo và Sửa *@
 
 <label>Tiêu đề công việc</label>
 <input name="title" required value="@Model.Title" placeholder="Lập trình viên Backend .NET" />
@@ -12,7 +12,7 @@
 <div class="grid3">
     <div>
         <label>Danh mục (Category)</label>
-        <select name="category">
+        <select name="category" required>
             @foreach (var c in Job.Categories)
             {
                 if (c == Model.Category) { <option value="@c" selected>@c</option> }
@@ -22,7 +22,7 @@
     </div>
     <div>
         <label>Cấp bậc (Level)</label>
-        <select name="level">
+        <select name="level" required>
             @foreach (var l in Job.Levels)
             {
                 if (l == Model.Level) { <option value="@l" selected>@l</option> }
@@ -31,18 +31,32 @@
         </select>
     </div>
     <div>
-        <label>Địa điểm</label>
-        <input name="location" value="@Model.Location" placeholder="Hà Nội" />
+        <label>Hình thức làm việc</label>
+        <select name="employmentType" required>
+            @foreach (var et in Job.EmploymentTypes)
+            {
+                if (et == Model.EmploymentType) { <option value="@et" selected>@et</option> }
+                else { <option value="@et">@et</option> }
+            }
+        </select>
     </div>
 </div>
 
-<label>Tech Stack (phân cách bằng dấu phẩy)</label>
-<input name="techStack" value="@Model.TechStack" placeholder="C#, .NET, SQL Server, Docker" />
+<div class="grid2" style="margin-top:10px">
+    <div>
+        <label>Địa điểm</label>
+        <input name="location" required value="@Model.Location" placeholder="Hà Nội" />
+    </div>
+    <div>
+        <label>Tech Stack (phân cách bằng dấu phẩy)</label>
+        <input name="techStack" required value="@Model.TechStack" placeholder="C#, .NET, SQL Server, Docker" />
+    </div>
+</div>
 
-<div class="grid3">
+<div class="grid3" style="margin-top:10px">
     <div><label>Lương tối thiểu (triệu)</label><input name="salaryMin" type="number" step="0.1" value="@Model.SalaryMin" /></div>
     <div><label>Lương tối đa (triệu)</label><input name="salaryMax" type="number" step="0.1" value="@Model.SalaryMax" /></div>
-    <div><label>Hạn nộp</label><input name="deadline" type="date" value="@DeadlineValue" /></div>
+    <div><label>Hạn nộp</label><input name="deadline" type="date" required value="@DeadlineValue" /></div>
 </div>
 
 @code {

@@ -4,10 +4,10 @@
 @inject IProfileService Profiles
 @inject IApplicationService Applications
 
-@* ATS-07: xem + lọc việc IT · ATS-10: ứng tuyển *@
+@* Xem + lọc việc IT · Ứng tuyển *@
 
-<h1 class="page-title">Việc làm IT (ATS-07, ATS-10)</h1>
-<p class="sub">Lọc theo Chuyên ngành / Tech Stack / Cấp bậc rồi ứng tuyển. CV hiện tại sẽ được gắn vào đơn.</p>
+<h1 class="page-title">Việc làm IT</h1>
+<p class="sub">Lọc theo Chuyên ngành / Tech Stack / Cấp bậc / Mức lương / Hình thức / Địa điểm rồi ứng tuyển.</p>
 
 @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
 @if (!hasProfile)
@@ -41,8 +41,26 @@ else if (!hasCv)
         </select>
     </div>
     <div>
+        <label>Hình thức</label>
+        <select name="employmentType">
+            <option value="Tất cả">Tất cả</option>
+            @foreach (var et in Job.EmploymentTypes)
+            {
+                if (et == EmploymentType) { <option value="@et" selected>@et</option> } else { <option value="@et">@et</option> }
+            }
+        </select>
+    </div>
+    <div>
         <label>Tech Stack</label>
         <input name="tech" value="@Tech" placeholder="React, Python, Docker..." />
+    </div>
+    <div>
+        <label>Địa điểm</label>
+        <input name="location" value="@Location" placeholder="Hà Nội, TP.HCM..." />
+    </div>
+    <div>
+        <label>Lương tối đa từ (tr)</label>
+        <input name="minSalary" type="number" step="1" value="@MinSalary" placeholder="15" />
     </div>
     <div>
         <label>Sắp xếp</label>
@@ -67,6 +85,7 @@ else if (!hasCv)
             <div class="job-card-head">
                 <span class="@Ui.CategoryClass(j.Category)">@j.Category</span>
                 <span class="@Ui.LevelClass(j.Level)">@j.Level</span>
+                <span class="chip">@j.EmploymentType</span>
             </div>
             <h3>@j.Title</h3>
             <div class="job-tags">
@@ -92,7 +111,7 @@ else if (!hasCv)
                 }
                 else
                 {
-                    <form method="post" action="@($"/jobs/{j.Id}/apply")" class="inline">
+                    <form method="post" action="@($"/jobs/{j.Id}/apply")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn ứng tuyển vị trí này? CV hiện tại sẽ được gắn vào đơn.');">
                         <button class="btn-sm" type="submit">Ứng tuyển ngay</button>
                     </form>
                 }
@@ -112,6 +131,9 @@ else if (!hasCv)
     [SupplyParameterFromQuery(Name = "level")] public string? Level { get; set; }
     [SupplyParameterFromQuery(Name = "tech")] public string? Tech { get; set; }
     [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
+    [SupplyParameterFromQuery(Name = "minSalary")] public decimal? MinSalary { get; set; }
+    [SupplyParameterFromQuery(Name = "employmentType")] public string? EmploymentType { get; set; }
+    [SupplyParameterFromQuery(Name = "location")] public string? Location { get; set; }
 
     private List<Job> jobs = new();
     private HashSet<int> appliedJobIds = new();
@@ -120,7 +142,7 @@ else if (!hasCv)
 
     protected override async Task OnInitializedAsync()
     {
-        jobs = Jobs.Filter(Category, Tech, Level, Sort ?? "new");
+        jobs = Jobs.Filter(Category, Tech, Level, Sort ?? "new", MinSalary, EmploymentType, Location);
         counts = Applications.CountAllByJob();
         if (AuthState is null) return;
         var user = (await AuthState).User;

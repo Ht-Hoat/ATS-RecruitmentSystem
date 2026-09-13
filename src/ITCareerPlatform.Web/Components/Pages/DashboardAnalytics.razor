@@ -3,9 +3,9 @@
 @inject AppDbContext Db
 @using System.Text.Json
 
-@* ATS-18: Dashboard thống kê IT Career Platform *@
+@* Dashboard thống kê IT Career Platform *@
 
-<h1 class="page-title">Dashboard thống kê (ATS-18)</h1>
+<h1 class="page-title">Dashboard thống kê</h1>
 <p class="sub">Tổng quan tuyển dụng IT Career Platform.</p>
 
 <div class="cards">
@@ -18,33 +18,172 @@
 <div class="chart-row">
     <div class="panel chart-box">
         <h2>Phân bố ứng tuyển theo Chuyên ngành IT</h2>
+        <div id="catChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+            ⚠️ Không thể vẽ biểu đồ. Vui lòng thử lại sau.
+        </div>
         <canvas id="catChart" height="220"></canvas>
     </div>
     <div class="panel chart-box">
         <h2>Phân bố trạng thái xử lý hồ sơ</h2>
+        <div id="statusChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+            ⚠️ Không thể vẽ biểu đồ. Vui lòng thử lại sau.
+        </div>
         <canvas id="statusChart" height="220"></canvas>
         <p class="sub" style="margin-top:12px">Tỷ lệ trúng tuyển: <b>@conversionRate%</b> (@accepted/@totalApps đơn)</p>
     </div>
 </div>
 
-@((MarkupString)$"<script>window.__dash={{catLabels:{catLabels},catData:{catData},catColors:{catColors},stLabels:{stLabels},stData:{stData},stColors:{stColors}}};</script>")
+<div class="panel chart-box" style="margin-top:16px">
+    <h2>Pipeline tuyển dụng (Funnel)</h2>
+    <div id="funnelChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+        ⚠️ Không thể vẽ biểu đồ pipeline. Vui lòng thử lại sau.
+    </div>
+    <canvas id="funnelChart" height="200"></canvas>
+</div>
+
+@((MarkupString)$"<script>window.__dash={{catLabels:{catLabels},catData:{catData},catColors:{catColors},stLabels:{stLabels},stData:{stData},stColors:{stColors},funnelLabels:{funnelLabels},funnelData:{funnelData},funnelColors:{funnelColors}}};</script>")
 
 <script>
     (function () {
-        function draw() {
-            if (typeof Chart === 'undefined' || !window.__dash) { return setTimeout(draw, 150); }
-            var d = window.__dash;
-            new Chart(document.getElementById('catChart'), {
-                type: 'pie',
-                data: { labels: d.catLabels, datasets: [{ data: d.catData, backgroundColor: d.catColors }] },
-                options: { plugins: { legend: { position: 'right' } } }
-            });
-            new Chart(document.getElementById('statusChart'), {
-                type: 'bar',
-                data: { labels: d.stLabels, datasets: [{ label: 'Số đơn', data: d.stData, backgroundColor: d.stColors }] },
-                options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        var maxRetries = 20;
+        var retryCount = 0;
+
+        function isValidNumericData(arr) {
+            if (!arr || !Array.isArray(arr) || arr.length === 0) return false;
+            return arr.every(function (v) {
+                return typeof v === 'number' && isFinite(v) && !isNaN(v);
             });
         }
+
+        function tryDrawChart(canvasId, errorId, buildConfig) {
+            var errEl = document.getElementById(errorId);
+            var canvas = document.getElementById(canvasId);
+
+            function showError(msg) {
+                if (errEl) {
+                    if (msg) errEl.textContent = msg;
+                    errEl.style.display = '';
+                }
+                if (canvas) canvas.style.display = 'none';
+            }
+
+            try {
+                if (typeof Chart === 'undefined') {
+                    showError('⚠️ Không tìm thấy thư viện Chart.js.');
+                    return;
+                }
+                if (!canvas) {
+                    showError('⚠️ Khung hiển thị biểu đồ không tồn tại.');
+                    return;
+                }
+                var cfg = buildConfig();
+                if (!cfg || !cfg.data) {
+                    showError('⚠️ Cấu hình biểu đồ không hợp lệ.');
+                    return;
+                }
+                if (!Array.isArray(cfg.data.datasets) || cfg.data.datasets.length === 0) {
+                    showError('⚠️ Dữ liệu biểu đồ rỗng.');
+                    return;
+                }
+                // Validate tất cả các dataset
+                for (var i = 0; i < cfg.data.datasets.length; i++) {
+                    var ds = cfg.data.datasets[i];
+                    if (!ds || !isValidNumericData(ds.data)) {
+                        showError('⚠️ Dữ liệu biểu đồ không hợp lệ hoặc chứa giá trị không phải số.');
+                        return;
+                    }
+                }
+                new Chart(canvas, cfg);
+                if (errEl) errEl.style.display = 'none';
+                if (canvas) canvas.style.display = '';
+            } catch (e) {
+                showError('⚠️ Lỗi khi khởi tạo biểu đồ.');
+            }
+        }
+
+        function draw() {
+            if (typeof Chart === 'undefined') {
+                ['catChart', 'statusChart', 'funnelChart'].forEach(function (id) {
+                    var errEl = document.getElementById(id + 'Error');
+                    var canvas = document.getElementById(id);
+                    if (errEl) {
+                        errEl.textContent = '⚠️ Thư viện Chart.js chưa được tải.';
+                        errEl.style.display = '';
+                    }
+                    if (canvas) canvas.style.display = 'none';
+                });
+                return; // Dừng ngay, không retry khi Chart.js không tồn tại
+            }
+
+            if (!window.__dash) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    // Dừng retry sau 20 lần (~3 giây)
+                    ['catChart', 'statusChart', 'funnelChart'].forEach(function (id) {
+                        var errEl = document.getElementById(id + 'Error');
+                        var canvas = document.getElementById(id);
+                        if (errEl) {
+                            errEl.textContent = '⚠️ Hết thời gian chờ dữ liệu biểu đồ.';
+                            errEl.style.display = '';
+                        }
+                        if (canvas) canvas.style.display = 'none';
+                    });
+                    return;
+                }
+                return setTimeout(draw, 150);
+            }
+
+            var d = window.__dash;
+
+            tryDrawChart('catChart', 'catChartError', function () {
+                return {
+                    type: 'pie',
+                    data: { labels: d.catLabels, datasets: [{ data: d.catData, backgroundColor: d.catColors }] },
+                    options: { plugins: { legend: { position: 'right' } } }
+                };
+            });
+
+            tryDrawChart('statusChart', 'statusChartError', function () {
+                return {
+                    type: 'bar',
+                    data: { labels: d.stLabels, datasets: [{ label: 'Số đơn', data: d.stData, backgroundColor: d.stColors }] },
+                    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+                };
+            });
+
+            // N2.B: Funnel Chart
+            tryDrawChart('funnelChart', 'funnelChartError', function () {
+                var fl = d.funnelLabels;
+                var fd = d.funnelData;
+                if (!Array.isArray(fl) || !Array.isArray(fd) || fl.length !== fd.length || fd.length === 0) return null;
+                if (!isValidNumericData(fd)) return null;
+
+                function safeConvRate(curr, prev) {
+                    if (typeof prev !== 'number' || prev <= 0 || !isFinite(prev) || isNaN(prev)) return '—';
+                    if (typeof curr !== 'number' || !isFinite(curr) || isNaN(curr)) return '—';
+                    return Math.round(curr / prev * 100) + '%';
+                }
+
+                var labels = fl.map(function (lbl, i) {
+                    if (i === 0) return lbl + ' (' + fd[i] + ')';
+                    return lbl + ' (' + fd[i] + ' · ' + safeConvRate(fd[i], fd[i - 1]) + ')';
+                });
+
+                return {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{ label: 'Số hồ sơ', data: fd, backgroundColor: d.funnelColors }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        plugins: { legend: { display: false } },
+                        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                    }
+                };
+            });
+        }
+
         draw();
     })();
 </script>
@@ -53,6 +192,7 @@
     private int openJobs, students, totalApps, pending, accepted, conversionRate;
     private string catLabels = "[]", catData = "[]", catColors = "[]";
     private string stLabels = "[]", stData = "[]", stColors = "[]";
+    private string funnelLabels = "[]", funnelData = "[]", funnelColors = "[]";
 
     private static readonly Dictionary<string, string> CatColor = new()
     {
@@ -91,5 +231,18 @@
         stLabels = JsonSerializer.Serialize(ApplicationStatus.All);
         stData = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => counts.GetValueOrDefault(s, 0)));
         stColors = JsonSerializer.Serialize(ApplicationStatus.All.Select(s => StColor.GetValueOrDefault(s, "#64748b")));
+
+        // N2.B: Pipeline Tuyển dụng (Funnel Chart 4 bước)
+        var fLabels = new[] { "Đã nộp", "Đang xem xét", "Phỏng vấn", "Trúng tuyển" };
+        var fData = new[]
+        {
+            counts.GetValueOrDefault(ApplicationStatus.Submitted, 0),
+            counts.GetValueOrDefault(ApplicationStatus.Reviewing, 0),
+            counts.GetValueOrDefault(ApplicationStatus.Interview, 0),
+            counts.GetValueOrDefault(ApplicationStatus.Accepted, 0)
+        };
+        funnelLabels = JsonSerializer.Serialize(fLabels);
+        funnelData = JsonSerializer.Serialize(fData);
+        funnelColors = JsonSerializer.Serialize(new[] { "#3b82f6", "#eab308", "#f97316", "#22c55e" });
     }
 }

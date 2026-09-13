@@ -2,17 +2,17 @@
 @attribute [Authorize(Roles = "Admin")]
 @inject AppDbContext Db
 
-<h1 class="page-title">Tạo tài khoản mới (ATS-01)</h1>
+<h1 class="page-title">Tạo tài khoản mới</h1>
 
-<form method="post" action="/users/create" class="form">
+<form method="post" action="/users/create" class="form" data-vi-validate>
     <label>Họ tên</label>
     <input name="fullName" required placeholder="Nguyễn Văn A" />
     <label>Email</label>
     <input name="email" type="email" required placeholder="a@itcp.vn" />
     <label>Mật khẩu</label>
-    <input name="password" type="text" value="123456" />
+    <input name="password" type="password" required minlength="6" value="123456" />
     <label>Vai trò</label>
-    <select name="roleId">
+    <select name="roleId" required>
         @foreach (var r in roleList) { <option value="@r.Id">@Roles.Display(r.RoleName)</option> }
     </select>
     <div class="actions">

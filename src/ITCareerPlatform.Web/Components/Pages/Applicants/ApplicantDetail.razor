@@ -17,7 +17,7 @@ else
 {
     var p = app.CandidateProfile;
     <div class="page-head">
-        <h1 class="page-title">Hồ sơ ứng viên (ATS-12)</h1>
+        <h1 class="page-title">Hồ sơ ứng viên</h1>
         <a class="btn" href="@($"/jobs/{app.JobId}/applicants")">← Về danh sách ứng viên</a>
     </div>
 
@@ -104,7 +104,7 @@ else
 
                 <!-- ATS-16: Mentor duyệt / điều chỉnh % phù hợp -->
                 <div class="hr-adjust">
-                    <h3>Đánh giá của Mentor (ATS-16)</h3>
+                    <h3>Đánh giá của Mentor</h3>
                     @if (app.HrScore.HasValue)
                     {
                         <p>% Mentor xác nhận: <b class="@Ui.ScoreClass(app.HrScore)">@app.HrScore%</b>
@@ -115,7 +115,7 @@ else
                             <input type="hidden" name="agree" value="1" />
                             <button class="btn-sm" type="submit">✅ Đồng ý với đánh giá AI (@app.AiScore%)</button>
                         </form>
-                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form">
+                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form" data-vi-validate>
                             <input type="hidden" name="agree" value="0" />
                             <div class="inline">
                                 <input name="hrScore" type="number" min="0" max="100" placeholder="% phù hợp (0-100)" required />
@@ -131,8 +131,8 @@ else
 
     <!-- Section 5: trạng thái + timeline -->
     <div class="panel" style="margin-top:16px">
-        <h2>5 · Trạng thái ứng tuyển (ATS-17)</h2>
-        <form method="post" action="@($"/applications/{app.Id}/status")" class="inline">
+        <h2>5 · Trạng thái ứng tuyển</h2>
+        <form method="post" action="@($"/applications/{app.Id}/status")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn thay đổi trạng thái đơn này?');">
             <select name="status">
                 @foreach (var s in ApplicationStatus.All)
                 {
