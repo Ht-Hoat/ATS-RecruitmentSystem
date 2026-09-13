@@ -75,6 +75,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<Job>().Property(j => j.SalaryMin).HasColumnType("decimal(18,2)");
         b.Entity<Job>().Property(j => j.SalaryMax).HasColumnType("decimal(18,2)");
+        b.Entity<Job>().Property(j => j.EmploymentType).HasMaxLength(20).HasDefaultValue("Onsite");
 
         // Lọc tin theo trạng thái + hạn nộp (ATS-07) và liệt kê tin của một Mentor (ATS-05)
         b.Entity<Job>().HasIndex(j => new { j.Status, j.Deadline });
@@ -118,6 +119,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<AuditLog>().HasIndex(a => a.Timestamp);
 
         // ===== Seed 3 vai trò IT Career Platform =====
+        // Dùng ITCareerPlatform.Models.Roles để tránh bị DbSet<Role> Roles property che khuất
         b.Entity<Role>().HasData(
             new Role { Id = Models.Roles.AdminId, RoleName = Models.Roles.Admin, Description = "Quản trị toàn hệ thống IT Career Platform" },
             new Role { Id = Models.Roles.MentorId, RoleName = Models.Roles.Mentor, Description = "Cố vấn tuyển dụng IT — đăng việc, xem hồ sơ SV" },

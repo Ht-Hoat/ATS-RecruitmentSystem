@@ -26,7 +26,16 @@
                     else { <span class="sub">Chưa có</span> }
                 </td>
                 <td>@Ui.DateTimeText(a.AppliedAt)</td>
-                <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
+                <td>
+                    <span class="@Ui.StatusClass(a.Status)">@a.Status</span>
+                    @* N1.E: giờ hẹn hiện ngay ở danh sách — sinh viên không phải mở từng đơn
+                       để biết mình có lịch phỏng vấn nào sắp tới. *@
+                    @if (a.HasInterview)
+                    {
+                        <br />
+                        <span class="sub" style="font-size:12px">📅 @Ui.DateTimeText(a.InterviewAt)</span>
+                    }
+                </td>
                 <td><a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a></td>
             </tr>
         }

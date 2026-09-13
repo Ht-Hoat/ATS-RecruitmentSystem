@@ -3,7 +3,7 @@
 @inject IUserService Users
 
 <div class="page-head">
-    <h1 class="page-title">Quản lý tài khoản (ATS-01, ATS-02)</h1>
+    <h1 class="page-title">Quản lý tài khoản</h1>
     <a class="btn-primary" href="/users/new">+ Tạo tài khoản</a>
 </div>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
@@ -47,7 +47,7 @@
                     }
                     else
                     {
-                        <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline">
+                        <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn khóa/mở khóa tài khoản này?');">
                             <button class="btn-sm @(u.IsActive ? "danger" : "")" type="submit">@(u.IsActive ? "Khóa" : "Mở khóa")</button>
                         </form>
                     }

@@ -6,6 +6,41 @@ namespace ITCareerPlatform.Tests;
 
 public class JobServiceTests
 {
+    // N2.C: hình thức làm việc phải được kiểm ở tầng service, không chỉ ở thẻ <select>.
+    [Fact]
+    public void Create_InvalidEmploymentType_Throws()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var svc = new JobService(t.Db);
+
+        var job = new Job
+        {
+            Title = "Backend .NET", Category = "Backend", Level = "Junior",
+            EmploymentType = "TuChoiVe",          // không thuộc Job.EmploymentTypes
+            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+        };
+
+        var ex = Assert.Throws<ArgumentException>(() => svc.Create(job));
+        Assert.Contains("Hình thức làm việc", ex.Message);
+    }
+
+    [Fact]
+    public void Create_DefaultEmploymentType_IsAccepted()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var svc = new JobService(t.Db);
+
+        var job = svc.Create(new Job
+        {
+            Title = "Backend .NET", Category = "Backend", Level = "Junior",
+            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+        });
+
+        Assert.Equal("Onsite", job.EmploymentType);
+    }
+
     [Fact]
     public void Create_SetsStatusOpen()
     {
@@ -116,5 +151,112 @@ public class JobServiceTests
         svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = DateTime.Today.AddDays(3) }, admin.Id);
 
         Assert.Equal("Đã sửa", t.NewContext().Jobs.Find(job.Id)!.Title);
+    }
+
+    // =====================================================================
+    // N2.C TESTS: EmploymentType, Salary, Location Case-Insensitive, Combined
+    // =====================================================================
+
+    [Fact]
+    public void Filter_ByEmploymentType_MatchesExact()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        t.AddJob(m.Id, "Job Onsite", employmentType: "Onsite");
+        t.AddJob(m.Id, "Job Remote", employmentType: "Remote");
+        t.AddJob(m.Id, "Job Hybrid", employmentType: "Hybrid");
+        var svc = new JobService(t.Db);
+
+        var onsite = svc.Filter(null, null, null, "new", employmentType: "Onsite");
+        var remote = svc.Filter(null, null, null, "new", employmentType: "Remote");
+        var hybrid = svc.Filter(null, null, null, "new", employmentType: "Hybrid");
+
+        Assert.Single(onsite); Assert.Equal("Job Onsite", onsite[0].Title);
+        Assert.Single(remote); Assert.Equal("Job Remote", remote[0].Title);
+        Assert.Single(hybrid); Assert.Equal("Job Hybrid", hybrid[0].Title);
+    }
+
+    [Fact]
+    public void Filter_ByMinSalary_MatchesGreaterOrEqual()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        t.AddJob(m.Id, "Job Low", salaryMax: 15);
+        t.AddJob(m.Id, "Job Mid", salaryMax: 25);
+        t.AddJob(m.Id, "Job High", salaryMax: 40);
+        var svc = new JobService(t.Db);
+
+        var result = svc.Filter(null, null, null, "new", minSalary: 25);
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains(result, j => j.Title == "Job Mid");
+        Assert.Contains(result, j => j.Title == "Job High");
+        Assert.DoesNotContain(result, j => j.Title == "Job Low");
+    }
+
+    [Theory]
+    [InlineData("Hà Nội")]
+    [InlineData("hà nội")]
+    [InlineData("HÀ NỘI")]
+    [InlineData("hÀ NộI")]
+    public void Filter_ByLocation_CaseInsensitive(string locationKeyword)
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        t.AddJob(m.Id, "Job HaNoi", location: "Hà Nội");
+        t.AddJob(m.Id, "Job HCM", location: "TP.HCM");
+        var svc = new JobService(t.Db);
+
+        var result = svc.Filter(null, null, null, "new", location: locationKeyword);
+
+        Assert.Single(result);
+        Assert.Equal("Job HaNoi", result[0].Title);
+    }
+
+    [Theory]
+    [InlineData("HÀ NỘI", "hà nội")]
+    [InlineData("hà nội", "HÀ NỘI")]
+    [InlineData("hÀ NộI", "Hà Nội")]
+    [InlineData("Hà Nội", "hÀ NộI")]
+    public void Filter_ByLocation_VaryingDatabaseAndQueryCasing(string dbLocation, string queryLocation)
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        t.AddJob(m.Id, "Job HaNoi", location: dbLocation);
+        var svc = new JobService(t.Db);
+
+        var result = svc.Filter(null, null, null, "new", location: queryLocation);
+
+        Assert.Single(result);
+        Assert.Equal("Job HaNoi", result[0].Title);
+    }
+
+    [Fact]
+    public void Filter_CombinedFilters_MatchesAllCriteria()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        // Tin thỏa mãn toàn bộ tiêu chí
+        t.AddJob(m.Id, "Target Job", category: "Backend", techStack: "C#,.NET Core", level: "Junior",
+            employmentType: "Remote", location: "Hà Nội", salaryMax: 30);
+
+        // Tin khác category
+        t.AddJob(m.Id, "Other Cat", category: "Frontend", techStack: "C#,.NET Core", level: "Junior",
+            employmentType: "Remote", location: "Hà Nội", salaryMax: 30);
+
+        // Tin không đủ lương
+        t.AddJob(m.Id, "Low Salary", category: "Backend", techStack: "C#,.NET Core", level: "Junior",
+            employmentType: "Remote", location: "Hà Nội", salaryMax: 15);
+
+        // Tin khác hình thức làm việc
+        t.AddJob(m.Id, "Onsite Job", category: "Backend", techStack: "C#,.NET Core", level: "Junior",
+            employmentType: "Onsite", location: "Hà Nội", salaryMax: 30);
+
+        var svc = new JobService(t.Db);
+        var result = svc.Filter("Backend", "C#", "Junior", "new",
+            minSalary: 20, employmentType: "Remote", location: "hà nội");
+
+        Assert.Single(result);
+        Assert.Equal("Target Job", result[0].Title);
     }
 }

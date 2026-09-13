@@ -9,6 +9,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Mở phần internal cho dự án test. Các hàm đọc JSON của mô hình (ParseEvaluation,
+         ParseQuestions, ExtractJsonObject) là ranh giới phòng thủ trước một dịch vụ ngoài
+         có thể trả về bất cứ thứ gì — chúng cần test, nhưng không cần nằm trong API công
+         khai của tầng dịch vụ. -->
+    <InternalsVisibleTo Include="ITCareerPlatform.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- EF Core + SQL Server (đúng công nghệ đã chốt) -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">

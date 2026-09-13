@@ -26,6 +26,9 @@ public static class Roles
     public const int MentorId = 2;
     public const int StudentId = 3;
 
+    /// <summary>Ba vai trò theo thứ tự hiển thị — để không phải gõ lại danh sách khi duyệt vai trò.</summary>
+    public static readonly int[] AllIds = { AdminId, MentorId, StudentId };
+
     /// <summary>Nhãn tiếng Việt để hiển thị UI.</summary>
     public static string Display(string role) => role switch
     {
@@ -101,16 +104,20 @@ public class Job : ITimestamped
 {
     public int Id { get; set; }
 
-    [Required(ErrorMessage = "Tiêu đề công việc không được để trống."), MaxLength(160)]
+    // Mọi MaxLength đều kèm ErrorMessage tiếng Việt: JobService.Validate chạy
+    // Validator.TryValidateObject, nên thuộc tính nào không có câu riêng sẽ sinh ra câu
+    // tiếng Anh tự động và hiện thẳng lên màn hình cho người đăng tin đọc.
+    [Required(ErrorMessage = "Tiêu đề công việc không được để trống.")]
+    [MaxLength(160, ErrorMessage = "Tiêu đề công việc tối đa 160 ký tự.")]
     public string Title { get; set; } = "";
 
-    [MaxLength(4000)]
+    [MaxLength(4000, ErrorMessage = "Mô tả công việc tối đa 4000 ký tự.")]
     public string Description { get; set; } = "";   // Mô tả công việc (JD)
 
-    [MaxLength(4000)]
+    [MaxLength(4000, ErrorMessage = "Yêu cầu ứng viên tối đa 4000 ký tự.")]
     public string Requirements { get; set; } = "";
 
-    [MaxLength(120)]
+    [MaxLength(120, ErrorMessage = "Địa điểm tối đa 120 ký tự.")]
     public string Location { get; set; } = "";
 
     [Range(0, 10_000, ErrorMessage = "Lương tối thiểu không hợp lệ.")]
@@ -125,13 +132,13 @@ public class Job : ITimestamped
     public string Status { get; set; } = JobStatus.Open;
 
     // ===== ATS-04.1: 3 trường IT =====
-    [Required, MaxLength(40)]
+    [Required, MaxLength(40, ErrorMessage = "Danh mục tối đa 40 ký tự.")]
     public string Category { get; set; } = "Khác";   // phải thuộc Job.Categories
 
-    [MaxLength(400)]
+    [MaxLength(400, ErrorMessage = "Tech Stack tối đa 400 ký tự.")]
     public string TechStack { get; set; } = "";      // "C#, .NET, SQL Server, Docker"
 
-    [Required, MaxLength(20)]
+    [Required, MaxLength(20, ErrorMessage = "Cấp bậc tối đa 20 ký tự.")]
     public string Level { get; set; } = "Junior";    // phải thuộc Job.Levels
 
     public int CreatedById { get; set; }
@@ -152,6 +159,14 @@ public class Job : ITimestamped
 
     public static bool IsValidCategory(string? c) => c is not null && Categories.Contains(c);
     public static bool IsValidLevel(string? l) => l is not null && Levels.Contains(l);
+
+    // ===== N2.C: Hình thức làm việc =====
+    [Required, MaxLength(20)]
+    public string EmploymentType { get; set; } = "Onsite";   // phải thuộc Job.EmploymentTypes
+
+    public static readonly string[] EmploymentTypes = { "Onsite", "Remote", "Hybrid" };
+
+    public static bool IsValidEmploymentType(string? e) => e is not null && EmploymentTypes.Contains(e);
 }
 
 public class AuditLog
@@ -207,6 +222,14 @@ public class CandidateProfile : ITimestamped
     [MaxLength(250)] public string PortfolioUrl { get; set; } = "";
     [MaxLength(500)] public string TechSkillTags { get; set; } = "";   // "C#,React,Docker"
 
+    /// <summary>
+    /// Số năm kinh nghiệm. Đây là nguồn DUY NHẤT để suy ra cấp bậc ứng viên (N1.F):
+    /// trường Experience bên trên là văn bản tự do, không lọc theo cấp bậc được nếu
+    /// không đoán mò nội dung người dùng gõ.
+    /// </summary>
+    [Range(0, 50, ErrorMessage = "Số năm kinh nghiệm phải từ 0 đến 50.")]
+    public int YearsOfExperience { get; set; }
+
     // CV (PDF/DOCX, tối đa 5MB)
     public byte[]? CvData { get; set; }
     [MaxLength(260)] public string? CvFileName { get; set; }
@@ -220,8 +243,49 @@ public class CandidateProfile : ITimestamped
 
     public bool HasCv => CvData != null && CvData.Length > 0;
 
+    /// <summary>Cấp bậc suy ra từ số năm kinh nghiệm — chỉ để hiển thị, không lưu thành cột.</summary>
+    public string Level => CandidateLevel.FromYears(YearsOfExperience);
+
     /// <summary>Tách chuỗi tags thành danh sách chip.</summary>
     public IReadOnlyList<string> SkillTagList => TechList.Parse(TechSkillTags);
+}
+
+/// <summary>
+/// Cấp bậc ứng viên suy ra từ số năm kinh nghiệm (N1.F).
+///
+/// FromYears và YearRange phải luôn phát biểu CÙNG một bộ ngưỡng: bộ lọc so sánh
+/// bằng YearRange ở trong SQL, còn nhãn hiển thị lấy từ FromYears. Hai bên lệch nhau
+/// thì một ứng viên hiện nhãn "Senior" nhưng lại rơi vào kết quả lọc "Middle" — và
+/// không có gì trên màn hình giải thích vì sao.
+/// </summary>
+public static class CandidateLevel
+{
+    public const string Fresher = "Fresher";   // chưa có kinh nghiệm đi làm
+    public const string Junior = "Junior";     // 1 năm
+    public const string Middle = "Middle";     // 2-4 năm
+    public const string Senior = "Senior";     // từ 5 năm
+
+    public static readonly string[] All = { Fresher, Junior, Middle, Senior };
+
+    public static bool IsValid(string? level) => level is not null && All.Contains(level);
+
+    public static string FromYears(int years) => years switch
+    {
+        <= 0 => Fresher,
+        < 2 => Junior,
+        < 5 => Middle,
+        _ => Senior
+    };
+
+    /// <summary>Khoảng năm [Min, Max] của một cấp bậc, để lọc bằng SQL thay vì gọi FromYears từng dòng.</summary>
+    public static (int Min, int Max) YearRange(string? level) => level switch
+    {
+        Fresher => (0, 0),
+        Junior => (1, 1),
+        Middle => (2, 4),
+        Senior => (5, int.MaxValue),
+        _ => (0, int.MaxValue)
+    };
 }
 
 // ===== ATS-10: Đơn ứng tuyển =====
@@ -266,10 +330,34 @@ public class Application
     [MaxLength(500)] public string? HrNote { get; set; }
     public DateTime? HrAdjustedAt { get; set; }
 
+    // ===== N1.B: ghi chú nội bộ của Mentor =====
+    // Khác HrNote (lý do điều chỉnh điểm, gắn với ATS-16), đây là ghi chú tự do về ứng viên.
+    // KHÔNG được đưa vào ApplicationDetail: record đó dùng chung cho cả trang Mentor lẫn
+    // trang Sinh viên, nên một trường nằm ở đó chỉ cách chỗ rò đúng một dòng markup.
+    [MaxLength(2000)] public string? InternalNote { get; set; }
+    public int? InternalNoteByUserId { get; set; }
+    public DateTime? InternalNoteAt { get; set; }
+
+    // ===== N1.C: bộ câu hỏi phỏng vấn do AI sinh, lưu dạng JSON =====
+    // Phải LƯU chứ không sinh lại mỗi lần mở trang: ứng dụng render tĩnh, luồng là
+    // POST → redirect → GET, nên kết quả sinh ra trong POST mất sạch sau cú chuyển trang.
+    // Sinh lại mỗi lần xem còn nghĩa là mỗi lần mở trang tốn một lượt gọi Gemini.
+    [MaxLength(4000)] public string? AiQuestions { get; set; }
+    [MaxLength(20)] public string? AiQuestionsSource { get; set; }
+    public DateTime? AiQuestionsAt { get; set; }
+
+    // ===== N1.E: lịch phỏng vấn gắn thẳng vào đơn (Hướng B — không tách trang riêng) =====
+    public DateTime? InterviewAt { get; set; }
+    [MaxLength(400)] public string? InterviewLink { get; set; }
+    [MaxLength(500)] public string? InterviewNote { get; set; }
+
     // ATS-16.2: % dùng để xếp hạng = HrScore nếu có, ngược lại AiScore
     public int? FinalScore => HrScore ?? AiScore;
     public bool HasAiEvaluation => AiScore.HasValue;
     public bool IsOfflineEvaluation => AiSource == EvaluationSource.Offline;
+    public bool HasInternalNote => !string.IsNullOrWhiteSpace(InternalNote);
+    public bool HasAiQuestions => !string.IsNullOrWhiteSpace(AiQuestions);
+    public bool HasInterviewSchedule => InterviewAt.HasValue;
 
     public ICollection<ApplicationStatusHistory> StatusHistory { get; set; } = new List<ApplicationStatusHistory>();
 }

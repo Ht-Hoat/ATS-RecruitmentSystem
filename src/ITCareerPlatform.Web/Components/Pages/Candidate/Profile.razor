@@ -4,7 +4,7 @@
 
 @* ATS-08: hồ sơ IT chuyên sâu · ATS-09: tải CV *@
 
-<h1 class="page-title">Hồ sơ IT của tôi (ATS-08, ATS-09)</h1>
+<h1 class="page-title">Hồ sơ IT của tôi</h1>
 <p class="sub">Hoàn thiện hồ sơ và tải CV để có thể ứng tuyển việc làm IT.</p>
 
 @if (Saved == "1") { <div class="alert-ok">Đã lưu hồ sơ thành công.</div> }
@@ -13,12 +13,12 @@
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
 <div class="grid2-wide">
-    <form method="post" action="/profile/save" class="form">
+    <form method="post" action="/profile/save" class="form" data-vi-validate>
         <h2 class="form-h">1 · Thông tin cá nhân</h2>
         <label>Họ và tên</label>
-        <input name="fullName" required value="@p.FullName" />
+        <input name="fullName" required minlength="2" value="@p.FullName" />
         <label>Email</label>
-        <input name="email" type="email" value="@p.Email" />
+        <input name="email" type="email" required value="@p.Email" />
         <div class="grid2">
             <div><label>Số điện thoại</label><input name="phone" value="@p.Phone" /></div>
             <div><label>Ngày sinh</label><input name="dateOfBirth" type="date" value="@(p.DateOfBirth.HasValue ? Ui.InputDate(p.DateOfBirth) : "")" /></div>
@@ -31,6 +31,13 @@
         <textarea name="education" rows="2">@p.Education</textarea>
         <label>Kinh nghiệm làm việc</label>
         <textarea name="experience" rows="3">@p.Experience</textarea>
+        <label>Số năm kinh nghiệm</label>
+        <input name="yearsOfExperience" type="number" min="0" max="50" value="@p.YearsOfExperience" />
+        <p class="sub" style="margin-top:4px">
+            Nhà tuyển dụng lọc ứng viên theo cấp bậc dựa trên con số này.
+            Hiện tại hồ sơ của bạn được xếp: <b>@p.Level</b>
+            <span class="sub">(0 năm = Fresher · 1 = Junior · 2-4 = Middle · từ 5 = Senior)</span>
+        </p>
         <label>Kỹ năng (mô tả)</label>
         <textarea name="skills" rows="2">@p.Skills</textarea>
 
@@ -69,7 +76,7 @@
         {
             <p class="sub">Bạn chưa tải CV nào lên.</p>
         }
-        <form method="post" action="/profile/cv" enctype="multipart/form-data">
+        <form method="post" action="/profile/cv" enctype="multipart/form-data" data-vi-validate>
             <label>Chọn CV (PDF hoặc DOCX, tối đa 5MB)</label>
             <input name="cv" type="file" accept=".pdf,.docx" required />
             <div class="actions">
@@ -78,6 +85,40 @@
         </form>
         <p class="sub" style="margin-top:10px">🔒 CV được quét an toàn trước khi lưu (chặn tệp thực thi / mã độc).</p>
     </div>
+</div>
+
+<!-- N2.H: Mẫu CV IT & Mẹo viết CV -->
+<div class="panel" style="margin-top:20px">
+    <div class="page-head" style="margin-bottom:10px">
+        <h2>5 · Mẫu CV IT & Mẹo viết CV</h2>
+        <a class="btn-sm" href="/cv-templates">Xem tất cả mẫu CV</a>
+    </div>
+    <p class="sub">Tham khảo mẫu CV chuẩn ngành và các mẹo giúp CV của bạn thu hút nhà tuyển dụng:</p>
+    <div class="grid3" style="margin-top:12px">
+        <div class="cv-tpl">
+            <div class="cv-tpl-thumb">🧑‍💻</div>
+            <b>Simple Clean</b>
+            <span class="sub">Software Engineer</span>
+            <a class="btn-sm" href="https://flowcv.com" target="_blank" rel="noopener">Tạo mẫu này</a>
+        </div>
+        <div class="cv-tpl">
+            <div class="cv-tpl-thumb">🛠️</div>
+            <b>Modern Tech</b>
+            <span class="sub">Full Stack Developer</span>
+            <a class="btn-sm" href="https://www.canva.com/resumes/templates/" target="_blank" rel="noopener">Tạo mẫu này</a>
+        </div>
+        <div class="cv-tpl">
+            <div class="cv-tpl-thumb">🎓</div>
+            <b>Fresher Friendly</b>
+            <span class="sub">Sinh viên mới tốt nghiệp</span>
+            <a class="btn-sm" href="https://novoresume.com" target="_blank" rel="noopener">Tạo mẫu này</a>
+        </div>
+    </div>
+    <ul class="feat" style="margin-top:14px">
+        <li>✅ Luôn đặt link GitHub/Portfolio/LinkedIn ở phần đầu hồ sơ IT để nhà tuyển dụng xem code.</li>
+        <li>✅ Dùng động từ hành động: Built, Deployed, Optimized, Automated... thay vì chỉ liệt kê chung chung.</li>
+        <li>✅ Nêu rõ Tech Stack trong từng dự án: ví dụ "C#, ASP.NET Core, React, SQL Server, Docker".</li>
+    </ul>
 </div>
 
 <script>

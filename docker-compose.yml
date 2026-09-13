@@ -26,5 +26,12 @@ services:
       # Tùy chọn: bật AI Gemini (miễn phí). Bỏ trống thì dùng chấm điểm offline.
       Gemini__ApiKey: "${GEMINI_API_KEY:-}"
       Gemini__Model: "gemini-1.5-flash"
+      # Tài khoản quản trị đầu tiên. Chỉ có tác dụng khi CSDL chưa có Admin nào, nên để
+      # nguyên sau lần chạy đầu cũng không thêm được tài khoản nào nữa. Ở đây
+      # ASPNETCORE_ENVIRONMENT=Development nên dữ liệu mẫu đã có sẵn admin@itcp.vn và hai
+      # biến này không làm gì; chúng dành cho lúc triển khai thật.
+      # Mật khẩu tối thiểu 8 ký tự, giống mọi tài khoản khác.
+      Bootstrap__AdminEmail: "${ADMIN_EMAIL:-}"
+      Bootstrap__AdminPassword: "${ADMIN_PASSWORD:-}"
     ports:
       - "8080:8080"

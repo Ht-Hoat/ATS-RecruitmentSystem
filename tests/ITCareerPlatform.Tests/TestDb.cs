@@ -16,6 +16,7 @@ public sealed class TestDb : IDisposable
     {
         _conn = new SqliteConnection("DataSource=:memory:");
         _conn.Open();
+        _conn.CreateFunction("lower", (string? s) => s?.ToLower());
         Db = NewContext();
         Db.Database.EnsureCreated();
     }
@@ -40,12 +41,16 @@ public sealed class TestDb : IDisposable
 
     public Job AddJob(int createdBy, string title = "Backend .NET",
         string category = "Backend", string techStack = "C#,.NET,SQL Server",
-        string level = "Junior", string status = "Open")
+        string level = "Junior", string status = "Open",
+        string employmentType = "Onsite", string location = "Hà Nội",
+        decimal salaryMin = 0, decimal salaryMax = 0)
     {
         var j = new Job
         {
             Title = title, Category = category, TechStack = techStack, Level = level,
             Status = status, CreatedById = createdBy, Deadline = DateTime.Today.AddDays(10),
+            EmploymentType = employmentType, Location = location,
+            SalaryMin = salaryMin, SalaryMax = salaryMax,
             CreatedAt = DateTime.Now
         };
         Db.Jobs.Add(j); Db.SaveChanges();
@@ -64,6 +69,34 @@ public sealed class TestDb : IDisposable
         };
         Db.CandidateProfiles.Add(p); Db.SaveChanges();
         return p;
+    }
+
+    // Đơn ứng tuyển dựng sẵn. Chỉ số (JobId, CandidateProfileId) là duy nhất, nên mỗi
+    // hồ sơ chỉ nộp được một lần vào một tin — test nào cần nhiều đơn phải tạo thêm
+    // hồ sơ hoặc thêm tin, không gọi lại hàm này với cùng cặp id.
+    public Application AddApplication(int jobId, int profileId,
+        string status = ApplicationStatus.Submitted,
+        int? aiScore = null, int? hrScore = null, DateTime? appliedAt = null)
+    {
+        var a = new Application
+        {
+            JobId = jobId,
+            CandidateProfileId = profileId,
+            Status = status,
+            AiScore = aiScore,
+            HrScore = hrScore,
+            AppliedAt = appliedAt ?? DateTime.Now,
+            CvFileNameSnapshot = "cv.pdf"
+        };
+        Db.Applications.Add(a); Db.SaveChanges();
+        return a;
+    }
+
+    /// <summary>Sinh viên + hồ sơ đi kèm, mỗi lần gọi là một cặp user/hồ sơ mới.</summary>
+    public CandidateProfile AddStudentWithProfile(string suffix, string tags = "C#,.NET")
+    {
+        var u = AddUser("SV " + suffix, $"sv{suffix}@itcp.vn", Roles.StudentId);
+        return AddProfile(u.Id, tags);
     }
 
     public void Dispose() { Db.Dispose(); _conn.Dispose(); }

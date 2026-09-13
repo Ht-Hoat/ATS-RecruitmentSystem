@@ -25,7 +25,6 @@
                         <a href="/my-applications">Đơn của tôi</a>
                         <div class="nav-group">Tài nguyên IT</div>
                         <a href="/resources">Cổng tuyển dụng</a>
-                        <a href="/cv-templates">Mẫu CV IT</a>
                         <a href="/toolkit">Roadmap & Checklist</a>
                     </AuthorizeView>
                 </nav>
@@ -57,6 +56,8 @@
                     }
                     <div class="uname">@context.User.Identity?.Name</div>
                     <div class="urole">@Roles.Display(roleName)</div>
+                    @* N1.A: nằm ngoài mọi AuthorizeView theo vai trò — cả ba vai trò đều đổi được. *@
+                    <a class="userlink" href="/change-password">🔑 Đổi mật khẩu</a>
                     <form method="post" action="/account/logout"><button class="btn-out" type="submit">Đăng xuất</button></form>
                 </div>
             </Authorized>

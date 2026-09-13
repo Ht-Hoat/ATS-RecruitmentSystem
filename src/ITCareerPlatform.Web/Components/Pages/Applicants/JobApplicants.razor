@@ -3,7 +3,7 @@
 @inject IJobService Jobs
 @inject IApplicationService Applications
 
-@* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp *@
+@* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp · N1.F: bộ lọc pipeline *@
 
 @if (job is null)
 {
@@ -24,41 +24,129 @@ else
         <span class="@Ui.CategoryClass(job.Category)">@job.Category</span>
         <span class="@Ui.LevelClass(job.Level)">@job.Level</span>
         · Trạng thái: @Ui.JobStatusLabel(job.Status)
-        · Tổng số ứng viên: <b>@apps.Count</b>
+        ·
+        @if (filter.IsActive)
+        {
+            <text>Đang hiện <b>@apps.Count</b> / @totalCount đơn</text>
+        }
+        else
+        {
+            <text>Tổng số ứng viên: <b>@totalCount</b></text>
+        }
     </p>
 
-    <div class="toolbar">
-        <div class="legend">
-            <span class="score score-high">⭐ &gt;70% Phù hợp cao</span>
-            <span class="score score-mid">⚡ 40–70% Trung bình</span>
-            <span class="score score-low">⚠️ &lt;40% Ít phù hợp</span>
+    @* Một form GET duy nhất mang cả bộ lọc lẫn thứ tự sắp xếp. Trang render tĩnh nên
+       không có ô nào tự áp dụng khi vừa đổi — mọi tiêu chí đi cùng nhau qua nút "Lọc",
+       và địa chỉ trang giữ nguyên bộ lọc để Mentor gửi link cho nhau được. *@
+    <form method="get" class="filter-bar">
+        <div>
+            <label>Trạng thái</label>
+            <select name="status">
+                <option value="">Tất cả</option>
+                @foreach (var s in ApplicationStatus.All)
+                {
+                    <option value="@s" selected="@(FStatus == s)">@s</option>
+                }
+            </select>
         </div>
-        <form method="get" class="inline">
-            <label class="inline-lbl">Sắp xếp:</label>
-            <select name="sort" onchange="this.form.submit()">
+
+        <div>
+            <label>CV</label>
+            <select name="cv">
+                <option value="">Tất cả</option>
+                <option value="1" selected="@(FCv == "1")">Có CV</option>
+                <option value="0" selected="@(FCv == "0")">Thiếu CV</option>
+            </select>
+        </div>
+
+        <div>
+            <label>% phù hợp</label>
+            <select name="band">
+                <option value="">Tất cả</option>
+                @foreach (var b in ScoreBand.All)
+                {
+                    <option value="@b" selected="@(FBand == b)">@b</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label>Cấp bậc ứng viên</label>
+            <select name="level">
+                <option value="">Tất cả</option>
+                @foreach (var l in CandidateLevel.All)
+                {
+                    <option value="@l" selected="@(FLevel == l)">@l</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label>Sắp xếp</label>
+            <select name="sort">
                 <option value="date" selected="@(Sort != "score")">Mới nhất</option>
                 <option value="score" selected="@(Sort == "score")">% phù hợp cao nhất</option>
             </select>
-        </form>
+        </div>
+
+        @if (jobTech.Count > 0)
+        {
+            <div style="flex-basis:100%">
+                <label>Tech stack của tin — chọn nhiều thì ứng viên phải có ĐỦ các mục đã chọn</label>
+                <div class="chk-list">
+                    @foreach (var tech in jobTech)
+                    {
+                        <label class="chk">
+                            <input type="checkbox" name="tech" value="@tech" checked="@(selectedTech.Contains(tech))" />
+                            @tech
+                        </label>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="filter-actions">
+            <button class="btn-primary" type="submit">Lọc</button>
+            @if (filter.IsActive)
+            {
+                <a class="btn" href="@($"/jobs/{JobId}/applicants")">Xóa lọc</a>
+            }
+        </div>
+    </form>
+
+    <div class="toolbar">
+        @* Chú giải màu đọc thẳng từ ScoreBand — cùng bộ ngưỡng mà ô lọc "% phù hợp" dùng. *@
+        <div class="legend">
+            <span class="score score-high">⭐ @ScoreBand.High Phù hợp cao</span>
+            <span class="score score-mid">⚡ @ScoreBand.Mid Trung bình</span>
+            <span class="score score-low">⚠️ @ScoreBand.Low Ít phù hợp</span>
+        </div>
     </div>
 
     <table class="tbl">
         <thead>
-            <tr><th>#</th><th>Họ tên</th><th>Email</th><th>Tech Skills</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+            <tr><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
         </thead>
         <tbody>
             @{ int idx = 1; }
             @foreach (var a in apps)
             {
-                <tr class="@(a.FinalScore > 70 ? "row-top" : "")">
+                <tr class="@(Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
                     <td>@idx</td>
                     <td>@a.FullName</td>
                     <td>@a.Email</td>
+                    <td><span class="@Ui.LevelClass(a.LevelName)">@a.LevelName</span></td>
                     <td>
                         @foreach (var tg in a.SkillTagList.Take(3))
                         {
                             <span class="chip">@tg</span>
                         }
+                    </td>
+                    <td>
+                        @* Đơn thiếu CV vẫn nằm trong pipeline, nhưng Mentor cần thấy ngay
+                           để không mất công mở trang chi tiết rồi mới biết không có gì đọc. *@
+                        @if (a.HasCv) { <span class="ok">● Có</span> }
+                        else { <span class="lock">● Thiếu</span> }
                     </td>
                     <td><span class="@Ui.ScoreClass(a.AiScore)">@Ui.ScoreIcon(a.AiScore) @(a.AiScore.HasValue ? a.AiScore + "%" : "Chưa đánh giá")</span></td>
                     <td>
@@ -74,7 +162,18 @@ else
             }
             @if (apps.Count == 0)
             {
-                <tr><td colspan="9" class="sub">Chưa có ứng viên nào nộp hồ sơ vào tin này.</td></tr>
+                <tr>
+                    <td colspan="11" class="sub">
+                        @if (filter.IsActive)
+                        {
+                            <text>Không có đơn nào khớp bộ lọc. <a href="@($"/jobs/{JobId}/applicants")">Xóa lọc</a> để xem lại toàn bộ @totalCount đơn.</text>
+                        }
+                        else
+                        {
+                            <text>Chưa có ứng viên nào nộp hồ sơ vào tin này.</text>
+                        }
+                    </td>
+                </tr>
             }
         </tbody>
     </table>
@@ -83,10 +182,20 @@ else
 @code {
     [Parameter] public int JobId { get; set; }
     [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? FStatus { get; set; }
+    [SupplyParameterFromQuery(Name = "cv")] public string? FCv { get; set; }
+    [SupplyParameterFromQuery(Name = "band")] public string? FBand { get; set; }
+    [SupplyParameterFromQuery(Name = "level")] public string? FLevel { get; set; }
+    [SupplyParameterFromQuery(Name = "tech")] public string[]? FTech { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private Job? job;
     private List<ApplicantListItem> apps = new();
+    private ApplicantFilter filter = new();
+    private IReadOnlyList<string> jobTech = Array.Empty<string>();
+    private HashSet<string> selectedTech = new();
+    private int totalCount;
     private bool canAccess;
 
     protected override async Task OnInitializedAsync()
@@ -96,6 +205,27 @@ else
 
         // #5: luật "Admin hoặc chủ tin" hỏi qua service, không viết lại tại chỗ.
         canAccess = Jobs.CanModify(JobId, CurrentUser.Id((await AuthState).User));
-        if (canAccess) apps = Applications.GetByJob(JobId, Sort ?? "date");
+        if (!canAccess) return;
+
+        // Ô tick công nghệ dựng từ chính Tech Stack của tin này, nên Mentor chỉ lọc được
+        // theo thứ mà vị trí thực sự yêu cầu.
+        jobTech = job.TechStackList;
+        selectedTech = (FTech ?? Array.Empty<string>())
+            .Where(t => jobTech.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        filter = new ApplicantFilter(
+            Status: ApplicationStatus.All.Contains(FStatus) ? FStatus : null,
+            HasCv: FCv switch { "1" => true, "0" => false, _ => null },
+            Band: ScoreBand.All.Contains(FBand) ? FBand : null,
+            Level: CandidateLevel.IsValid(FLevel) ? FLevel : null,
+            RequiredTech: selectedTech.Count > 0 ? selectedTech.ToList() : null);
+
+        apps = Applications.GetByJob(JobId, Sort ?? "date", filter);
+
+        // Đếm bằng COUNT(*) để hiện "đang lọc X / Y", không nạp lại danh sách lần thứ hai.
+        totalCount = filter.IsActive
+            ? Applications.CountForJobs(new[] { JobId }).GetValueOrDefault(JobId)
+            : apps.Count;
     }
 }

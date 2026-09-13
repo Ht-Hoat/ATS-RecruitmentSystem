@@ -1,18 +1,28 @@
 @page "/dashboard"
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IUserService Users
-@inject IJobService Jobs
 @inject IApplicationService Applications
 @using System.Text.Json
 
-@* ATS-18: Dashboard thống kê IT Career Platform *@
+@* Dashboard thống kê IT Career Platform *@
 
-<h1 class="page-title">Dashboard thống kê (ATS-18)</h1>
-<p class="sub">Tổng quan tuyển dụng IT Career Platform.</p>
+<h1 class="page-title">Dashboard thống kê</h1>
+<p class="sub">
+    @(isAdmin
+        ? "Tổng quan tuyển dụng toàn hệ thống IT Career Platform."
+        : "Tổng quan tuyển dụng trên những tin do chính bạn đăng.")
+</p>
 
 <div class="cards">
     <div class="card"><div class="num">@openJobs</div><div class="lbl">Việc làm IT đang mở</div></div>
-    <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@students</div><div class="lbl">Sinh viên IT đã đăng ký</div></div>
+    @if (isAdmin)
+    {
+        <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@students</div><div class="lbl">Sinh viên IT đã đăng ký</div></div>
+    }
+    else
+    {
+        <div class="card" style="border-color:#7c3aed"><div class="num" style="color:#7c3aed">@totalJobs</div><div class="lbl">Tin tuyển dụng của bạn</div></div>
+    }
     <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
     <div class="card" style="border-color:#ca8a04"><div class="num" style="color:#ca8a04">@pending</div><div class="lbl">Đơn đang chờ xử lý</div></div>
 </div>
@@ -20,59 +30,224 @@
 <div class="chart-row">
     <div class="panel chart-box">
         <h2>Phân bố ứng tuyển theo Chuyên ngành IT</h2>
+        <div id="catChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+            ⚠️ Không thể vẽ biểu đồ. Vui lòng thử lại sau.
+        </div>
         <canvas id="catChart" height="220"></canvas>
     </div>
     <div class="panel chart-box">
         <h2>Phân bố trạng thái xử lý hồ sơ</h2>
+        <div id="statusChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+            ⚠️ Không thể vẽ biểu đồ. Vui lòng thử lại sau.
+        </div>
         <canvas id="statusChart" height="220"></canvas>
         <p class="sub" style="margin-top:12px">Tỷ lệ trúng tuyển: <b>@conversionRate%</b> (@accepted/@totalApps đơn)</p>
     </div>
 </div>
 
-@* Một đối tượng JSON duy nhất. Trước đây có 6 chuỗi rời phải tự khớp nhau theo thứ tự
+<div class="panel chart-box" style="margin-top:16px">
+    <h2>Pipeline tuyển dụng (Funnel)</h2>
+    <div id="funnelChartError" style="display:none;padding:12px;color:#b91c1c;background:#fee2e2;border-radius:6px;margin-bottom:8px">
+        ⚠️ Không thể vẽ biểu đồ pipeline. Vui lòng thử lại sau.
+    </div>
+    <canvas id="funnelChart" height="200"></canvas>
+</div>
+
+@* Một đối tượng JSON duy nhất. Trước đây có 9 chuỗi rời phải tự khớp nhau theo thứ tự
    và tên được gõ lại trong chuỗi nội suy — không gì đảm bảo nhãn và số liệu cùng độ dài. *@
 @((MarkupString)$"<script>window.__dash={chartJson};</script>")
 
 <script>
     (function () {
-        function draw() {
-            if (typeof Chart === 'undefined' || !window.__dash) { return setTimeout(draw, 150); }
-            var d = window.__dash;
-            new Chart(document.getElementById('catChart'), {
-                type: 'pie',
-                data: { labels: d.catLabels, datasets: [{ data: d.catData, backgroundColor: d.catColors }] },
-                options: { plugins: { legend: { position: 'right' } } }
-            });
-            new Chart(document.getElementById('statusChart'), {
-                type: 'bar',
-                data: { labels: d.stLabels, datasets: [{ label: 'Số đơn', data: d.stData, backgroundColor: d.stColors }] },
-                options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        var maxRetries = 20;
+        var retryCount = 0;
+
+        function isValidNumericData(arr) {
+            if (!arr || !Array.isArray(arr) || arr.length === 0) return false;
+            return arr.every(function (v) {
+                return typeof v === 'number' && isFinite(v) && !isNaN(v);
             });
         }
+
+        function tryDrawChart(canvasId, errorId, buildConfig) {
+            var errEl = document.getElementById(errorId);
+            var canvas = document.getElementById(canvasId);
+
+            function showError(msg) {
+                if (errEl) {
+                    if (msg) errEl.textContent = msg;
+                    errEl.style.display = '';
+                }
+                if (canvas) canvas.style.display = 'none';
+            }
+
+            try {
+                if (typeof Chart === 'undefined') {
+                    showError('⚠️ Không tìm thấy thư viện Chart.js.');
+                    return;
+                }
+                if (!canvas) {
+                    showError('⚠️ Khung hiển thị biểu đồ không tồn tại.');
+                    return;
+                }
+                var cfg = buildConfig();
+                if (!cfg || !cfg.data) {
+                    showError('⚠️ Cấu hình biểu đồ không hợp lệ.');
+                    return;
+                }
+                if (!Array.isArray(cfg.data.datasets) || cfg.data.datasets.length === 0) {
+                    showError('⚠️ Dữ liệu biểu đồ rỗng.');
+                    return;
+                }
+                // Validate tất cả các dataset
+                for (var i = 0; i < cfg.data.datasets.length; i++) {
+                    var ds = cfg.data.datasets[i];
+                    if (!ds || !isValidNumericData(ds.data)) {
+                        showError('⚠️ Dữ liệu biểu đồ không hợp lệ hoặc chứa giá trị không phải số.');
+                        return;
+                    }
+                }
+                new Chart(canvas, cfg);
+                if (errEl) errEl.style.display = 'none';
+                if (canvas) canvas.style.display = '';
+            } catch (e) {
+                showError('⚠️ Lỗi khi khởi tạo biểu đồ.');
+            }
+        }
+
+        function draw() {
+            if (typeof Chart === 'undefined') {
+                ['catChart', 'statusChart', 'funnelChart'].forEach(function (id) {
+                    var errEl = document.getElementById(id + 'Error');
+                    var canvas = document.getElementById(id);
+                    if (errEl) {
+                        errEl.textContent = '⚠️ Thư viện Chart.js chưa được tải.';
+                        errEl.style.display = '';
+                    }
+                    if (canvas) canvas.style.display = 'none';
+                });
+                return; // Dừng ngay, không retry khi Chart.js không tồn tại
+            }
+
+            if (!window.__dash) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    // Dừng retry sau 20 lần (~3 giây)
+                    ['catChart', 'statusChart', 'funnelChart'].forEach(function (id) {
+                        var errEl = document.getElementById(id + 'Error');
+                        var canvas = document.getElementById(id);
+                        if (errEl) {
+                            errEl.textContent = '⚠️ Hết thời gian chờ dữ liệu biểu đồ.';
+                            errEl.style.display = '';
+                        }
+                        if (canvas) canvas.style.display = 'none';
+                    });
+                    return;
+                }
+                return setTimeout(draw, 150);
+            }
+
+            var d = window.__dash;
+
+            tryDrawChart('catChart', 'catChartError', function () {
+                return {
+                    type: 'pie',
+                    data: { labels: d.catLabels, datasets: [{ data: d.catData, backgroundColor: d.catColors }] },
+                    options: { plugins: { legend: { position: 'right' } } }
+                };
+            });
+
+            tryDrawChart('statusChart', 'statusChartError', function () {
+                return {
+                    type: 'bar',
+                    data: { labels: d.stLabels, datasets: [{ label: 'Số đơn', data: d.stData, backgroundColor: d.stColors }] },
+                    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+                };
+            });
+
+            // N2.B: Funnel Chart
+            tryDrawChart('funnelChart', 'funnelChartError', function () {
+                var fl = d.funnelLabels;
+                var fd = d.funnelData;
+                if (!Array.isArray(fl) || !Array.isArray(fd) || fl.length !== fd.length || fd.length === 0) return null;
+                if (!isValidNumericData(fd)) return null;
+
+                function safeConvRate(curr, prev) {
+                    if (typeof prev !== 'number' || prev <= 0 || !isFinite(prev) || isNaN(prev)) return '—';
+                    if (typeof curr !== 'number' || !isFinite(curr) || isNaN(curr)) return '—';
+                    return Math.round(curr / prev * 100) + '%';
+                }
+
+                var labels = fl.map(function (lbl, i) {
+                    if (i === 0) return lbl + ' (' + fd[i] + ')';
+                    return lbl + ' (' + fd[i] + ' · ' + safeConvRate(fd[i], fd[i - 1]) + ')';
+                });
+
+                return {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{ label: 'Số hồ sơ', data: fd, backgroundColor: d.funnelColors }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        plugins: { legend: { display: false } },
+                        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                    }
+                };
+            });
+        }
+
         draw();
     })();
 </script>
 
 @code {
-    private int openJobs, students, totalApps, pending, accepted, conversionRate;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool isAdmin;
+    private int openJobs, totalJobs, students, totalApps, pending, accepted, conversionRate;
     private string chartJson = "{}";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        openJobs = Jobs.CountOpen();
-        students = Users.CountByRole(Roles.StudentId);
-        totalApps = Applications.CountAll();
+        if (AuthState is null) return;
+        var user = (await AuthState).User;
+        isAdmin = CurrentUser.IsAdmin(user);
+
+        // N1.G: Mentor chỉ được thấy số liệu trên tin của CHÍNH MÌNH — cùng ranh giới mà
+        // CanAccess/CanModify giữ ở mọi trang khác. Đếm trên toàn bảng nghĩa là một Mentor
+        // đọc được lưu lượng tuyển dụng của mọi Mentor khác, trong khi chính người đó không
+        // mở nổi một đơn lẻ nào của họ. null = toàn hệ thống (Admin).
+        int? scope = isAdmin ? null : CurrentUser.Id(user);
+
+        var stats = Applications.GetMentorStats(scope);
+        openJobs = stats.OpenJobs;
+        totalJobs = stats.TotalJobs;
+        if (isAdmin) students = Users.CountByRole(Roles.StudentId);   // thẻ này chỉ Admin thấy
 
         // Một lần GROUP BY cho cả 5 trạng thái, thay cho ba truy vấn COUNT riêng lẻ.
-        var byStatus = Applications.CountGroupedByStatus();
+        // Bốn con số ứng tuyển bên dưới đều đọc từ CHÍNH từ điển này — cùng nguồn với hai
+        // biểu đồ, nên tổng các trạng thái không thể lệch khỏi tổng số đơn trên màn hình.
+        var byStatus = Applications.CountGroupedByStatus(scope);
+        totalApps = byStatus.Values.Sum();
         pending = byStatus.GetValueOrDefault(ApplicationStatus.Submitted);
         accepted = byStatus.GetValueOrDefault(ApplicationStatus.Accepted);
         conversionRate = totalApps == 0 ? 0 : (int)Math.Round(100.0 * accepted / totalApps);
 
-        var byCat = Applications.CountGroupedByCategory();
+        var byCat = Applications.CountGroupedByCategory(scope);
 
         // Màu lấy từ CategoryInfo — cùng một bảng đã sinh ra lớp CSS của badge, nên thêm
         // một chuyên ngành không thể quên cập nhật màu biểu đồ nữa.
+        //
+        // N2.B: phễu tuyển dụng lấy từ CHÍNH byStatus ở trên, không đếm lại lần nữa —
+        // hai con số "Đã nộp" trên cùng một màn hình phải đến từ cùng một truy vấn.
+        var funnelSteps = new[]
+        {
+            ApplicationStatus.Submitted, ApplicationStatus.Reviewing,
+            ApplicationStatus.Interview, ApplicationStatus.Accepted
+        };
+
         chartJson = JsonSerializer.Serialize(new
         {
             catLabels = byCat.Select(x => x.Category),
@@ -80,7 +255,10 @@
             catColors = byCat.Select(x => Ui.CategoryColor(x.Category)),
             stLabels = ApplicationStatus.All,
             stData = ApplicationStatus.All.Select(s => byStatus.GetValueOrDefault(s)),
-            stColors = ApplicationStatus.All.Select(Ui.StatusColor)
+            stColors = ApplicationStatus.All.Select(Ui.StatusColor),
+            funnelLabels = funnelSteps,
+            funnelData = funnelSteps.Select(s => byStatus.GetValueOrDefault(s)),
+            funnelColors = funnelSteps.Select(Ui.StatusColor)
         });
     }
 }

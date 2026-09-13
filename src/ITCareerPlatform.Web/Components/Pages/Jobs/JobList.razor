@@ -4,7 +4,7 @@
 @inject IApplicationService Applications
 
 <div class="page-head">
-    <h1 class="page-title">Tin tuyển dụng IT (ATS-04 → 07)</h1>
+    <h1 class="page-title">Tin tuyển dụng IT</h1>
     <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a>
 </div>
 <p class="sub">Danh sách tin IT — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.</p>
@@ -46,12 +46,16 @@
                     else if (j.Status == JobStatus.Open)
                     {
                         <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
-                        <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline"><button class="btn-sm danger" type="submit">Đóng</button></form>
+                        <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
+                            <button class="btn-sm danger" type="submit">Đóng</button>
+                        </form>
                     }
                     else
                     {
                         <span class="btn-sm ghost disabled" title="Mở lại tin trước khi sửa">Sửa</span>
-                        <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline"><button class="btn-sm" type="submit">Mở lại</button></form>
+                        <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline">
+                            <button class="btn-sm" type="submit">Mở lại</button>
+                        </form>
                     }
                 </td>
             </tr>

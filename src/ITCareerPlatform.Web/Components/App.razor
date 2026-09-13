@@ -6,11 +6,47 @@
     <base href="/" />
     <link rel="stylesheet" href="app.css" />
     <title>IT Career Platform</title>
-    <!-- Chart.js cho Dashboard (ATS-18). Chỉ tải khi trang cần. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+    <!-- Chart.js self-hosted local (N2.A) -->
+    <script src="/lib/chart.umd.min.js"></script>
     <HeadOutlet />
 </head>
 <body>
     <Routes />
+
+    <!-- N2.D: Scoped Form Validation qua data-vi-validate (Event Delegation) -->
+    <script>
+        (function () {
+            document.addEventListener('invalid', function (e) {
+                var el = e.target;
+                if (!el.form || !el.form.hasAttribute('data-vi-validate')) return;
+                if (!el.matches('input, textarea, select')) return;
+                if (el.validity.valueMissing) {
+                    el.setCustomValidity('Vui lòng điền vào ô này.');
+                } else if (el.validity.tooShort) {
+                    el.setCustomValidity('Vui lòng nhập ít nhất ' + el.minLength + ' ký tự (bạn đang có ' + el.value.length + ').');
+                } else if (el.validity.typeMismatch && el.type === 'email') {
+                    el.setCustomValidity('Vui lòng nhập địa chỉ email hợp lệ.');
+                } else if (el.validity.rangeUnderflow) {
+                    el.setCustomValidity('Giá trị tối thiểu là ' + el.min + '.');
+                } else if (el.validity.rangeOverflow) {
+                    el.setCustomValidity('Giá trị tối đa là ' + el.max + '.');
+                }
+            }, true);
+
+            document.addEventListener('input', function (e) {
+                var el = e.target;
+                if (el.form && el.form.hasAttribute('data-vi-validate') && el.matches('input, textarea, select')) {
+                    el.setCustomValidity('');
+                }
+            }, true);
+
+            document.addEventListener('change', function (e) {
+                var el = e.target;
+                if (el.form && el.form.hasAttribute('data-vi-validate') && el.matches('select, input')) {
+                    el.setCustomValidity('');
+                }
+            }, true);
+        })();
+    </script>
 </body>
 </html>
