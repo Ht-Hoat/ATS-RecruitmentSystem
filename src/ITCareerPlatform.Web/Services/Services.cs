@@ -27,6 +27,12 @@ public interface IUserService
     bool Register(string fullName, string email, string password, out string error);   // EXT-01
     /// <summary>N1.A: người dùng tự đổi mật khẩu. Làm MỌI phiên đang mở của tài khoản hết hiệu lực.</summary>
     bool ChangePassword(int userId, string currentPassword, string newPassword, out string error);
+
+    /// <summary>
+    /// Tạo tài khoản quản trị đầu tiên, CHỈ khi hệ thống chưa có Admin nào.
+    /// Trả về false kèm lý do; "đã có Admin rồi" cũng trả false nhưng không phải lỗi.
+    /// </summary>
+    bool TryCreateFirstAdmin(string fullName, string email, string password, out string error);
 }
 
 public interface IJobService
@@ -469,6 +475,48 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
         db.SaveChanges();
 
         audit?.Record(userId, "Change Password", "Users", $"Đổi mật khẩu tài khoản '{u.FullName}'.");
+        return true;
+    }
+
+    // Đường mở khóa một bản triển khai mới. Dữ liệu mẫu chỉ nạp ở Development, nên một
+    // CSDL thật vừa tạo xong không có Admin nào — mà /account/register chỉ sinh ra Sinh
+    // viên và /users/create lại đòi sẵn quyền Admin. Không có hàm này thì bản triển khai
+    // đầu tiên chạy được nhưng không ai quản trị nổi.
+    public bool TryCreateFirstAdmin(string fullName, string email, string password, out string error)
+    {
+        error = "";
+
+        // Điều kiện "chưa có Admin nào" là thứ giữ cho đường này không thành cửa hậu:
+        // biến môi trường bị quên xóa sau lần triển khai đầu sẽ không thêm được quản trị
+        // viên nào nữa, vì lúc đó hệ thống đã có Admin.
+        if (db.Users.Any(u => u.RoleId == Roles.AdminId))
+        { error = "Hệ thống đã có tài khoản quản trị — bỏ qua."; return false; }
+
+        var normalized = NormalizeEmail(email);
+        try
+        {
+            // Cùng bộ luật với hai đường tạo tài khoản kia, kể cả mức tối thiểu 8 ký tự:
+            // tài khoản quyền cao nhất không có lý do gì được nới lỏng hơn tài khoản thường.
+            ValidateAccount(fullName, normalized, password);
+        }
+        catch (ArgumentException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+
+        if (db.Users.Any(u => u.Email == normalized))
+        { error = "Email này đã được dùng cho một tài khoản khác."; return false; }
+
+        db.Users.Add(new User
+        {
+            FullName = fullName.Trim(),
+            Email = normalized,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+            RoleId = Roles.AdminId,
+            IsActive = true
+        });
+        db.SaveChanges();
         return true;
     }
 

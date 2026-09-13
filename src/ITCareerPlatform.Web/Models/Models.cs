@@ -104,16 +104,20 @@ public class Job : ITimestamped
 {
     public int Id { get; set; }
 
-    [Required(ErrorMessage = "Tiêu đề công việc không được để trống."), MaxLength(160)]
+    // Mọi MaxLength đều kèm ErrorMessage tiếng Việt: JobService.Validate chạy
+    // Validator.TryValidateObject, nên thuộc tính nào không có câu riêng sẽ sinh ra câu
+    // tiếng Anh tự động và hiện thẳng lên màn hình cho người đăng tin đọc.
+    [Required(ErrorMessage = "Tiêu đề công việc không được để trống.")]
+    [MaxLength(160, ErrorMessage = "Tiêu đề công việc tối đa 160 ký tự.")]
     public string Title { get; set; } = "";
 
-    [MaxLength(4000)]
+    [MaxLength(4000, ErrorMessage = "Mô tả công việc tối đa 4000 ký tự.")]
     public string Description { get; set; } = "";   // Mô tả công việc (JD)
 
-    [MaxLength(4000)]
+    [MaxLength(4000, ErrorMessage = "Yêu cầu ứng viên tối đa 4000 ký tự.")]
     public string Requirements { get; set; } = "";
 
-    [MaxLength(120)]
+    [MaxLength(120, ErrorMessage = "Địa điểm tối đa 120 ký tự.")]
     public string Location { get; set; } = "";
 
     [Range(0, 10_000, ErrorMessage = "Lương tối thiểu không hợp lệ.")]
@@ -128,13 +132,13 @@ public class Job : ITimestamped
     public string Status { get; set; } = JobStatus.Open;
 
     // ===== ATS-04.1: 3 trường IT =====
-    [Required, MaxLength(40)]
+    [Required, MaxLength(40, ErrorMessage = "Danh mục tối đa 40 ký tự.")]
     public string Category { get; set; } = "Khác";   // phải thuộc Job.Categories
 
-    [MaxLength(400)]
+    [MaxLength(400, ErrorMessage = "Tech Stack tối đa 400 ký tự.")]
     public string TechStack { get; set; } = "";      // "C#, .NET, SQL Server, Docker"
 
-    [Required, MaxLength(20)]
+    [Required, MaxLength(20, ErrorMessage = "Cấp bậc tối đa 20 ký tự.")]
     public string Level { get; set; } = "Junior";    // phải thuộc Job.Levels
 
     public int CreatedById { get; set; }

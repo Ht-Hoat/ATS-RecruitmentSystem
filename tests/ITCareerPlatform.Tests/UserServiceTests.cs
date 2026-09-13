@@ -77,6 +77,99 @@ public class UserServiceTests
         Assert.False(t.NewContext().Users.Find(sv.Id)!.IsActive);
     }
 
+    // ===== Tài khoản quản trị đầu tiên =====
+
+    [Fact]
+    public void TryCreateFirstAdmin_OnEmptySystem_CreatesAdmin()
+    {
+        using var t = new TestDb();
+        var svc = new UserService(t.Db);
+
+        var ok = svc.TryCreateFirstAdmin("Quản trị hệ thống", "Root@ITCP.vn", "matkhaumanh1", out var err);
+
+        Assert.True(ok);
+        Assert.Equal("", err);
+
+        var admin = Assert.Single(t.NewContext().Users.Where(u => u.RoleId == Roles.AdminId));
+        Assert.Equal("root@itcp.vn", admin.Email);                 // email lưu ở dạng chuẩn hóa
+        Assert.True(admin.IsActive);
+        Assert.True(BCrypt.Net.BCrypt.Verify("matkhaumanh1", admin.PasswordHash));
+        Assert.NotEqual("matkhaumanh1", admin.PasswordHash);
+    }
+
+    /// <summary>
+    /// Đây là điều kiện giữ cho đường này không thành cửa hậu: biến môi trường bị quên xóa
+    /// sau lần triển khai đầu không được phép thêm quản trị viên nào nữa.
+    /// </summary>
+    [Fact]
+    public void TryCreateFirstAdmin_WhenAdminExists_RefusesAndAddsNobody()
+    {
+        using var t = new TestDb();
+        t.AddUser("Admin có sẵn", "admin@itcp.vn", Roles.AdminId);
+        var svc = new UserService(t.Db);
+
+        var ok = svc.TryCreateFirstAdmin("Kẻ lạ", "attacker@evil.vn", "matkhaumanh1", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("đã có tài khoản quản trị", err);
+        Assert.Single(t.NewContext().Users.Where(u => u.RoleId == Roles.AdminId));
+        Assert.Empty(t.NewContext().Users.Where(u => u.Email == "attacker@evil.vn"));
+    }
+
+    /// <summary>Một Mentor hay Sinh viên đang tồn tại KHÔNG chặn việc tạo Admin đầu tiên.</summary>
+    [Fact]
+    public void TryCreateFirstAdmin_NonAdminUsersDoNotBlockIt()
+    {
+        using var t = new TestDb();
+        t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        t.AddUser("Mentor", "m@itcp.vn", Roles.MentorId);
+        var svc = new UserService(t.Db);
+
+        Assert.True(svc.TryCreateFirstAdmin("Quản trị", "root@itcp.vn", "matkhaumanh1", out _));
+    }
+
+    /// <summary>Tài khoản quyền cao nhất không được nới lỏng luật mật khẩu.</summary>
+    [Fact]
+    public void TryCreateFirstAdmin_ShortPassword_Refused()
+    {
+        using var t = new TestDb();
+        var svc = new UserService(t.Db);
+
+        var ok = svc.TryCreateFirstAdmin("Quản trị", "root@itcp.vn", "123456", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("8 ký tự", err);
+        Assert.Empty(t.NewContext().Users);
+    }
+
+    [Fact]
+    public void TryCreateFirstAdmin_InvalidEmail_Refused()
+    {
+        using var t = new TestDb();
+        var svc = new UserService(t.Db);
+
+        var ok = svc.TryCreateFirstAdmin("Quản trị", "khong-phai-email", "matkhaumanh1", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("Email", err);
+        Assert.Empty(t.NewContext().Users);
+    }
+
+    /// <summary>Email đã dùng cho tài khoản khác thì không nâng cấp nó thành Admin.</summary>
+    [Fact]
+    public void TryCreateFirstAdmin_EmailTakenByStudent_Refused()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "trung@itcp.vn", Roles.StudentId);
+        var svc = new UserService(t.Db);
+
+        var ok = svc.TryCreateFirstAdmin("Quản trị", "trung@itcp.vn", "matkhaumanh1", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("đã được dùng", err);
+        Assert.Equal(Roles.StudentId, t.NewContext().Users.Find(sv.Id)!.RoleId);
+    }
+
     // ===== N1.A: đổi mật khẩu =====
     // TestDb.AddUser băm sẵn mật khẩu "12345678" cho mọi tài khoản.
 
