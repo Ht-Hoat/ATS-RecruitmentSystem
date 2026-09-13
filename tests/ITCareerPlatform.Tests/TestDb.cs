@@ -66,5 +66,33 @@ public sealed class TestDb : IDisposable
         return p;
     }
 
+    // Đơn ứng tuyển dựng sẵn. Chỉ số (JobId, CandidateProfileId) là duy nhất, nên mỗi
+    // hồ sơ chỉ nộp được một lần vào một tin — test nào cần nhiều đơn phải tạo thêm
+    // hồ sơ hoặc thêm tin, không gọi lại hàm này với cùng cặp id.
+    public Application AddApplication(int jobId, int profileId,
+        string status = ApplicationStatus.Submitted,
+        int? aiScore = null, int? hrScore = null, DateTime? appliedAt = null)
+    {
+        var a = new Application
+        {
+            JobId = jobId,
+            CandidateProfileId = profileId,
+            Status = status,
+            AiScore = aiScore,
+            HrScore = hrScore,
+            AppliedAt = appliedAt ?? DateTime.Now,
+            CvFileNameSnapshot = "cv.pdf"
+        };
+        Db.Applications.Add(a); Db.SaveChanges();
+        return a;
+    }
+
+    /// <summary>Sinh viên + hồ sơ đi kèm, mỗi lần gọi là một cặp user/hồ sơ mới.</summary>
+    public CandidateProfile AddStudentWithProfile(string suffix, string tags = "C#,.NET")
+    {
+        var u = AddUser("SV " + suffix, $"sv{suffix}@itcp.vn", Roles.StudentId);
+        return AddProfile(u.Id, tags);
+    }
+
     public void Dispose() { Db.Dispose(); _conn.Dispose(); }
 }

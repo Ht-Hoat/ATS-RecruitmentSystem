@@ -65,6 +65,17 @@ public interface IApplicationService
     /// <summary>Thống kê ATS-18 — tổng hợp bằng GROUP BY trong SQL, không kéo bản ghi về.</summary>
     Dictionary<string, int> CountGroupedByStatus();
     List<CategoryCount> CountGroupedByCategory();
+
+    // ===== N1.G: thống kê cho dashboard Mentor =====
+    // mentorUserId = null nghĩa là TOÀN hệ thống (Admin); có giá trị thì chỉ tính trên
+    // những tin do chính Mentor đó tạo — cùng ranh giới mà CanAccess/CanModify đang giữ.
+    MentorStats GetMentorStats(int? mentorUserId);
+    Dictionary<string, int> CountGroupedByStatus(int? mentorUserId);
+    List<CategoryCount> CountGroupedByCategory(int? mentorUserId);
+    /// <summary>Những tin hút hồ sơ nhất — để Mentor biết nên đẩy hay đóng tin nào.</summary>
+    List<JobApplicantCount> TopJobsByApplicants(int? mentorUserId, int take = 5);
+    /// <summary>Số đơn mỗi ngày, ĐÃ đắp đủ cả những ngày không có đơn nào.</summary>
+    List<DayCount> ApplicationsPerDay(int? mentorUserId, int days = 14);
     HashSet<int> AppliedJobIds(int candidateUserId);
     bool CanAccess(int appId, int actorUserId, bool isAdmin);
     void SaveAiEvaluation(int appId, AiEvaluation eval);                  // ATS-13/14
@@ -91,6 +102,37 @@ public record AuditPage(IReadOnlyList<AuditEntry> Items, int Total, int Page, in
 }
 
 public record CategoryCount(string Category, int Count);
+
+// ===== N1.G: số liệu cho dashboard Mentor =====
+
+/// <summary>
+/// Tổng quan một lần gọi cho dashboard. Gom vào một record thay vì 10 hàm đếm rời:
+/// cả 10 con số phải đến từ CÙNG một lát cắt dữ liệu, nếu không tổng các trạng thái
+/// có thể lệch khỏi tổng số đơn ngay trên cùng một màn hình.
+/// </summary>
+public record MentorStats(
+    int TotalJobs,
+    int OpenJobs,
+    int TotalApplications,
+    int PendingReview,          // "Đã nộp" — chưa ai xem
+    int Reviewing,
+    int Interviewing,
+    int Accepted,
+    int Rejected,
+    int ApplicationsLast7Days,
+    int ScoredApplications,     // số đơn đã có điểm (AI hoặc Mentor)
+    int AvgFinalScore,          // trung bình % phù hợp của riêng những đơn đã chấm
+    int ConversionRate)         // % trúng tuyển trên tổng đơn
+{
+    public bool HasApplications => TotalApplications > 0;
+
+    /// <summary>Phân biệt "trung bình bằng 0" với "chưa chấm đơn nào" — giao diện hiển thị khác nhau.</summary>
+    public bool HasScores => ScoredApplications > 0;
+}
+
+public record JobApplicantCount(int JobId, string JobTitle, string Category, string Level, int Count);
+
+public record DayCount(DateTime Day, int Count);
 
 public interface INotificationService                                     // NTF-01
 {
@@ -676,21 +718,121 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
     /// Enumerable.ToDictionary, nên EF phải nạp TOÀN BỘ entity Application — kể cả cột
     /// CvDataSnapshot tới 5MB mỗi bản ghi — chỉ để đếm ra 5 con số.
     /// </summary>
-    public Dictionary<string, int> CountGroupedByStatus() =>
-        db.Applications.GroupBy(a => a.Status)
-                       .Select(g => new { Status = g.Key, Count = g.Count() })
-                       .ToDictionary(x => x.Status, x => x.Count);
+    public Dictionary<string, int> CountGroupedByStatus() => CountGroupedByStatus(null);
 
     // Phần gộp phải chiếu vào anonymous type: EF không dịch được GroupBy khi Select dựng
     // thẳng một kiểu record tự định nghĩa. Sắp xếp và ánh xạ làm sau khi đã có kết quả —
     // chỉ vài dòng (mỗi chuyên ngành một dòng), nên không phải chi phí đáng kể.
-    public List<CategoryCount> CountGroupedByCategory() =>
-        db.Applications.GroupBy(a => a.Job!.Category)
-                       .Select(g => new { Category = g.Key, Count = g.Count() })
-                       .ToList()
-                       .OrderByDescending(x => x.Count)
-                       .Select(x => new CategoryCount(x.Category, x.Count))
-                       .ToList();
+    public List<CategoryCount> CountGroupedByCategory() => CountGroupedByCategory(null);
+
+    // =====================================================================
+    //  N1.G: thống kê cho dashboard Mentor.
+    //
+    //  Mọi truy vấn dưới đây đi qua ScopedApplications/ScopedJobs, nên ranh giới
+    //  "chỉ tin của tôi" được phát biểu đúng MỘT lần. Dashboard cũ đếm trên toàn bảng,
+    //  nghĩa là một Mentor đọc được lưu lượng tuyển dụng của mọi Mentor khác — trong khi
+    //  chính người đó không mở nổi một đơn lẻ nào của họ, vì CanAccess đã chặn.
+    // =====================================================================
+
+    private IQueryable<Application> ScopedApplications(int? mentorUserId)
+    {
+        var q = db.Applications.AsNoTracking();
+        return mentorUserId is null ? q : q.Where(a => a.Job!.CreatedById == mentorUserId);
+    }
+
+    private IQueryable<Job> ScopedJobs(int? mentorUserId)
+    {
+        var q = db.Jobs.AsNoTracking();
+        return mentorUserId is null ? q : q.Where(j => j.CreatedById == mentorUserId);
+    }
+
+    public MentorStats GetMentorStats(int? mentorUserId)
+    {
+        var jobs = ScopedJobs(mentorUserId);
+        var totalJobs = jobs.Count();
+        var openJobs = jobs.Count(j => j.Status == JobStatus.Open);
+
+        var byStatus = CountGroupedByStatus(mentorUserId);
+        var total = byStatus.Values.Sum();
+        var accepted = byStatus.GetValueOrDefault(ApplicationStatus.Accepted);
+
+        // Mốc 7 ngày tính từ ĐẦU NGÀY chứ không từ thời điểm gọi hàm: nếu trừ thẳng
+        // DateTime.Now, cùng một dashboard mở lúc 9h và lúc 17h sẽ ra hai con số khác nhau
+        // mà không có gì trên màn hình giải thích vì sao.
+        var since = DateTime.Today.AddDays(-6);
+        var last7 = ScopedApplications(mentorUserId).Count(a => a.AppliedAt >= since);
+
+        // Trung bình chỉ tính trên đơn ĐÃ chấm. Nếu gộp cả đơn chưa chấm vào mẫu số thì
+        // mỗi đơn mới nộp lại kéo trung bình tụt xuống — trông như chất lượng ứng viên
+        // đang giảm, trong khi thực ra chỉ là Mentor chưa bấm chấm.
+        var scored = ScopedApplications(mentorUserId).Where(a => a.HrScore != null || a.AiScore != null);
+        var scoredCount = scored.Count();
+        // AVG chạy trong SQL; chiếu sang double? để EF sinh AVG(CAST(... AS float)) thay vì
+        // kéo từng dòng về rồi mới cộng ở phía ứng dụng.
+        var avgRaw = scored.Select(a => (double?)(a.HrScore ?? a.AiScore)).Average();
+
+        return new MentorStats(
+            TotalJobs: totalJobs,
+            OpenJobs: openJobs,
+            TotalApplications: total,
+            PendingReview: byStatus.GetValueOrDefault(ApplicationStatus.Submitted),
+            Reviewing: byStatus.GetValueOrDefault(ApplicationStatus.Reviewing),
+            Interviewing: byStatus.GetValueOrDefault(ApplicationStatus.Interview),
+            Accepted: accepted,
+            Rejected: byStatus.GetValueOrDefault(ApplicationStatus.Rejected),
+            ApplicationsLast7Days: last7,
+            ScoredApplications: scoredCount,
+            AvgFinalScore: avgRaw is null ? 0 : (int)Math.Round(avgRaw.Value),
+            ConversionRate: total == 0 ? 0 : (int)Math.Round(100.0 * accepted / total));
+    }
+
+    public Dictionary<string, int> CountGroupedByStatus(int? mentorUserId) =>
+        ScopedApplications(mentorUserId)
+            .GroupBy(a => a.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionary(x => x.Status, x => x.Count);
+
+    public List<CategoryCount> CountGroupedByCategory(int? mentorUserId) =>
+        ScopedApplications(mentorUserId)
+            .GroupBy(a => a.Job!.Category)
+            .Select(g => new { Category = g.Key, Count = g.Count() })
+            .ToList()
+            .OrderByDescending(x => x.Count)
+            .Select(x => new CategoryCount(x.Category, x.Count))
+            .ToList();
+
+    public List<JobApplicantCount> TopJobsByApplicants(int? mentorUserId, int take = 5)
+    {
+        take = Math.Clamp(take, 1, 50);
+        return ScopedJobs(mentorUserId)
+            .Select(j => new { j.Id, j.Title, j.Category, j.Level, Count = j.Applications.Count })
+            .OrderByDescending(x => x.Count).ThenByDescending(x => x.Id)
+            .Take(take)
+            .ToList()
+            .Select(x => new JobApplicantCount(x.Id, x.Title, x.Category, x.Level, x.Count))
+            .ToList();
+    }
+
+    public List<DayCount> ApplicationsPerDay(int? mentorUserId, int days = 14)
+    {
+        days = Math.Clamp(days, 1, 90);
+        var from = DateTime.Today.AddDays(-(days - 1));
+
+        // Gộp theo ngày trong SQL, rồi ĐẮP ĐỦ những ngày không có đơn nào ở phía C#.
+        // Thiếu bước đắp, biểu đồ nối thẳng qua ngày trống và trông như hồ sơ về đều đặn,
+        // trong khi thực tế có những ngày không ai nộp.
+        var raw = ScopedApplications(mentorUserId)
+            .Where(a => a.AppliedAt >= from)
+            .GroupBy(a => a.AppliedAt.Date)
+            .Select(g => new { Day = g.Key, Count = g.Count() })
+            .ToList()
+            .ToDictionary(x => x.Day, x => x.Count);
+
+        return Enumerable.Range(0, days)
+            .Select(i => from.AddDays(i))
+            .Select(d => new DayCount(d, raw.GetValueOrDefault(d)))
+            .ToList();
+    }
 
     /// <summary>Chỉ lấy cột JobId. Bản cũ dựng cả DTO có JOIN sang Jobs rồi vứt hết đi.</summary>
     public HashSet<int> AppliedJobIds(int candidateUserId) =>
