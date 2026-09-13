@@ -15,6 +15,8 @@ a { color: #1f4e79; }
 .uname { font-weight: 700; color: #fff; }
 .urole { font-size: 12px; color: #93c5fd; margin-bottom: 10px; }
 .btn-out { background: #ef4444; color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; cursor: pointer; width: 100%; }
+.userlink { display: block; color: #dbeafe; text-decoration: none; font-size: 13px; padding: 6px 0 10px; }
+.userlink:hover { color: #fff; text-decoration: underline; }
 .content { flex: 1; padding: 30px 38px; overflow-x: auto; }
 
 /* ===== Notification bell ===== */

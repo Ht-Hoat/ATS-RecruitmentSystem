@@ -190,6 +190,29 @@ app.MapPost("/account/register", async (HttpContext ctx, IUserService svc) =>
     return Results.LocalRedirect("/login?registered=1");
 }).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(LoginRateLimitPolicy);
 
+// N1.A: người dùng tự đổi mật khẩu — mọi vai trò, không riêng Admin.
+app.MapPost("/account/change-password", async (HttpContext ctx, IUserService svc) =>
+{
+    var uid = CurrentUserId(ctx);
+    if (uid == 0) return Results.LocalRedirect("/login");
+
+    var f = await ctx.Request.ReadFormAsync();
+    var newPassword = f["newPassword"].ToString();
+    if (newPassword != f["confirmPassword"].ToString())
+        return Results.Redirect("/change-password?error=" + Enc("Mật khẩu xác nhận không khớp."));
+
+    if (!svc.ChangePassword(uid, f["currentPassword"].ToString(), newPassword, out var error))
+        return Results.Redirect("/change-password?error=" + Enc(error));
+
+    // Đổi mật khẩu đã làm SecurityStamp tăng, nên cookie hiện tại hết hiệu lực NGAY.
+    // Tự đăng xuất để người dùng nhận một trang đăng nhập có thông báo rõ ràng, thay vì
+    // bị OnValidatePrincipal từ chối ở request kế tiếp mà không rõ chuyện gì xảy ra.
+    await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    return Results.LocalRedirect("/login?pwchanged=1");
+    // Cùng chính sách giới hạn tốc độ với đăng nhập: endpoint này cũng nhận mật khẩu hiện
+    // tại, nên nếu không chặn thì nó thành một cửa dò mật khẩu thứ hai.
+}).RequireAuthorization().DisableAntiforgery().RequireRateLimiting(LoginRateLimitPolicy);
+
 // ============================ USERS (ATS-01, ATS-02) ============================
 app.MapPost("/users/create", async (HttpContext ctx, IUserService svc) =>
 {

@@ -24,6 +24,8 @@ public interface IUserService
     void ToggleLock(int id, int actorUserId);
     void ChangeRole(int id, int roleId, int actorUserId);
     bool Register(string fullName, string email, string password, out string error);   // EXT-01
+    /// <summary>N1.A: người dùng tự đổi mật khẩu. Làm MỌI phiên đang mở của tài khoản hết hiệu lực.</summary>
+    bool ChangePassword(int userId, string currentPassword, string newPassword, out string error);
 }
 
 public interface IJobService
@@ -327,6 +329,39 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
             IsActive = true
         });
         db.SaveChanges();
+        return true;
+    }
+
+    // N1.A: đổi mật khẩu. Trả false kèm lý do thay vì ném ngoại lệ — endpoint chỉ việc
+    // đưa thông báo ngược về form, giống đường Register.
+    public bool ChangePassword(int userId, string currentPassword, string newPassword, out string error)
+    {
+        error = "";
+        var u = db.Users.Find(userId);
+
+        // Không tách "không tìm thấy tài khoản" khỏi "sai mật khẩu": người gọi đã đăng nhập
+        // rồi nên hai trường hợp chỉ khác nhau khi có ai đó đang dò id, và khi đó thông báo
+        // khác nhau chính là thứ xác nhận id nào có thật.
+        if (u is null || !BCrypt.Net.BCrypt.Verify(currentPassword ?? "", u.PasswordHash))
+        { error = "Mật khẩu hiện tại không đúng."; return false; }
+
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < MinPasswordLength)
+        { error = $"Mật khẩu mới phải có tối thiểu {MinPasswordLength} ký tự."; return false; }
+
+        if (BCrypt.Net.BCrypt.Verify(newPassword, u.PasswordHash))
+        { error = "Mật khẩu mới phải khác mật khẩu hiện tại."; return false; }
+
+        u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+
+        // Đổi stamp để mọi phiên đang mở bằng mật khẩu CŨ bị từ chối ở request kế tiếp,
+        // kể cả phiên trên máy khác — đó mới là điều người dùng mong đợi khi đổi mật khẩu.
+        // Hệ quả: chính người vừa đổi cũng mất phiên, nên endpoint phải chủ động SignOut
+        // và đưa họ về trang đăng nhập, thay vì để họ bị văng ra giữa chừng ở một request
+        // bất kỳ sau đó mà không hiểu vì sao.
+        u.SecurityStamp++;
+        db.SaveChanges();
+
+        audit?.Record(userId, "Change Password", "Users", $"Đổi mật khẩu tài khoản '{u.FullName}'.");
         return true;
     }
 

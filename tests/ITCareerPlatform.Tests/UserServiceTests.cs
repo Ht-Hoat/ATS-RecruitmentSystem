@@ -76,4 +76,101 @@ public class UserServiceTests
 
         Assert.False(t.NewContext().Users.Find(sv.Id)!.IsActive);
     }
+
+    // ===== N1.A: đổi mật khẩu =====
+    // TestDb.AddUser băm sẵn mật khẩu "12345678" cho mọi tài khoản.
+
+    [Fact]
+    public void ChangePassword_Valid_RehashesAndBumpsSecurityStamp()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var stampBefore = sv.SecurityStamp;
+        var svc = new UserService(t.Db);
+
+        var ok = svc.ChangePassword(sv.Id, "12345678", "matkhaumoi99", out var err);
+
+        Assert.True(ok);
+        Assert.Equal("", err);
+
+        var saved = t.NewContext().Users.Find(sv.Id)!;
+        Assert.True(BCrypt.Net.BCrypt.Verify("matkhaumoi99", saved.PasswordHash));
+        Assert.False(BCrypt.Net.BCrypt.Verify("12345678", saved.PasswordHash));
+
+        // Không tăng stamp thì mọi phiên mở bằng mật khẩu CŨ vẫn dùng được bình thường —
+        // đổi mật khẩu khi đó chỉ là đổi thứ để gõ lần sau, không thu hồi được gì.
+        Assert.Equal(stampBefore + 1, saved.SecurityStamp);
+    }
+
+    [Fact]
+    public void ChangePassword_WrongCurrent_Fails_AndKeepsOldHash()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new UserService(t.Db);
+
+        var ok = svc.ChangePassword(sv.Id, "sai-mat-khau", "matkhaumoi99", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("hiện tại không đúng", err);
+
+        var saved = t.NewContext().Users.Find(sv.Id)!;
+        Assert.True(BCrypt.Net.BCrypt.Verify("12345678", saved.PasswordHash));
+        Assert.Equal(sv.SecurityStamp, saved.SecurityStamp);   // phiên đang mở KHÔNG bị đụng
+    }
+
+    [Fact]
+    public void ChangePassword_ShortNewPassword_Fails()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new UserService(t.Db);
+
+        var ok = svc.ChangePassword(sv.Id, "12345678", "123", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("8 ký tự", err);
+        Assert.True(BCrypt.Net.BCrypt.Verify("12345678", t.NewContext().Users.Find(sv.Id)!.PasswordHash));
+    }
+
+    /// <summary>Đổi sang đúng mật khẩu cũ là thao tác rỗng, nhưng vẫn đá mọi phiên ra nếu cho qua.</summary>
+    [Fact]
+    public void ChangePassword_SameAsCurrent_Fails()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new UserService(t.Db);
+
+        var ok = svc.ChangePassword(sv.Id, "12345678", "12345678", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("khác mật khẩu hiện tại", err);
+        Assert.Equal(sv.SecurityStamp, t.NewContext().Users.Find(sv.Id)!.SecurityStamp);
+    }
+
+    /// <summary>Id không tồn tại phải trả cùng thông báo với sai mật khẩu — không xác nhận id nào có thật.</summary>
+    [Fact]
+    public void ChangePassword_UnknownUser_GivesSameMessageAsWrongPassword()
+    {
+        using var t = new TestDb();
+        var svc = new UserService(t.Db);
+
+        var ok = svc.ChangePassword(9999, "12345678", "matkhaumoi99", out var err);
+
+        Assert.False(ok);
+        Assert.Contains("hiện tại không đúng", err);
+    }
+
+    [Fact]
+    public void ChangePassword_WritesAuditLog()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new UserService(t.Db, new AuditService(t.Db));
+
+        Assert.True(svc.ChangePassword(sv.Id, "12345678", "matkhaumoi99", out _));
+
+        var log = Assert.Single(t.NewContext().AuditLogs.Where(a => a.Action == "Change Password"));
+        Assert.Equal(sv.Id, log.UserId);
+    }
 }
