@@ -106,4 +106,57 @@ public class ProfileServiceTests
         Assert.False(ok);
         Assert.Contains("5MB", err);
     }
+
+    // ===== N1.F: số năm kinh nghiệm =====
+
+    [Fact]
+    public void Save_PersistsYearsOfExperience()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new ProfileService(t.Db);
+
+        svc.Save(sv.Id, new CandidateProfile
+        {
+            FullName = "Nguyễn Văn A", Email = "a@itcp.vn", YearsOfExperience = 3
+        });
+
+        var p = t.NewContext().CandidateProfiles.Single(x => x.UserId == sv.Id);
+        Assert.Equal(3, p.YearsOfExperience);
+        Assert.Equal(CandidateLevel.Middle, p.Level);
+    }
+
+    /// <summary>[Range] trên entity là luật thật; min/max của thẻ input chỉ ràng buộc trình duyệt.</summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(51)]
+    public void Save_OutOfRangeYears_Rejected(int years)
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new ProfileService(t.Db);
+
+        var ex = Assert.Throws<ArgumentException>(() => svc.Save(sv.Id, new CandidateProfile
+        {
+            FullName = "Nguyễn Văn A", Email = "a@itcp.vn", YearsOfExperience = years
+        }));
+
+        Assert.Contains("kinh nghiệm", ex.Message);
+    }
+
+    [Fact]
+    public void Save_DefaultYears_IsFresher()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+
+        var p = new ProfileService(t.Db).Save(sv.Id, new CandidateProfile
+        {
+            FullName = "Nguyễn Văn A", Email = "a@itcp.vn"
+        });
+
+        Assert.Equal(0, p.YearsOfExperience);
+        Assert.Equal(CandidateLevel.Fresher, p.Level);
+    }
+
 }
