@@ -17,7 +17,7 @@ else if (app is null)
 else
 {
     <div class="page-head">
-        <h1 class="page-title">Hồ sơ ứng viên (ATS-12)</h1>
+        <h1 class="page-title">Hồ sơ ứng viên</h1>
         <a class="btn" href="@($"/jobs/{app.JobId}/applicants")">← Về danh sách ứng viên</a>
     </div>
 
@@ -108,7 +108,7 @@ else
 
                 <!-- ATS-16: Mentor duyệt / điều chỉnh % phù hợp -->
                 <div class="hr-adjust">
-                    <h3>Đánh giá của Mentor (ATS-16)</h3>
+                    <h3>Đánh giá của Mentor</h3>
                     @if (app.HrScore.HasValue)
                     {
                         <p>% Mentor xác nhận: <b class="@Ui.ScoreClass(app.HrScore)">@app.HrScore%</b>
@@ -119,7 +119,7 @@ else
                             <input type="hidden" name="agree" value="1" />
                             <button class="btn-sm" type="submit">✅ Đồng ý với đánh giá AI (@app.AiScore%)</button>
                         </form>
-                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form">
+                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form" data-vi-validate>
                             <input type="hidden" name="agree" value="0" />
                             <div class="inline">
                                 <input name="hrScore" type="number" min="0" max="100" placeholder="% phù hợp (0-100)" required />
@@ -140,7 +140,8 @@ else
            Ba ô lịch mặc định HIỆN; đoạn script bên dưới chỉ ẩn bớt khi trạng thái đang chọn
            không phải "Phỏng vấn". Làm ngược lại (mặc định ẩn, script hiện) thì máy chặn JS
            sẽ không bao giờ nhìn thấy chúng. *@
-        <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px">
+        <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px"
+              onsubmit="return confirm('Bạn chắc chắn muốn thay đổi trạng thái đơn này?');">
             <label>Trạng thái</label>
             <select name="status" id="statusSelect">
                 @foreach (var s in ApplicationStatus.All)

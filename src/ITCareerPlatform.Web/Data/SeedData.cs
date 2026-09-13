@@ -30,6 +30,7 @@ public static class SeedData
             Description = "Phát triển REST API và hệ thống web bằng ASP.NET Core cho sản phẩm tuyển dụng IT.",
             Requirements = "Thành thạo C#, EF Core, SQL Server; hiểu Docker; 1 năm kinh nghiệm.",
             Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = DateTime.Today.AddDays(20),
+            EmploymentType = "Hybrid",
             Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-5)
         };
         var jFrontend = new Job
@@ -39,6 +40,7 @@ public static class SeedData
             Description = "Xây dựng giao diện người dùng bằng React cho nền tảng IT Career.",
             Requirements = "React, TypeScript, kinh nghiệm 2 năm; hiểu REST API.",
             Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = DateTime.Today.AddDays(4), // sắp hết hạn
+            EmploymentType = "Onsite",
             Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-3)
         };
         var jDevOps = new Job
@@ -48,6 +50,7 @@ public static class SeedData
             Description = "Vận hành hạ tầng, xây dựng pipeline CI/CD.",
             Requirements = "Docker, Kubernetes, GitHub Actions; 3 năm kinh nghiệm.",
             Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = DateTime.Today.AddDays(25),
+            EmploymentType = "Remote",
             Status = JobStatus.Open, CreatedById = mentor2.Id, CreatedAt = DateTime.Now.AddDays(-2)
         };
         var jDataAi = new Job
@@ -57,6 +60,7 @@ public static class SeedData
             Description = "Xây dựng module sàng lọc CV bằng AI.",
             Requirements = "Python, SQL, hiểu ML cơ bản, LLM API.",
             Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = DateTime.Today.AddDays(15),
+            EmploymentType = "Onsite",
             Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-1)
         };
         var jIntern = new Job
@@ -66,6 +70,7 @@ public static class SeedData
             Description = "Kiểm thử chức năng hệ thống.",
             Requirements = "Sinh viên năm cuối CNTT.",
             Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = DateTime.Today.AddDays(-2),
+            EmploymentType = "Onsite",
             Status = JobStatus.Closed, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-10)
         };
         db.Jobs.AddRange(jBackend, jFrontend, jDevOps, jDataAi, jIntern);

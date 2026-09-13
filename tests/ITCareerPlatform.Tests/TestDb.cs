@@ -16,6 +16,7 @@ public sealed class TestDb : IDisposable
     {
         _conn = new SqliteConnection("DataSource=:memory:");
         _conn.Open();
+        _conn.CreateFunction("lower", (string? s) => s?.ToLower());
         Db = NewContext();
         Db.Database.EnsureCreated();
     }
@@ -40,12 +41,16 @@ public sealed class TestDb : IDisposable
 
     public Job AddJob(int createdBy, string title = "Backend .NET",
         string category = "Backend", string techStack = "C#,.NET,SQL Server",
-        string level = "Junior", string status = "Open")
+        string level = "Junior", string status = "Open",
+        string employmentType = "Onsite", string location = "Hà Nội",
+        decimal salaryMin = 0, decimal salaryMax = 0)
     {
         var j = new Job
         {
             Title = title, Category = category, TechStack = techStack, Level = level,
             Status = status, CreatedById = createdBy, Deadline = DateTime.Today.AddDays(10),
+            EmploymentType = employmentType, Location = location,
+            SalaryMin = salaryMin, SalaryMax = salaryMax,
             CreatedAt = DateTime.Now
         };
         Db.Jobs.Add(j); Db.SaveChanges();

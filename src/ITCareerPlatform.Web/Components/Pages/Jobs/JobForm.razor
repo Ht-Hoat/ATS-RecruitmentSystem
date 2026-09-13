@@ -1,10 +1,11 @@
 @page "/jobs/new"
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 
-<h1 class="page-title">Tạo tin tuyển dụng IT (ATS-04)</h1>
+@* Tạo tin việc IT *@
+<h1 class="page-title">Tạo tin tuyển dụng IT</h1>
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
-<form method="post" action="/jobs/create" class="form form-wide">
+<form method="post" action="/jobs/create" class="form form-wide" data-vi-validate>
     <JobFields Model="model" />
     <div class="actions">
         <button class="btn-primary" type="submit">Lưu tin tuyển dụng</button>
@@ -14,5 +15,5 @@
 
 @code {
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
-    private Job model = new() { Category = "Backend", Level = "Junior" };
+    private Job model = new() { Category = "Backend", Level = "Junior", EmploymentType = "Onsite" };
 }

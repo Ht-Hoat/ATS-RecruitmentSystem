@@ -152,6 +152,14 @@ public class Job : ITimestamped
 
     public static bool IsValidCategory(string? c) => c is not null && Categories.Contains(c);
     public static bool IsValidLevel(string? l) => l is not null && Levels.Contains(l);
+
+    // ===== N2.C: Hình thức làm việc =====
+    [Required, MaxLength(20)]
+    public string EmploymentType { get; set; } = "Onsite";   // phải thuộc Job.EmploymentTypes
+
+    public static readonly string[] EmploymentTypes = { "Onsite", "Remote", "Hybrid" };
+
+    public static bool IsValidEmploymentType(string? e) => e is not null && EmploymentTypes.Contains(e);
 }
 
 public class AuditLog

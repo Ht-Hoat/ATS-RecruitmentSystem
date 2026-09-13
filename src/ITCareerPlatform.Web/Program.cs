@@ -158,8 +158,9 @@ static IResult SafeRedirect(string? path, string fallback) =>
 app.MapPost("/account/login", async (HttpContext ctx, IAuthService auth) =>
 {
     var f = await ctx.Request.ReadFormAsync();
-    var user = auth.Validate(f["email"].ToString(), f["password"].ToString());
-    if (user is null) return Results.Redirect("/login?error=1");
+    var emailVal = f["email"].ToString();
+    var user = auth.Validate(emailVal, f["password"].ToString());
+    if (user is null) return Results.Redirect("/login?error=1&email=" + Enc(emailVal));
 
     var claims = new List<Claim>
     {
@@ -275,6 +276,8 @@ static Job ReadJobForm(IFormCollection f, int actor) => new()
     Category = string.IsNullOrEmpty(f["category"]) ? "Khác" : f["category"].ToString(),
     TechStack = f["techStack"].ToString(),
     Level = string.IsNullOrEmpty(f["level"]) ? "Junior" : f["level"].ToString(),
+    // N2.C: chỉ nhận giá trị thuộc danh sách hợp lệ; luật đầy đủ vẫn được JobService kiểm lại.
+    EmploymentType = Job.IsValidEmploymentType(f["employmentType"]) ? f["employmentType"].ToString() : "Onsite",
     CreatedById = actor
 };
 

@@ -42,7 +42,9 @@ public interface IJobService
     void Reopen(int id, int actorUserId);
     /// <summary>Actor có quyền sửa/đóng/mở lại tin này không (Admin hoặc người tạo tin).</summary>
     bool CanModify(int jobId, int actorUserId);
-    List<Job> Filter(string? category, string? techStack, string? level, string sort);  // ATS-07
+    // ATS-07 + N2.C: lọc theo Category + TechStack + Level + Lương + Hình thức + Địa điểm
+    List<Job> Filter(string? category, string? techStack, string? level, string sort,
+        decimal? minSalary = null, string? employmentType = null, string? location = null);
 }
 
 public interface IProfileService
@@ -104,6 +106,13 @@ public interface IApplicationService
     // hỏi cho ứng viên thì buổi phỏng vấn không còn đo được gì nữa.
     InterviewQuestionSet? GetAiQuestions(int appId);
     void SaveAiQuestions(int appId, InterviewQuestionSet set);
+
+    // ===== N1.G (bản của Nhóm 2) — dùng cho Mentor Command Center ở trang chủ =====
+    // Ba hàm này nhận (actorUserId, isAdmin) thay vì int? mentorUserId như nhóm record
+    // MentorStats bên dưới. Hai bộ cùng trả lời một loại câu hỏi; xem ghi chú ở MentorStats.
+    int CountRecentApplicants(int actorUserId, bool isAdmin, int withinHours);
+    int CountUnreviewed(int actorUserId, bool isAdmin);
+    List<MentorApplicantItem> TopUnreviewed(int actorUserId, bool isAdmin, int take);
 }
 
 /// <summary>Ghi nhật ký thao tác quan trọng (ATS-02) — trước đây chỉ đổi vai trò được ghi.</summary>
@@ -125,12 +134,25 @@ public record AuditPage(IReadOnlyList<AuditEntry> Items, int Total, int Page, in
 
 public record CategoryCount(string Category, int Count);
 
+/// <summary>Một hồ sơ kèm thông tin tin tuyển dụng — cho bảng "Top hồ sơ chưa xem xét" (N2.I).</summary>
+public record MentorApplicantItem(int Id, string FullName, string Email, string TechSkillTags,
+    int? AiScore, int? HrScore, string Status, DateTime AppliedAt, int JobId, string JobTitle)
+{
+    public int? FinalScore => HrScore ?? AiScore;
+}
+
 // ===== N1.G: số liệu cho dashboard Mentor =====
 
 /// <summary>
 /// Tổng quan một lần gọi cho dashboard. Gom vào một record thay vì 10 hàm đếm rời:
 /// cả 10 con số phải đến từ CÙNG một lát cắt dữ liệu, nếu không tổng các trạng thái
 /// có thể lệch khỏi tổng số đơn ngay trên cùng một màn hình.
+///
+/// LƯU Ý SAU KHI GỘP NHÁNH: bộ này và ba hàm CountRecentApplicants/CountUnreviewed/
+/// TopUnreviewed ở IApplicationService cùng trả lời "Mentor này đang có gì" nhưng khác
+/// cách nhận phạm vi (int? mentorUserId so với actorUserId + isAdmin). Cả hai đang được
+/// dùng: trang chủ gọi bộ sau, còn bộ này để dành cho /dashboard. Nên gộp về một bộ
+/// trước khi thêm màn hình thống kê thứ ba.
 /// </summary>
 public record MentorStats(
     int TotalJobs,
@@ -609,8 +631,9 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
             throw new ArgumentException("Cấp bậc không hợp lệ.");
     }
 
-    // ATS-07: lọc + sắp xếp (chỉ tin Open — dành cho Sinh viên IT)
-    public List<Job> Filter(string? category, string? techStack, string? level, string sort)
+    // ATS-07 + N2.C: lọc + sắp xếp (chỉ tin Open — dành cho Sinh viên IT)
+    public List<Job> Filter(string? category, string? techStack, string? level, string sort,
+        decimal? minSalary = null, string? employmentType = null, string? location = null)
     {
         var today = DateTime.Today;
         // #9: chỉ hiện tin Open và CÒN hạn nộp
@@ -628,6 +651,18 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
             // kết quả không phụ thuộc collation của máy chủ.
             var kw = techStack.Trim().ToLower();
             q = q.Where(j => j.TechStack.ToLower().Contains(kw));
+        }
+
+        if (minSalary.HasValue && minSalary.Value > 0)
+            q = q.Where(j => j.SalaryMax >= minSalary.Value);
+
+        if (!string.IsNullOrWhiteSpace(employmentType) && employmentType != "Tất cả")
+            q = q.Where(j => j.EmploymentType == employmentType);
+
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            var loc = location.Trim().ToLower();
+            q = q.Where(j => j.Location.ToLower().Contains(loc));
         }
 
         q = sort switch
@@ -1247,6 +1282,58 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         db.ApplicationStatusHistories.AsNoTracking()
                                      .Where(h => h.ApplicationId == appId)
                                      .OrderBy(h => h.ChangedAt).ToList();
+
+    // N1.G: Thống kê số hồ sơ ứng tuyển mới nộp trong withinHours gần nhất
+    public int CountRecentApplicants(int actorUserId, bool isAdmin, int withinHours)
+    {
+        if (withinHours <= 0)
+            throw new ArgumentException("Số giờ phải lớn hơn 0.", nameof(withinHours));
+
+        var now = DateTime.Now;
+        var cutoff = now.AddHours(-withinHours);
+
+        var q = db.Applications.Where(a => a.AppliedAt >= cutoff);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.Count();
+    }
+
+    // N1.G: Thống kê số hồ sơ chưa review (Status == ApplicationStatus.Submitted)
+    public int CountUnreviewed(int actorUserId, bool isAdmin)
+    {
+        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.Count();
+    }
+
+    // N1.G: Lấy danh sách top hồ sơ chưa review mới nhất kèm Job context
+    public List<MentorApplicantItem> TopUnreviewed(int actorUserId, bool isAdmin, int take)
+    {
+        if (take <= 0) return new List<MentorApplicantItem>();
+        take = Math.Min(take, 50);
+
+        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
+        if (!isAdmin)
+            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+
+        return q.OrderByDescending(a => a.AppliedAt)
+                .Take(take)
+                .Select(a => new MentorApplicantItem(
+                    a.Id,
+                    a.CandidateProfile!.FullName,
+                    a.CandidateProfile.Email,
+                    a.CandidateProfile.TechSkillTags,
+                    a.AiScore,
+                    a.HrScore,
+                    a.Status,
+                    a.AppliedAt,
+                    a.JobId,
+                    a.Job!.Title))
+                .ToList();
+    }
 }
 
 // =====================================================================
