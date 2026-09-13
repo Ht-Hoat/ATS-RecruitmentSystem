@@ -31,6 +31,13 @@
         <textarea name="education" rows="2">@p.Education</textarea>
         <label>Kinh nghiệm làm việc</label>
         <textarea name="experience" rows="3">@p.Experience</textarea>
+        <label>Số năm kinh nghiệm</label>
+        <input name="yearsOfExperience" type="number" min="0" max="50" value="@p.YearsOfExperience" />
+        <p class="sub" style="margin-top:4px">
+            Nhà tuyển dụng lọc ứng viên theo cấp bậc dựa trên con số này.
+            Hiện tại hồ sơ của bạn được xếp: <b>@p.Level</b>
+            <span class="sub">(0 năm = Fresher · 1 = Junior · 2-4 = Middle · từ 5 = Senior)</span>
+        </p>
         <label>Kỹ năng (mô tả)</label>
         <textarea name="skills" rows="2">@p.Skills</textarea>
 

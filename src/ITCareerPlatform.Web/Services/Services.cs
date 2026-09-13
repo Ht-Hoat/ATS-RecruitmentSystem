@@ -56,6 +56,8 @@ public interface IApplicationService
 {
     bool Apply(int jobId, int candidateUserId, out string message);       // ATS-10
     List<ApplicantListItem> GetByJob(int jobId, string sort = "date");    // ATS-11 + ATS-15
+    /// <summary>N1.F: cùng danh sách đó nhưng có lọc. filter = null nghĩa là không lọc gì.</summary>
+    List<ApplicantListItem> GetByJob(int jobId, string sort, ApplicantFilter? filter);
     List<MyApplicationItem> GetByCandidate(int userId);
     /// <summary>Bản đầy đủ, có kèm byte[] CV — chỉ dùng cho tải CV và chấm AI.</summary>
     Application? GetById(int id);
@@ -165,10 +167,45 @@ public interface INotificationService                                     // NTF
 
 // ===== DTO nhẹ: chỉ các cột cần hiển thị, KHÔNG kèm byte[] CV =====
 public record ApplicantListItem(int Id, string FullName, string Email, string TechSkillTags,
-    int? AiScore, int? HrScore, string Status, DateTime AppliedAt)
+    int? AiScore, int? HrScore, string Status, DateTime AppliedAt,
+    bool HasCv, int YearsOfExperience)
 {
     public int? FinalScore => HrScore ?? AiScore;   // ATS-16.2
     public IReadOnlyList<string> SkillTagList => TechList.Parse(TechSkillTags);
+    public string LevelName => CandidateLevel.FromYears(YearsOfExperience);
+}
+
+/// <summary>
+/// N1.F: bốn khoảng % phù hợp. "Chưa đánh giá" là lựa chọn THỨ TƯ bắt buộc — chỉ có ba
+/// khoảng số thì những đơn chưa ai chấm biến mất khỏi mọi lựa chọn, và không có gì trên
+/// màn hình nói cho Mentor biết vì sao danh sách thiếu người.
+/// </summary>
+public static class ScoreBand
+{
+    public const string High = "> 80%";
+    public const string Mid = "50 - 80%";
+    public const string Low = "< 50%";
+    public const string Unscored = "Chưa đánh giá";
+
+    public static readonly string[] All = { High, Mid, Low, Unscored };
+}
+
+/// <summary>
+/// N1.F: bộ lọc danh sách ứng viên. Mọi trường null nghĩa là "không lọc theo tiêu chí này",
+/// nên một filter rỗng cho ra đúng kết quả như không lọc.
+/// </summary>
+public record ApplicantFilter(
+    string? Status = null,
+    bool? HasCv = null,
+    string? Band = null,
+    string? Level = null,
+    IReadOnlyList<string>? RequiredTech = null)
+{
+    /// <summary>Có tiêu chí nào đang bật không — để giao diện biết lúc nào hiện nút "Xóa lọc".</summary>
+    public bool IsActive =>
+        !string.IsNullOrWhiteSpace(Status) || HasCv is not null ||
+        !string.IsNullOrWhiteSpace(Band) || !string.IsNullOrWhiteSpace(Level) ||
+        RequiredTech is { Count: > 0 };
 }
 
 public record MyApplicationItem(int Id, int JobId, string JobTitle, string Category, string Level,
@@ -645,6 +682,7 @@ public class ProfileService(AppDbContext db) : IProfileService
         p.Address = input.Address;
         p.Education = input.Education;
         p.Experience = input.Experience;
+        p.YearsOfExperience = input.YearsOfExperience;
         p.Skills = input.Skills;
         p.GithubUrl = input.GithubUrl ?? "";
         p.LinkedInUrl = input.LinkedInUrl ?? "";
@@ -727,14 +765,60 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
     }
 
     // ATS-11 + ATS-15: danh sách ứng viên (projection — KHÔNG kéo byte[] CV về)
-    public List<ApplicantListItem> GetByJob(int jobId, string sort = "date")
+    public List<ApplicantListItem> GetByJob(int jobId, string sort = "date") => GetByJob(jobId, sort, null);
+
+    // N1.F: cùng danh sách đó, thêm bộ lọc. HR làm việc theo pipeline chứ không theo từng
+    // ứng viên lẻ, nên phần lớn thời gian họ muốn nhìn một lát cắt chứ không phải cả bảng.
+    public List<ApplicantListItem> GetByJob(int jobId, string sort, ApplicantFilter? filter)
     {
-        var list = db.Applications.AsNoTracking()
-            .Where(a => a.JobId == jobId)
-            .Select(a => new ApplicantListItem(
+        filter ??= new ApplicantFilter();
+        var q = db.Applications.AsNoTracking().Where(a => a.JobId == jobId);
+
+        if (!string.IsNullOrWhiteSpace(filter.Status))
+            q = q.Where(a => a.Status == filter.Status);
+
+        // So sánh cột blob với null dịch thành IS NOT NULL — nội dung CV KHÔNG bị kéo về.
+        if (filter.HasCv == true) q = q.Where(a => a.CvDataSnapshot != null);
+        else if (filter.HasCv == false) q = q.Where(a => a.CvDataSnapshot == null);
+
+        // Lọc theo điểm chốt ngay trong SQL: (HrScore ?? AiScore) dịch thành COALESCE.
+        // Không lọc trên FinalScore — đó là property tính ở C#, EF không dịch được, và
+        // viết như vậy sẽ lặng lẽ kéo cả bảng về rồi mới lọc.
+        // Đơn chưa chấm có COALESCE = NULL nên tự rơi khỏi cả ba khoảng số; đó là lý do
+        // phải có khoảng "Chưa đánh giá" riêng.
+        q = filter.Band switch
+        {
+            ScoreBand.High => q.Where(a => (a.HrScore ?? a.AiScore) > 80),
+            ScoreBand.Mid => q.Where(a => (a.HrScore ?? a.AiScore) >= 50 && (a.HrScore ?? a.AiScore) <= 80),
+            ScoreBand.Low => q.Where(a => (a.HrScore ?? a.AiScore) < 50),
+            ScoreBand.Unscored => q.Where(a => a.HrScore == null && a.AiScore == null),
+            _ => q
+        };
+
+        if (CandidateLevel.IsValid(filter.Level))
+        {
+            var (min, max) = CandidateLevel.YearRange(filter.Level);
+            q = q.Where(a => a.CandidateProfile!.YearsOfExperience >= min
+                          && a.CandidateProfile.YearsOfExperience <= max);
+        }
+
+        var list = q.Select(a => new ApplicantListItem(
                 a.Id, a.CandidateProfile!.FullName, a.CandidateProfile.Email,
-                a.CandidateProfile.TechSkillTags, a.AiScore, a.HrScore, a.Status, a.AppliedAt))
+                a.CandidateProfile.TechSkillTags, a.AiScore, a.HrScore, a.Status, a.AppliedAt,
+                a.CvDataSnapshot != null, a.CandidateProfile.YearsOfExperience))
             .ToList();
+
+        // Lọc tech làm SAU khi đã chiếu, ở phía C#. Chuẩn hóa của TechList (thường hóa,
+        // gộp khoảng trắng, "SQL  Server" == "sql server") không viết được thành LIKE, nên
+        // lọc trong SQL sẽ cho kết quả lệch với chính công thức mà phần chấm điểm dùng —
+        // hai chỗ cùng nói về "ứng viên có Docker" mà trả lời khác nhau. Danh sách ở đây là
+        // ứng viên của MỘT tin nên kích thước có trần.
+        if (filter.RequiredTech is { Count: > 0 })
+        {
+            var wanted = filter.RequiredTech.Select(TechList.Normalize).ToHashSet();
+            list = list.Where(x => wanted.IsSubsetOf(TechList.NormalizedSet(x.TechSkillTags))).ToList();
+        }
+
         return sort == "score"
             ? list.OrderByDescending(x => x.FinalScore ?? -1).ThenByDescending(x => x.AppliedAt).ToList()
             : list.OrderByDescending(x => x.AppliedAt).ToList();

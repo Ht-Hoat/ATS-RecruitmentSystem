@@ -327,6 +327,9 @@ app.MapPost("/profile/save", async (HttpContext ctx, IProfileService svc) =>
             Address = f["address"].ToString(),
             Education = f["education"].ToString(),
             Experience = f["experience"].ToString(),
+            // Bỏ trống hoặc gõ chữ thì hiểu là 0 năm; khoảng hợp lệ do [Range] trên entity
+            // kiểm lại ở ProfileService, không tin vào thuộc tính min/max của thẻ input.
+            YearsOfExperience = int.TryParse(f["yearsOfExperience"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var yoe) ? yoe : 0,
             Skills = f["skills"].ToString(),
             GithubUrl = f["githubUrl"].ToString(),
             LinkedInUrl = f["linkedInUrl"].ToString(),
