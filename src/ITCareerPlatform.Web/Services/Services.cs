@@ -83,7 +83,18 @@ public interface IApplicationService
     void SaveAiEvaluation(int appId, AiEvaluation eval);                  // ATS-13/14
     void SaveHrScore(int appId, int hrScore, string note, int actorUserId); // ATS-16
     bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message); // ATS-17
+    /// <summary>
+    /// N1.E: đổi trạng thái kèm lịch phỏng vấn. Bắt buộc có lịch khi chuyển sang "Phỏng vấn";
+    /// gọi với trạng thái đang có + lịch mới nghĩa là ĐỔI lịch.
+    /// </summary>
+    bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message);
     List<ApplicationStatusHistory> GetStatusHistory(int appId);
+
+    // ===== N1.B: ghi chú nội bộ của Mentor =====
+    // Hỏi riêng chứ không gắn vào ApplicationDetail: record đó dùng chung cho cả trang
+    // Mentor lẫn trang Sinh viên. Chỗ gọi phải đi qua CanAccess trước.
+    InternalNoteView? GetInternalNote(int appId);
+    void SaveInternalNote(int appId, string? note, int actorUserId);
 }
 
 /// <summary>Ghi nhật ký thao tác quan trọng (ATS-02) — trước đây chỉ đổi vai trò được ghi.</summary>
@@ -154,7 +165,21 @@ public record ApplicantListItem(int Id, string FullName, string Email, string Te
 }
 
 public record MyApplicationItem(int Id, int JobId, string JobTitle, string Category, string Level,
-    string CvFileNameSnapshot, int? AiScore, string? AiSource, string Status, DateTime AppliedAt);
+    string CvFileNameSnapshot, int? AiScore, string? AiSource, string Status, DateTime AppliedAt,
+    DateTime? InterviewAt, string? InterviewLink)
+{
+    /// <summary>Lịch phỏng vấn hiện lên ngay trên thẻ đơn ở /my-applications (N1.E — Hướng B).</summary>
+    public bool HasInterview => InterviewAt.HasValue;
+}
+
+/// <summary>
+/// N1.E: lịch phỏng vấn Mentor điền khi chuyển đơn sang trạng thái "Phỏng vấn".
+/// Link để trống được chấp nhận (phỏng vấn trực tiếp); thời gian thì không.
+/// </summary>
+public record InterviewSchedule(DateTime At, string? Link, string? Note);
+
+/// <summary>N1.B: ghi chú nội bộ kèm người ghi và thời điểm. Chỉ trả về cho Mentor/Admin.</summary>
+public record InternalNoteView(string Note, int ByUserId, DateTime At);
 
 /// <summary>Kết quả đánh giá đã lưu — dùng chung cho thẻ hiển thị của Mentor và Sinh viên.</summary>
 public record AiResult(int? Score, string? Strengths, string? Missing, string? Roadmap, string? Source)
@@ -172,12 +197,18 @@ public record ApplicationDetail(
     int? HrScore, string? HrNote,
     int CandidateUserId, string FullName, string Email, string Phone, DateTime? DateOfBirth,
     string Address, string Education, string Experience, string Skills,
-    string GithubUrl, string LinkedInUrl, string PortfolioUrl, string TechSkillTags)
+    string GithubUrl, string LinkedInUrl, string PortfolioUrl, string TechSkillTags,
+    DateTime? InterviewAt, string? InterviewLink, string? InterviewNote, int YearsOfExperience)
 {
     public int? FinalScore => HrScore ?? AiScore;
     public bool HasAiEvaluation => AiScore.HasValue;
     public IReadOnlyList<string> SkillTagList => TechList.Parse(TechSkillTags);
     public AiResult Ai => new(AiScore, AiStrengths, AiMissing, AiRoadmap, AiSource);
+
+    public bool HasInterview => InterviewAt.HasValue;
+
+    /// <summary>Cấp bậc suy ra từ số năm kinh nghiệm — cùng ngưỡng mà bộ lọc N1.F dùng.</summary>
+    public string CandidateLevelName => CandidateLevel.FromYears(YearsOfExperience);
 }
 
 // =====================================================================
@@ -708,7 +739,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
             .OrderByDescending(a => a.AppliedAt)
             .Select(a => new MyApplicationItem(
                 a.Id, a.JobId, a.Job!.Title, a.Job.Category, a.Job.Level,
-                a.CvFileNameSnapshot, a.AiScore, a.AiSource, a.Status, a.AppliedAt))
+                a.CvFileNameSnapshot, a.AiScore, a.AiSource, a.Status, a.AppliedAt,
+                a.InterviewAt, a.InterviewLink))
             .ToList();
 
     // Bản đầy đủ (có byte[] CV) — chỉ dùng cho tải CV và chấm AI.
@@ -731,7 +763,9 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
                 a.CandidateProfile.Phone, a.CandidateProfile.DateOfBirth, a.CandidateProfile.Address,
                 a.CandidateProfile.Education, a.CandidateProfile.Experience, a.CandidateProfile.Skills,
                 a.CandidateProfile.GithubUrl, a.CandidateProfile.LinkedInUrl,
-                a.CandidateProfile.PortfolioUrl, a.CandidateProfile.TechSkillTags))
+                a.CandidateProfile.PortfolioUrl, a.CandidateProfile.TechSkillTags,
+                a.InterviewAt, a.InterviewLink, a.InterviewNote,
+                a.CandidateProfile.YearsOfExperience))
             .FirstOrDefault();
 
     public Dictionary<int, int> CountForJobs(IReadOnlyCollection<int> jobIds)
@@ -915,7 +949,13 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
     }
 
     // ATS-17: đổi trạng thái + ghi lịch sử + thông báo cho SV (cùng transaction)
-    public bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message)
+    public bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message) =>
+        UpdateStatus(appId, newStatus, null, actorUserId, out message);
+
+    // N1.E: lịch phỏng vấn ghi trong CHÍNH transaction đổi trạng thái. Tách thành hai thao
+    // tác thì có khoảng thời gian đơn đã mang trạng thái "Phỏng vấn" nhưng chưa có giờ hẹn,
+    // và sinh viên nhận được một lời mời không nói giờ nào.
+    public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message)
     {
         if (!ApplicationStatus.All.Contains(newStatus))
         { message = "Trạng thái không hợp lệ."; return false; }
@@ -924,35 +964,65 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
                                .Include(x => x.CandidateProfile)
                                .FirstOrDefault(x => x.Id == appId);
         if (a is null) { message = "Không tìm thấy đơn."; return false; }
-        if (a.Status == newStatus) { message = "Trạng thái không thay đổi."; return false; }
+
+        var statusChanged = a.Status != newStatus;
+
+        // Giữ nguyên trạng thái mà không kèm lịch mới thì không có gì để làm. Còn giữ nguyên
+        // trạng thái KÈM lịch mới chính là thao tác đổi lịch, phải chạy tiếp.
+        if (!statusChanged && schedule is null)
+        { message = "Trạng thái không thay đổi."; return false; }
+
+        if (newStatus == ApplicationStatus.Interview)
+        {
+            if (schedule is null)
+            { message = "Vui lòng nhập thời gian phỏng vấn khi chuyển sang trạng thái này."; return false; }
+
+            var invalid = ValidateSchedule(schedule);
+            if (invalid is not null) { message = invalid; return false; }
+        }
 
         using var tx = db.Database.BeginTransaction();
         try
         {
             var from = a.Status;
-            db.ApplicationStatusHistories.Add(new ApplicationStatusHistory
+            if (statusChanged)
             {
-                ApplicationId = a.Id,
-                FromStatus = from,
-                ToStatus = newStatus,
-                ChangedByUserId = actorUserId,
-                ChangedAt = DateTime.Now
-            });
-            a.Status = newStatus;
+                db.ApplicationStatusHistories.Add(new ApplicationStatusHistory
+                {
+                    ApplicationId = a.Id,
+                    FromStatus = from,
+                    ToStatus = newStatus,
+                    ChangedByUserId = actorUserId,
+                    ChangedAt = DateTime.Now
+                });
+                a.Status = newStatus;
+            }
+
+            // Chuyển sang trạng thái khác KHÔNG xóa lịch cũ: Mentor và sinh viên vẫn cần
+            // tra lại buổi phỏng vấn đã diễn ra khi đọc một đơn đã trúng tuyển hoặc bị từ chối.
+            if (newStatus == ApplicationStatus.Interview && schedule is not null)
+            {
+                a.InterviewAt = schedule.At;
+                a.InterviewLink = Clip(schedule.Link, 400);
+                a.InterviewNote = Clip(schedule.Note, 500);
+            }
+
             db.SaveChanges();
 
-            // NTF-01: báo cho Sinh viên IT
+            // NTF-01: báo cho Sinh viên IT. Đường dẫn trỏ thẳng vào ĐƠN cụ thể thay vì danh
+            // sách — với lời mời phỏng vấn, thứ cần đọc (giờ hẹn, link họp) nằm trong đơn đó.
             if (a.CandidateProfile != null)
                 notify.Add(a.CandidateProfile.UserId,
-                    "Cập nhật đơn ứng tuyển",
-                    $"Đơn ứng tuyển vào '{a.Job?.Title}' đã chuyển sang trạng thái: {newStatus}.",
-                    "/my-applications");
+                    statusChanged ? NotificationTitle(newStatus) : "Cập nhật lịch phỏng vấn",
+                    BuildStatusMessage(a, newStatus, statusChanged),
+                    $"/my-applications/{a.Id}");
 
-            audit?.Record(actorUserId, "Change Status", "Applications",
-                $"Đơn #{appId}: {from} → {newStatus}");
+            audit?.Record(actorUserId,
+                statusChanged ? "Change Status" : "Reschedule Interview", "Applications",
+                statusChanged ? $"Đơn #{appId}: {from} → {newStatus}" : $"Đơn #{appId}: đổi lịch phỏng vấn");
 
             tx.Commit();
-            message = "Đã cập nhật trạng thái.";
+            message = statusChanged ? "Đã cập nhật trạng thái." : "Đã cập nhật lịch phỏng vấn.";
             return true;
         }
         catch
@@ -961,6 +1031,75 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
             message = "Có lỗi khi cập nhật trạng thái.";
             return false;
         }
+    }
+
+    private static string NotificationTitle(string status) =>
+        status == ApplicationStatus.Interview ? "Mời phỏng vấn" : "Cập nhật đơn ứng tuyển";
+
+    private static string BuildStatusMessage(Application a, string newStatus, bool statusChanged)
+    {
+        var title = a.Job?.Title ?? "vị trí đã ứng tuyển";
+        if (newStatus != ApplicationStatus.Interview)
+            return $"Đơn ứng tuyển vào '{title}' đã chuyển sang trạng thái: {newStatus}.";
+
+        var opening = statusChanged
+            ? $"Bạn được mời phỏng vấn vị trí '{title}'."
+            : $"Lịch phỏng vấn vị trí '{title}' đã được cập nhật.";
+        var link = string.IsNullOrWhiteSpace(a.InterviewLink) ? "" : $" Link: {a.InterviewLink}";
+        return $"{opening} Thời gian: {Ui.DateTimeText(a.InterviewAt)}.{link}";
+    }
+
+    /// <summary>Trả null nếu lịch hợp lệ, ngược lại là lý do để hiện cho Mentor.</summary>
+    internal static string? ValidateSchedule(InterviewSchedule s)
+    {
+        if (s.At == default) return "Vui lòng chọn thời gian phỏng vấn.";
+        if (s.At <= DateTime.Now) return "Thời gian phỏng vấn phải ở tương lai.";
+        if (!string.IsNullOrWhiteSpace(s.Link) && !IsSafeMeetingLink(s.Link))
+            return "Link phỏng vấn phải là địa chỉ http hoặc https hợp lệ (Google Meet, Zoom, Teams...).";
+        return null;
+    }
+
+    /// <summary>
+    /// Chỉ chấp nhận http/https. Link này được render thành thẻ &lt;a href&gt; trên trang của
+    /// sinh viên, nên một giá trị "javascript:..." lọt qua đây không phải là link hỏng —
+    /// đó là một lỗ XSS do chính nhà tuyển dụng nhập vào.
+    /// </summary>
+    private static bool IsSafeMeetingLink(string link) =>
+        Uri.TryCreate(link.Trim(), UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>Cắt đúng giới hạn cột; chuỗi rỗng lưu thành null để phân biệt "không có" với "có mà trống".</summary>
+    private static string? Clip(string? value, int max)
+    {
+        var s = value?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        return s.Length > max ? s[..max] : s;
+    }
+
+    // ===== N1.B: ghi chú nội bộ của Mentor =====
+
+    public InternalNoteView? GetInternalNote(int appId) =>
+        db.Applications.AsNoTracking()
+            .Where(a => a.Id == appId && a.InternalNote != null && a.InternalNote != "")
+            .Select(a => new InternalNoteView(
+                a.InternalNote!, a.InternalNoteByUserId ?? 0, a.InternalNoteAt ?? a.AppliedAt))
+            .FirstOrDefault();
+
+    public void SaveInternalNote(int appId, string? note, int actorUserId)
+    {
+        var a = db.Applications.Find(appId);
+        if (a is null) return;
+
+        var text = Clip(note, 2000);
+        a.InternalNote = text;
+        a.InternalNoteByUserId = text is null ? null : actorUserId;
+        a.InternalNoteAt = text is null ? null : DateTime.Now;
+        db.SaveChanges();
+
+        // NỘI DUNG ghi chú không đi vào nhật ký: nhật ký hệ thống thì Admin đọc được, còn
+        // ghi chú là nhận định riêng của Mentor về ứng viên. Chỉ ghi lại việc đã có thao tác.
+        audit?.Record(actorUserId, text is null ? "Clear Internal Note" : "Save Internal Note",
+            "Applications", $"Ghi chú nội bộ đơn #{appId}.");
     }
 
     public List<ApplicationStatusHistory> GetStatusHistory(int appId) =>
@@ -978,11 +1117,19 @@ public class NotificationService(AppDbContext db) : INotificationService
     {
         db.Notifications.Add(new Notification
         {
-            UserId = userId, Title = title, Message = message, Link = link,
+            UserId = userId,
+            // Cắt đúng giới hạn cột. Từ N1.E, nội dung thông báo có thể mang tên tin (tối đa
+            // 160 ký tự) kèm link họp (tối đa 400) — vượt 500 mà không cần ai cố ý, và trên
+            // SQL Server thì đó là một lần ghi hỏng chứ không phải một chuỗi bị cắt.
+            Title = Cut(title, 160),
+            Message = Cut(message, 500),
+            Link = Cut(link, 250),
             IsRead = false, CreatedAt = DateTime.Now
         });
         db.SaveChanges();
     }
+
+    private static string Cut(string s, int max) => s.Length <= max ? s : s[..max];
 
     public List<Notification> GetForUser(int userId, int take = 20) =>
         db.Notifications.AsNoTracking()

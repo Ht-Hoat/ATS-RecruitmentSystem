@@ -26,6 +26,8 @@ else
     @if (HrSaved == "1") { <div class="alert-ok">Đã lưu điểm đánh giá của Mentor.</div> }
     @if (!string.IsNullOrEmpty(HrError)) { <div class="alert-err">@HrError</div> }
     @if (!string.IsNullOrEmpty(StatusMsg)) { <div class="alert-ok">@StatusMsg</div> }
+    @if (!string.IsNullOrEmpty(StatusErr)) { <div class="alert-err">@StatusErr</div> }
+    @if (NoteSaved == "1") { <div class="alert-ok">Đã lưu ghi chú nội bộ.</div> }
 
     <!-- Section 1: thông tin ứng tuyển -->
     <div class="panel">
@@ -132,15 +134,66 @@ else
     <!-- Section 5: trạng thái + timeline -->
     <div class="panel" style="margin-top:16px">
         <h2>5 · Trạng thái ứng tuyển (ATS-17)</h2>
-        <form method="post" action="@($"/applications/{app.Id}/status")" class="inline">
-            <select name="status">
+        @* N1.E — Hướng B: lịch phỏng vấn nằm ngay trong form đổi trạng thái, không tách trang.
+           Ba ô lịch mặc định HIỆN; đoạn script bên dưới chỉ ẩn bớt khi trạng thái đang chọn
+           không phải "Phỏng vấn". Làm ngược lại (mặc định ẩn, script hiện) thì máy chặn JS
+           sẽ không bao giờ nhìn thấy chúng. *@
+        <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px">
+            <label>Trạng thái</label>
+            <select name="status" id="statusSelect">
                 @foreach (var s in ApplicationStatus.All)
                 {
                     <option value="@s" selected="@(s == app.Status)">@s</option>
                 }
             </select>
-            <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
+
+            <div id="interviewFields">
+                <p class="form-h">Lịch phỏng vấn <span class="sub">(bắt buộc khi chọn "@ApplicationStatus.Interview")</span></p>
+
+                <label>Thời gian</label>
+                <input name="interviewAt" type="datetime-local" value="@Ui.InputDateTimeLocal(app.InterviewAt)" />
+
+                <label>Link phỏng vấn (Google Meet / Zoom / Teams)</label>
+                <input name="interviewLink" type="url" maxlength="400" placeholder="https://meet.google.com/..."
+                       value="@app.InterviewLink" />
+
+                <label>Ghi chú cho ứng viên</label>
+                <textarea name="interviewNote" rows="2" maxlength="500"
+                          placeholder="Vòng 1 — phỏng vấn kỹ thuật, khoảng 45 phút...">@app.InterviewNote</textarea>
+                <p class="sub" style="margin-top:6px">Để trống link nếu phỏng vấn trực tiếp tại văn phòng.</p>
+            </div>
+
+            <div class="actions">
+                <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
+            </div>
         </form>
+
+        @if (app.HasInterview)
+        {
+            <div class="warn-note" style="margin-top:12px">
+                📅 Lịch phỏng vấn hiện tại: <b>@Ui.DateTimeText(app.InterviewAt)</b>
+                @if (!string.IsNullOrWhiteSpace(app.InterviewLink))
+                {
+                    <text> · </text><a href="@app.InterviewLink" target="_blank" rel="noopener noreferrer">Link tham gia</a>
+                }
+                @if (!string.IsNullOrWhiteSpace(app.InterviewNote))
+                {
+                    <br />
+                    <span class="sub">@app.InterviewNote</span>
+                }
+            </div>
+        }
+
+        <script>
+            (function () {
+                var sel = document.getElementById('statusSelect');
+                var box = document.getElementById('interviewFields');
+                if (!sel || !box) return;
+                function sync() { box.style.display = sel.value === '@ApplicationStatus.Interview' ? '' : 'none'; }
+                sel.addEventListener('change', sync);
+                sync();
+            })();
+        </script>
 
         <div class="timeline">
             <div class="tl-item">
@@ -156,6 +209,30 @@ else
             }
         </div>
     </div>
+
+    <!-- Section 6: ghi chú nội bộ (N1.B) -->
+    <div class="panel" style="margin-top:16px">
+        <h2>6 · Ghi chú nội bộ</h2>
+        <div class="warn-note">
+            🔒 Chỉ Mentor tạo tin và Admin đọc được mục này. <b>Ứng viên không bao giờ nhìn thấy.</b>
+            Khác với "Lý do điều chỉnh điểm" ở mục 4 — đó là ghi chú gắn với điểm số.
+        </div>
+        @if (note is not null)
+        {
+            <p class="sub" style="margin-top:12px">
+                Ghi lần cuối bởi <b>@names.GetValueOrDefault(note.ByUserId, "#" + note.ByUserId)</b>
+                lúc @Ui.DateTimeText(note.At)
+            </p>
+        }
+        <form method="post" action="@($"/applications/{app.Id}/internal-note")" class="form" style="max-width:640px;padding:16px">
+            <textarea name="internalNote" rows="5" maxlength="2000"
+                      placeholder="Nhận định về ứng viên, điểm cần hỏi kỹ ở vòng sau, mức lương mong muốn...">@note?.Note</textarea>
+            <div class="actions">
+                <button class="btn-sm" type="submit">Lưu ghi chú</button>
+                <span class="sub">Xóa hết nội dung rồi lưu để gỡ ghi chú.</span>
+            </div>
+        </form>
+    </div>
 }
 
 @code {
@@ -165,12 +242,15 @@ else
     [SupplyParameterFromQuery(Name = "hrsaved")] public string? HrSaved { get; set; }
     [SupplyParameterFromQuery(Name = "hrerror")] public string? HrError { get; set; }
     [SupplyParameterFromQuery(Name = "statusmsg")] public string? StatusMsg { get; set; }
+    [SupplyParameterFromQuery(Name = "statuserr")] public string? StatusErr { get; set; }
+    [SupplyParameterFromQuery(Name = "notesaved")] public string? NoteSaved { get; set; }
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private ApplicationDetail? app;
     private List<ApplicationStatusHistory> history = new();
     private Dictionary<int, string> names = new();
+    private InternalNoteView? note;
     private bool canAccess;
 
     protected override async Task OnInitializedAsync()
@@ -188,8 +268,14 @@ else
         if (app is null) return;
 
         history = Applications.GetStatusHistory(AppId);
-        // Chỉ hỏi tên của đúng những người xuất hiện trong dòng thời gian (nhiều nhất 4 người),
-        // thay vì nạp toàn bộ bảng Users.
-        names = Users.GetNames(history.Select(h => h.ChangedByUserId));
+
+        // N1.B: ghi chú nội bộ hỏi RIÊNG, sau khi canAccess đã qua. Nó không nằm trong
+        // ApplicationDetail vì record đó dùng chung với trang của sinh viên.
+        note = Applications.GetInternalNote(AppId);
+
+        // Chỉ hỏi tên của đúng những người xuất hiện trong dòng thời gian và ở ghi chú
+        // (nhiều nhất vài người), thay vì nạp toàn bộ bảng Users.
+        names = Users.GetNames(history.Select(h => h.ChangedByUserId)
+                                      .Concat(note is null ? [] : [note.ByUserId]));
     }
 }

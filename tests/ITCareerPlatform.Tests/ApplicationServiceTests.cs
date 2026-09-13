@@ -176,14 +176,16 @@ public class ApplicationServiceTests
         svc.Apply(job.Id, sv.Id, out _);
         var appId = t.NewContext().Applications.First().Id;
 
-        var ok = svc.UpdateStatus(appId, ApplicationStatus.Interview, m.Id, out var msg);
+        // Dùng "Đang xem xét" chứ không phải "Phỏng vấn": từ N1.E, chuyển sang Phỏng vấn
+        // bắt buộc kèm lịch hẹn, và trường hợp đó có bộ test riêng ở InterviewScheduleTests.
+        var ok = svc.UpdateStatus(appId, ApplicationStatus.Reviewing, m.Id, out var msg);
 
         Assert.True(ok);
         using var v = t.NewContext();
-        Assert.Equal(ApplicationStatus.Interview, v.Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, v.Applications.Find(appId)!.Status);
         var h = Assert.Single(v.ApplicationStatusHistories);
         Assert.Equal(ApplicationStatus.Submitted, h.FromStatus);
-        Assert.Equal(ApplicationStatus.Interview, h.ToStatus);
+        Assert.Equal(ApplicationStatus.Reviewing, h.ToStatus);
         Assert.Equal(1, v.Notifications.Count(n => n.UserId == sv.Id));   // NTF-01
     }
 

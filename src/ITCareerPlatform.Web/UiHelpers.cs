@@ -110,6 +110,14 @@ public static class Ui
     public static string InputDate(DateTime? value) =>
         (value ?? DateTime.Today).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Giá trị cho &lt;input type="datetime-local"&gt;. Chuẩn HTML là "yyyy-MM-ddTHH:mm";
+    /// định dạng theo culture máy chủ (vi-VN cho ra "20/09/2026 14:30") bị trình duyệt bỏ
+    /// qua lặng lẽ, và ô ngày hiện ra trống trơn dù dữ liệu có thật.
+    /// </summary>
+    public static string InputDateTimeLocal(DateTime? value) =>
+        value?.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
     /// <summary>Giá trị cho &lt;input type="number"&gt;: dấu chấm thập phân, không theo culture máy chủ.</summary>
     public static string InputNumber(decimal value) =>
         value.ToString(System.Globalization.CultureInfo.InvariantCulture);

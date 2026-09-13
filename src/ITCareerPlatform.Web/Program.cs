@@ -467,13 +467,38 @@ app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, I
     return Results.Redirect($"/applications/{id}?hrsaved=1");
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
 
-// ATS-17: đổi trạng thái đơn
+// ATS-17: đổi trạng thái đơn · N1.E: kèm lịch phỏng vấn khi chuyển sang "Phỏng vấn"
 app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
     if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
     var f = await ctx.Request.ReadFormAsync();
-    svc.UpdateStatus(id, f["status"].ToString(), CurrentUserId(ctx), out var message);
-    return Results.Redirect($"/applications/{id}?statusmsg=" + Enc(message));
+    var status = f["status"].ToString();
+
+    // Ba ô lịch chỉ được đọc khi Mentor thực sự chọn "Phỏng vấn". Form luôn gửi chúng lên
+    // (trang render tĩnh, không ẩn được ở phía server), nên nếu đọc vô điều kiện thì một
+    // lần chuyển sang "Từ chối" cũng ghi đè lịch hẹn đang có.
+    InterviewSchedule? schedule = null;
+    if (status == ApplicationStatus.Interview)
+    {
+        // <input type="datetime-local"> gửi "2026-09-20T14:30" theo chuẩn HTML, nên đọc
+        // bằng InvariantCulture — giống mọi ô ngày/số khác trong dự án.
+        DateTime.TryParse(f["interviewAt"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var at);
+        schedule = new InterviewSchedule(at, f["interviewLink"].ToString(), f["interviewNote"].ToString());
+    }
+
+    var ok = svc.UpdateStatus(id, status, schedule, CurrentUserId(ctx), out var message);
+    // Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
+    // ("thời gian phỏng vấn phải ở tương lai") hiện ra trong khung báo thành công màu xanh.
+    return Results.Redirect($"/applications/{id}?" + (ok ? "statusmsg=" : "statuserr=") + Enc(message));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+
+// N1.B: ghi chú nội bộ về ứng viên — chỉ Mentor chủ tin và Admin, không bao giờ hiện cho SV.
+app.MapPost("/applications/{id:int}/internal-note", async (int id, HttpContext ctx, IApplicationService svc) =>
+{
+    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    var f = await ctx.Request.ReadFormAsync();
+    svc.SaveInternalNote(id, f["internalNote"].ToString(), CurrentUserId(ctx));
+    return Results.Redirect($"/applications/{id}?notesaved=1");
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
 
 // ============================ NOTIFICATIONS (NTF-01) ============================

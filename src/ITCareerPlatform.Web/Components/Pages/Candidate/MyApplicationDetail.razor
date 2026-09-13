@@ -31,6 +31,34 @@ else
         <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.JobTechStack</b></p>
     </div>
 
+    @* N1.E: lịch phỏng vấn hiện ngay trên đơn, không có trang "Lịch phỏng vấn" riêng. *@
+    @if (app.HasInterview)
+    {
+        <div class="panel" style="margin-top:16px;border-left:4px solid #f97316">
+            <h2>📅 Lịch phỏng vấn</h2>
+            <table class="tbl-info">
+                <tr><td class="k">Thời gian</td><td><b>@Ui.DateTimeText(app.InterviewAt)</b></td></tr>
+                @if (!string.IsNullOrWhiteSpace(app.InterviewLink))
+                {
+                    @* rel="noopener noreferrer" cho link ra ngoài; địa chỉ đã được service
+                       kiểm tra chỉ nhận http/https trước khi lưu. *@
+                    <tr>
+                        <td class="k">Link tham gia</td>
+                        <td><a href="@app.InterviewLink" target="_blank" rel="noopener noreferrer">@app.InterviewLink</a></td>
+                    </tr>
+                }
+                else
+                {
+                    <tr><td class="k">Hình thức</td><td>Phỏng vấn trực tiếp — vui lòng liên hệ nhà tuyển dụng để biết địa điểm.</td></tr>
+                }
+                @if (!string.IsNullOrWhiteSpace(app.InterviewNote))
+                {
+                    <tr><td class="k">Ghi chú</td><td>@app.InterviewNote</td></tr>
+                }
+            </table>
+        </div>
+    }
+
     <div class="panel" style="margin-top:16px">
         <h2>🧭 Đánh giá độ phù hợp & Gợi ý lộ trình cho bạn</h2>
         <AiEvaluationCard Eval="app.Ai" ForStudent="true" />
