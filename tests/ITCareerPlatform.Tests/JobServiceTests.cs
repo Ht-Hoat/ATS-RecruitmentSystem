@@ -6,6 +6,41 @@ namespace ITCareerPlatform.Tests;
 
 public class JobServiceTests
 {
+    // N2.C: hình thức làm việc phải được kiểm ở tầng service, không chỉ ở thẻ <select>.
+    [Fact]
+    public void Create_InvalidEmploymentType_Throws()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var svc = new JobService(t.Db);
+
+        var job = new Job
+        {
+            Title = "Backend .NET", Category = "Backend", Level = "Junior",
+            EmploymentType = "TuChoiVe",          // không thuộc Job.EmploymentTypes
+            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+        };
+
+        var ex = Assert.Throws<ArgumentException>(() => svc.Create(job));
+        Assert.Contains("Hình thức làm việc", ex.Message);
+    }
+
+    [Fact]
+    public void Create_DefaultEmploymentType_IsAccepted()
+    {
+        using var t = new TestDb();
+        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var svc = new JobService(t.Db);
+
+        var job = svc.Create(new Job
+        {
+            Title = "Backend .NET", Category = "Backend", Level = "Junior",
+            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+        });
+
+        Assert.Equal("Onsite", job.EmploymentType);
+    }
+
     [Fact]
     public void Create_SetsStatusOpen()
     {

@@ -629,6 +629,11 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
             throw new ArgumentException("Danh mục công việc không hợp lệ.");
         if (!Job.IsValidLevel(job.Level))
             throw new ArgumentException("Cấp bậc không hợp lệ.");
+        // N2.C: cùng lý do với Category/Level ở trên — thẻ <select> chỉ ràng buộc trình duyệt,
+        // nên một request không qua trình duyệt vẫn đặt được hình thức làm việc tùy ý, và tin
+        // đó sẽ biến mất khỏi bộ lọc "Onsite/Remote/Hybrid" mà không ai giải thích được.
+        if (!Job.IsValidEmploymentType(job.EmploymentType))
+            throw new ArgumentException("Hình thức làm việc không hợp lệ.");
     }
 
     // ATS-07 + N2.C: lọc + sắp xếp (chỉ tin Open — dành cho Sinh viên IT)
