@@ -295,6 +295,28 @@ public class CandidateProfile : ITimestamped
     [MaxLength(120)] public string? CvContentType { get; set; }
     public DateTime? CvUploadedAt { get; set; }
 
+    // ===== P2-3: đồng ý xử lý dữ liệu cá nhân bằng AI =====
+    //
+    // Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân đòi sự đồng ý phải được THỂ HIỆN RÕ
+    // và LƯU LẠI được. Trước bản này, việc gửi CV cho Gemini chỉ được nói bằng một dòng chữ
+    // trên giao diện: không có bản ghi nào, không có cách nào từ chối, không có cách nào rút lại.
+
+    /// <summary>Thời điểm đồng ý (UTC). Null nghĩa là CHƯA đồng ý hoặc đã rút lại.</summary>
+    public DateTime? AiConsentAt { get; set; }
+
+    /// <summary>
+    /// Phiên bản điều khoản đã đồng ý. Khi nội dung điều khoản đổi, con số này cho biết
+    /// người dùng đã đồng ý với BẢN NÀO — một chữ "đã đồng ý" trơ trọi không trả lời được
+    /// câu hỏi đó, và đó chính là câu hỏi mà một lần kiểm tra sẽ đặt ra.
+    /// </summary>
+    [MaxLength(20)] public string? AiConsentVersion { get; set; }
+
+    /// <summary>Đã đồng ý và chưa rút lại.</summary>
+    public bool HasAiConsent => AiConsentAt.HasValue;
+
+    /// <summary>Phiên bản điều khoản hiện hành — tăng khi nội dung điều khoản thay đổi.</summary>
+    public const string CurrentAiConsentVersion = "2026-09-v1";
+
     /// <summary>
     /// P2-2: khóa của nội dung CV trong ICvStorage. Cột CvData cũ được GIỮ LẠI để đọc dữ
     /// liệu chưa di trú — xóa nó trong cùng một bản là cách chắc chắn nhất để mất CV của

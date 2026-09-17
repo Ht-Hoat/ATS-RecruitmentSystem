@@ -133,6 +133,7 @@ else
        lựa chọn bằng JavaScript rồi gửi đi — checkbox phải là thành phần thật của form. *@
     <form method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
           onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
+          <AntiforgeryField />
     <table class="tbl">
         <thead>
             <tr><th></th><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>

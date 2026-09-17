@@ -87,6 +87,27 @@ public interface ICompanyService
     Dictionary<int, int> CountJobsPerCompany();
 }
 
+/// <summary>
+/// P2-3: một chỗ duy nhất phát biểu luật "chưa đồng ý thì không gọi AI", kèm câu giải thích.
+///
+/// Điểm quan trọng: chưa đồng ý thì phải TỪ CHỐI RÕ RÀNG, không âm thầm rơi về nhánh chấm
+/// ngoại tuyến. Âm thầm nghĩa là Mentor nhận một con số trông y hệt kết quả thật, còn ứng
+/// viên thì không ai biết đã được xử lý bằng cách nào.
+/// </summary>
+public static class AiConsentGate
+{
+    public const string BlockedForMentor =
+        "Ứng viên chưa đồng ý cho hệ thống gửi CV tới dịch vụ AI để phân tích, nên không chạy " +
+        "đánh giá được. Bạn vẫn xem CV, chấm điểm và đổi trạng thái đơn bình thường.";
+
+    public const string BlockedForStudent =
+        "Bạn cần đồng ý cho hệ thống gửi CV tới dịch vụ AI trước khi chạy đánh giá. " +
+        "Hãy bật ở mục \"Xử lý dữ liệu cá nhân bằng AI\" trong trang Hồ sơ của tôi.";
+
+    /// <summary>Hồ sơ này có được phép gửi đi phân tích không.</summary>
+    public static bool Allows(CandidateProfile? profile) => profile?.HasAiConsent == true;
+}
+
 public interface IProfileService
 {
     CandidateProfile? GetByUserId(int userId);
@@ -95,10 +116,19 @@ public interface IProfileService
     /// ATS-09 + SEC-01 + P2-2: lưu CV. Nội dung đi ra blob storage, CSDL chỉ giữ khóa.
     /// Bất đồng bộ vì có một lần ghi tệp; đường ghi cũ đồng bộ nên phải đổi chữ ký.
     /// </summary>
-    Task<(bool ok, string? error)> SaveCvAsync(int userId, byte[] data, string fileName, string contentType, CancellationToken ct = default);
+    /// <param name="aiConsentGiven">
+    /// P2-3: người dùng có tích ô đồng ý gửi CV tới dịch vụ AI hay không. Sự đồng ý chỉ được
+    /// ĐẶT ở đây, không bao giờ bị xóa — một lần tải CV mới mà quên tích ô không được hiểu là
+    /// rút lại (việc đó có đường riêng: <see cref="WithdrawAiConsent"/>).
+    /// </param>
+    Task<(bool ok, string? error)> SaveCvAsync(int userId, byte[] data, string fileName, string contentType,
+        bool aiConsentGiven = false, CancellationToken ct = default);
 
     /// <summary>P2-2: đọc nội dung CV hiện tại — ưu tiên blob storage, lùi về cột cũ nếu chưa di trú.</summary>
     Task<byte[]?> ReadCvAsync(CandidateProfile profile, CancellationToken ct = default);
+
+    /// <summary>P2-3: rút lại sự đồng ý xử lý dữ liệu bằng AI. Kết quả đã chấm trước đó GIỮ NGUYÊN.</summary>
+    void WithdrawAiConsent(int userId);
 }
 
 public interface IApplicationService
@@ -1146,7 +1176,7 @@ public class ProfileService(AppDbContext db, ICvStorage cvStorage, TimeProvider?
     }
 
     public async Task<(bool ok, string? error)> SaveCvAsync(int userId, byte[] data, string fileName,
-        string contentType, CancellationToken ct = default)
+        string contentType, bool aiConsentGiven = false, CancellationToken ct = default)
     {
         // SEC-01: quét tệp trước khi lưu — và trước cả khi ghi ra đĩa.
         var (safe, err) = CvScanner.Scan(data, fileName);
@@ -1175,8 +1205,34 @@ public class ProfileService(AppDbContext db, ICvStorage cvStorage, TimeProvider?
             ? "application/pdf"
             : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         p.CvUploadedAt = VietnamDateHelper.UtcNow(clock);   // P0-2: lưu UTC, Ui.* quy đổi khi hiển thị
+
+        // P2-3: ghi lại sự đồng ý ngay tại thời điểm tải CV lên — đó là lúc người dùng thực
+        // sự đọc điều khoản. Đồng ý CHỈ được đặt, không bao giờ bị xóa ở đây: một lần tải CV
+        // mới mà quên tích ô không được hiểu là rút lại (có đường riêng cho việc đó).
+        if (aiConsentGiven && !p.HasAiConsent)
+        {
+            p.AiConsentAt = VietnamDateHelper.UtcNow(clock);
+            p.AiConsentVersion = CandidateProfile.CurrentAiConsentVersion;
+        }
+
         await db.SaveChangesAsync(ct);
         return (true, null);
+    }
+
+    public void WithdrawAiConsent(int userId)
+    {
+        var p = db.CandidateProfiles.FirstOrDefault(x => x.UserId == userId);
+        if (p is null) return;
+
+        p.AiConsentAt = null;
+        p.AiConsentVersion = null;
+        db.SaveChanges();
+
+        // KHÔNG xóa AiScore/AiStrengths/... của những đơn đã chấm. Ba lý do: (1) đó là kết
+        // quả nhà tuyển dụng đã đọc và đã dựa vào để ra quyết định, xóa đi là làm mất dấu
+        // vết của một quyết định có thật; (2) chúng là dữ liệu do hệ thống sinh ra, không
+        // phải dữ liệu cá nhân thô; (3) rút đồng ý có nghĩa "đừng gửi CV của tôi đi NỮA",
+        // không phải "hãy quên những gì đã xảy ra". Chặn ở đường GỌI mới là chỗ có tác dụng.
     }
 
     /// <summary>

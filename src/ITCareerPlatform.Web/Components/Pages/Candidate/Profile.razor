@@ -14,6 +14,7 @@
 
 <div class="grid2-wide">
     <form method="post" action="/profile/save" class="form" data-vi-validate>
+        <AntiforgeryField />
         <h2 class="form-h">1 · Thông tin cá nhân</h2>
         <label>Họ và tên</label>
         <input name="fullName" required minlength="2" value="@p.FullName" />
@@ -77,12 +78,60 @@
             <p class="sub">Bạn chưa tải CV nào lên.</p>
         }
         <form method="post" action="/profile/cv" enctype="multipart/form-data" data-vi-validate>
+            <AntiforgeryField />
             <label>Chọn CV (PDF hoặc DOCX, tối đa 5MB)</label>
             <input name="cv" type="file" accept=".pdf,.docx" required />
+
+            @* P2-3: sự đồng ý được LƯU LẠI, không chỉ là một dòng chữ trên màn hình. Thuộc
+               tính required chỉ ràng buộc trình duyệt — ProfileService kiểm lại ở tầng dịch vụ. *@
+            @if (!p.HasAiConsent)
+            {
+                <div class="warn-note" style="margin-top:12px">
+                    <label style="display:flex;gap:8px;align-items:flex-start;font-weight:normal">
+                        <input type="checkbox" name="aiConsent" value="1" required style="margin-top:4px" />
+                        <span>
+                            Tôi đồng ý cho hệ thống gửi <b>nội dung CV và hồ sơ</b> của tôi tới dịch vụ AI
+                            (Google Gemini) để phân tích độ phù hợp với vị trí tuyển dụng và gợi ý lộ trình
+                            học tập. Tôi có thể rút lại sự đồng ý này bất cứ lúc nào ở ngay trang Hồ sơ.
+                        </span>
+                    </label>
+                </div>
+            }
+
             <div class="actions">
                 <button class="btn-primary" type="submit">Tải CV lên</button>
             </div>
         </form>
+
+        @* P2-3: trạng thái đồng ý và đường rút lại. Đặt ngay cạnh chỗ tải CV vì đó là nơi
+           người dùng nghĩ về dữ liệu của mình. *@
+        <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px">
+            <h4 style="margin:0 0 6px 0">🔐 Xử lý dữ liệu cá nhân bằng AI</h4>
+            @if (p.HasAiConsent)
+            {
+                <p class="sub">
+                    <span class="ok">● Đã đồng ý</span> lúc @Ui.DateTimeText(p.AiConsentAt)
+                    (phiên bản điều khoản @p.AiConsentVersion).
+                </p>
+                <form method="post" action="/profile/ai-consent/withdraw" class="inline"
+                      onsubmit="return confirm('Rút lại đồng ý? Hệ thống sẽ ngừng gửi CV của bạn tới dịch vụ AI. Các kết quả đã chấm trước đó vẫn được giữ lại.');">
+                    <AntiforgeryField />
+                    <button class="btn-sm ghost" type="submit">Rút lại đồng ý</button>
+                </form>
+                <p class="sub" style="margin-top:6px">
+                    Rút lại nghĩa là hệ thống ngừng gửi CV của bạn đi từ thời điểm đó. Những kết quả
+                    đánh giá đã có trước đó vẫn được giữ, vì nhà tuyển dụng đã đọc và đã dựa vào chúng.
+                </p>
+            }
+            else
+            {
+                <p class="sub">
+                    <span class="lock">● Chưa đồng ý</span> — hệ thống sẽ không gửi CV của bạn tới dịch vụ AI.
+                    Bạn vẫn ứng tuyển bình thường được, nhưng chức năng đánh giá độ phù hợp sẽ không chạy.
+                    Tích ô đồng ý ở khối tải CV bên trên để bật.
+                </p>
+            }
+        </div>
         <p class="sub" style="margin-top:10px">🔒 CV được quét an toàn trước khi lưu (chặn tệp thực thi / mã độc).</p>
     </div>
 </div>

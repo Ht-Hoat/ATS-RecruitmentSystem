@@ -18,6 +18,7 @@
 <div class="panel" style="margin-bottom:20px">
     <h2>@(editing is null ? "Thêm công ty" : $"Sửa công ty #{editing.Id}")</h2>
     <form method="post" action="/companies/save" class="form">
+        <AntiforgeryField />
         <input type="hidden" name="id" value="@(editing?.Id ?? 0)" />
 
         <label>Tên công ty *</label>
@@ -93,6 +94,7 @@
                 </td>
                 <td>
                     <form method="post" action="@($"/companies/assign/{u.Id}")" class="inline">
+                        <AntiforgeryField />
                         <select name="companyId">
                             <option value="">— Chưa gán —</option>
                             @foreach (var c in companies)

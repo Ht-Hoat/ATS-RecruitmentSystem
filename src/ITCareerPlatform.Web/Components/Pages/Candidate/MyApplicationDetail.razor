@@ -34,6 +34,7 @@ else
         {
             <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
                 <form method="post" action="@($"/applications/{app.Id}/withdraw")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                    <AntiforgeryField />
                     <button class="btn danger" type="submit">🛑 Rút đơn ứng tuyển</button>
                 </form>
             </div>

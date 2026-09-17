@@ -205,3 +205,57 @@ Có SMTP thì mật khẩu tạm gửi **thẳng vào hộp thư** người dùn
 hình. Chưa cấu hình SMTP — hoặc lần gửi vừa rồi hỏng — thì mới lùi về cách cũ là hiện một
 lần cho Admin đọc lại cho người dùng. Email này gửi trực tiếp chứ không qua `EmailOutbox`,
 vì xếp hàng nghĩa là mật khẩu nằm ở dạng rõ trong một cột CSDL cho tới khi gửi xong.
+
+---
+
+## 🔐 Dữ liệu cá nhân (P2-3)
+
+Mục này mô tả hệ thống thu thập gì, gửi đi đâu, giữ bao lâu và người dùng rút lại bằng cách
+nào — theo tinh thần Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.
+
+### Thu thập những gì
+
+| Dữ liệu | Nguồn | Dùng để làm gì |
+|---|---|---|
+| Họ tên, email, điện thoại, ngày sinh, địa chỉ | Sinh viên tự nhập ở `/profile` | Nhận dạng ứng viên, để nhà tuyển dụng liên hệ |
+| Học vấn, kinh nghiệm, kỹ năng, số năm kinh nghiệm | Sinh viên tự nhập | Xếp hạng và lọc ứng viên |
+| Tệp CV (PDF/DOCX, tối đa 5MB) | Sinh viên tải lên | Nhà tuyển dụng đọc; phân tích độ phù hợp |
+| Liên kết GitHub / LinkedIn / Portfolio | Sinh viên tự nhập | Nhà tuyển dụng tham khảo |
+| Nhật ký thao tác (`AuditLog`) | Hệ thống sinh | Truy vết thao tác quản trị |
+
+### Gửi đi đâu
+
+Chỉ **một** dịch vụ bên ngoài nhận dữ liệu: **Google Gemini**, và chỉ khi có đủ hai điều
+kiện — đã cấu hình `Gemini:ApiKey`, **và** hồ sơ đó đã ghi nhận sự đồng ý.
+
+Ba đường gọi: Mentor chấm độ phù hợp, Mentor sinh câu hỏi phỏng vấn, và sinh viên tự kiểm
+tra. Cả ba đều bị chặn khi chưa có đồng ý, kèm câu giải thích rõ ràng — hệ thống **không**
+âm thầm rơi về nhánh chấm ngoại tuyến, vì một con số như vậy trông y hệt kết quả thật.
+
+Chưa cấu hình khóa Gemini thì không có dữ liệu nào rời khỏi máy chủ; điểm số do công thức
+đối chiếu Tech Stack chạy tại chỗ tính ra và được gắn nhãn **📴 ngoại tuyến**.
+
+### Đồng ý và rút lại
+
+Sự đồng ý được ghi nhận ngay tại lúc tải CV lên (ô tích bắt buộc), lưu thành hai cột
+`AiConsentAt` và `AiConsentVersion` — có mốc thời gian và phiên bản điều khoản, chứ không
+phải một chữ "đã đồng ý" trơ trọi.
+
+Sinh viên rút lại bất cứ lúc nào ở mục **Xử lý dữ liệu cá nhân bằng AI** trong `/profile`.
+Rút lại nghĩa là hệ thống **ngừng gửi CV đi từ thời điểm đó**; các kết quả đã chấm trước đó
+**được giữ nguyên**, vì nhà tuyển dụng đã đọc và đã dựa vào chúng để ra quyết định — xóa đi
+là làm mất dấu vết của một quyết định có thật.
+
+### Giữ bao lâu, xóa thế nào
+
+Phiên bản này **chưa có** cơ chế tự động xóa theo hạn. Xóa tài khoản người dùng sẽ kéo theo
+hồ sơ và các bản tự kiểm tra (`ON DELETE CASCADE`); tệp CV trên blob storage phải xóa riêng
+bằng `ICvStorage.DeleteAsync` — lưu ý một tệp có thể đang được nhiều đơn dùng chung do khử
+trùng lặp theo nội dung. Đây là hạn chế đã biết, cần làm trước khi vận hành với dữ liệu thật.
+
+### Chống giả mạo yêu cầu (CSRF)
+
+Mọi endpoint POST đều kiểm tra token, trừ `/account/login` và `/account/register` — hai
+đường chạy trước khi có phiên, đã được giới hạn tốc độ theo IP, và một lần đối chiếu token
+hỏng ở đó sẽ chặn hẳn lối vào hệ thống. Token hết hạn (tab mở quá lâu) dẫn tới trang
+`/error?reason=antiforgery` giải thích phải làm gì, không phải một mã 400 trơ trọi.

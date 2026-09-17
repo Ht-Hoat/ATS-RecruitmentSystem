@@ -102,12 +102,20 @@ public sealed class TestDb : IDisposable
         return j;
     }
 
-    public CandidateProfile AddProfile(int userId, string tags = "C#,.NET,SQL Server", bool withCv = true)
+    /// <param name="withAiConsent">
+    /// P2-3: mặc định ĐÃ đồng ý cho gửi CV tới dịch vụ AI, vì phần lớn test nói về chuyện
+    /// khác và một hồ sơ chưa đồng ý sẽ bị chặn ở mọi đường gọi AI. Test nào thực sự kiểm
+    /// chốt chặn đó thì truyền false.
+    /// </param>
+    public CandidateProfile AddProfile(int userId, string tags = "C#,.NET,SQL Server", bool withCv = true,
+        bool withAiConsent = true)
     {
         var p = new CandidateProfile
         {
             UserId = userId, FullName = "SV Test", Email = "sv@test.vn",
             TechSkillTags = tags, Skills = tags,
+            AiConsentAt = withAiConsent ? DateTime.UtcNow : null,
+            AiConsentVersion = withAiConsent ? CandidateProfile.CurrentAiConsentVersion : null,
             CvData = withCv ? System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 CV test") : null,
             CvFileName = withCv ? "cv.pdf" : null, CvContentType = "application/pdf",
             CvUploadedAt = withCv ? DateTime.UtcNow : null

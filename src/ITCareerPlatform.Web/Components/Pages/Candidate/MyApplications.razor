@@ -44,6 +44,7 @@
                     @if (a.Status != ApplicationStatus.Accepted && a.Status != ApplicationStatus.Rejected && a.Status != ApplicationStatus.Withdrawn)
                     {
                         <form method="post" action="@($"/applications/{a.Id}/withdraw")" class="inline" style="margin-left:4px" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                            <AntiforgeryField />
                             <button class="btn-sm ghost" type="submit" title="Rút đơn ứng tuyển">Rút đơn</button>
                         </form>
                     }

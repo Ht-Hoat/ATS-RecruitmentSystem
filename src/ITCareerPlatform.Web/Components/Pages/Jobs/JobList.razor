@@ -45,6 +45,7 @@
                     {
                         <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
                         <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
+                            <AntiforgeryField />
                             <button class="btn-sm danger" type="submit">Đóng</button>
                         </form>
                     }
@@ -52,6 +53,7 @@
                     {
                         <span class="btn-sm ghost disabled" title="Mở lại tin trước khi sửa">Sửa</span>
                         <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline">
+                            <AntiforgeryField />
                             <button class="btn-sm" type="submit">Mở lại</button>
                         </form>
                     }

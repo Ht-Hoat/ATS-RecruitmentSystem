@@ -45,6 +45,7 @@
                                     @* Chỉ gửi id. Đường dẫn chuyển tới được đọc từ CSDL ở phía server —
                                        trước đây nó là một ô ẩn trong form, tức là do client quyết định. *@
                                     <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
+                                        <AntiforgeryField />
                                         <button type="submit">
                                             <b>@n.Title</b>
                                             <span>@n.Message</span>
@@ -60,6 +61,7 @@
                     @* N1.A: nằm ngoài mọi AuthorizeView theo vai trò — cả ba vai trò đều đổi được. *@
                     <a class="userlink" href="/change-password">🔑 Đổi mật khẩu</a>
                     <form method="post" action="/account/logout"><button class="btn-out" type="submit">Đăng xuất</button></form>
+                        <AntiforgeryField />
                 </div>
             </Authorized>
         </AuthorizeView>

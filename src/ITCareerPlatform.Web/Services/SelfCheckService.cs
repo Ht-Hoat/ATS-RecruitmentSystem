@@ -57,6 +57,10 @@ public class SelfCheckService(
         if (profile is null) return (false, "Bạn cần tạo hồ sơ IT trước khi tự kiểm tra độ phù hợp.");
         if (!profile.HasCv) return (false, "Bạn cần tải CV lên trước khi tự kiểm tra độ phù hợp.");
 
+        // P2-3: một lượt tự kiểm tra cũng là một lần gửi CV ra ngoài, nên vẫn cần sự đồng ý —
+        // dù người bấm nút chính là chủ nhân dữ liệu.
+        if (!AiConsentGate.Allows(profile)) return (false, AiConsentGate.BlockedForStudent);
+
         // Dùng lại đúng vị ngữ "tin còn nhận hồ sơ" của P0-1. Chạy đánh giá với một tin đã
         // đóng là tiêu một lượt quota cho một vị trí không nộp được nữa.
         var job = jobs.GetVisibleForCandidate(jobId);

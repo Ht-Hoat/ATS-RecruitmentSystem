@@ -22,6 +22,16 @@ const string LoginRateLimitPolicy = "login";
 // rẻ hơn một claim trong cookie (claim có thể cũ tới 8 tiếng) và không tốn thêm lần đọc nào.
 const string MustChangePasswordItem = "itcp:mustchangepw";
 
+// P2-3: hai đường POST được miễn kiểm tra chống giả mạo (CSRF).
+//
+// Lý do miễn trừ: cả hai chạy TRƯỚC khi có phiên, và một lần đối chiếu token hỏng ở đây —
+// cookie token hết hạn vì tab đăng nhập mở quá lâu, hoặc người dùng bấm Quay lại — sẽ chặn
+// hẳn đường vào hệ thống bằng một trang lỗi trắng. Hai đường này vốn đã được giới hạn tốc độ
+// theo IP, và một yêu cầu giả mạo tới chúng cũng chỉ làm nạn nhân đăng nhập vào MỘT tài
+// khoản khác chứ không thao tác được gì trên tài khoản của chính họ.
+// MỌI endpoint còn lại đều bị kiểm tra.
+string[] antiforgeryExemptPaths = { "/account/login", "/account/register" };
+
 // ---------- Blazor (server-rendered) + trạng thái đăng nhập ----------
 builder.Services.AddRazorComponents();
 builder.Services.AddCascadingAuthenticationState();
@@ -229,6 +239,43 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.UseAntiforgery();
 
+// ---------- P2-3: kiểm tra token chống giả mạo cho MỌI yêu cầu POST ----------
+//
+// Đặt ở MỘT chỗ thay vì gắn metadata vào từng endpoint: các endpoint ở đây đọc form bằng
+// ctx.Request.ReadFormAsync() chứ không ràng buộc tham số form, nên khung ứng dụng KHÔNG tự
+// suy ra là chúng cần kiểm tra — gỡ .DisableAntiforgery() thôi là chưa đủ, và sẽ tạo cảm
+// giác sai rằng đã bật xong.
+//
+// Trước đây mọi endpoint đều .DisableAntiforgery(). Cookie đang đặt SameSite=Lax nên phần
+// lớn kịch bản POST xuyên site bị trình duyệt hiện đại chặn sẵn — đây không phải lỗ hổng mở
+// toang, nhưng SameSite là lớp phòng thủ DUY NHẤT, và mục tiêu là những endpoint như
+// /applications/{id}/status hay /jobs/{id}/close.
+app.Use(async (ctx, next) =>
+{
+    if (HttpMethods.IsPost(ctx.Request.Method) &&
+        !antiforgeryExemptPaths.Contains(ctx.Request.Path.Value, StringComparer.OrdinalIgnoreCase))
+    {
+        var antiforgery = ctx.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
+        try
+        {
+            await antiforgery.ValidateRequestAsync(ctx);
+        }
+        catch (Microsoft.AspNetCore.Antiforgery.AntiforgeryValidationException ex)
+        {
+            // Nguyên nhân thường gặp nhất KHÔNG phải tấn công mà là tab mở quá lâu rồi mới
+            // bấm gửi. Vì vậy trả về một trang giải thích được thay vì mã 400 trơ trọi —
+            // nhưng vẫn ghi log để một đợt tấn công thật không đi qua lặng lẽ.
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>()
+               .CreateLogger("ITCareerPlatform.Antiforgery")
+               .LogWarning(ex, "Từ chối POST {Path}: token chống giả mạo không hợp lệ.", ctx.Request.Path);
+
+            ctx.Response.Redirect("/error?reason=antiforgery");
+            return;
+        }
+    }
+    await next();
+});
+
 // ---------- P0-3: chốt buộc đổi mật khẩu ----------
 // Đặt ở ĐÚNG MỘT chỗ thay vì rải điều kiện vào từng trang: trang nào quên là trang đó lọt,
 // và người vừa bị reset mật khẩu vẫn dùng được hệ thống bình thường bằng mật khẩu tạm mà
@@ -305,7 +352,7 @@ app.MapPost("/account/logout", async (HttpContext ctx) =>
 {
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.LocalRedirect("/login");
-}).DisableAntiforgery();
+});
 
 app.MapPost("/account/register", async (HttpContext ctx, IUserService svc) =>
 {
@@ -338,7 +385,7 @@ app.MapPost("/account/change-password", async (HttpContext ctx, IUserService svc
     return Results.LocalRedirect("/login?pwchanged=1");
     // Cùng chính sách giới hạn tốc độ với đăng nhập: endpoint này cũng nhận mật khẩu hiện
     // tại, nên nếu không chặn thì nó thành một cửa dò mật khẩu thứ hai.
-}).RequireAuthorization().DisableAntiforgery().RequireRateLimiting(LoginRateLimitPolicy);
+}).RequireAuthorization().RequireRateLimiting(LoginRateLimitPolicy);
 
 // ============================ USERS (ATS-01, ATS-02) ============================
 app.MapPost("/users/create", async (HttpContext ctx, IUserService svc) =>
@@ -359,14 +406,14 @@ app.MapPost("/users/create", async (HttpContext ctx, IUserService svc) =>
     {
         return Results.Redirect("/users/new?error=" + Enc(ex.Message));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 app.MapPost("/users/{id:int}/toggle-lock", (int id, HttpContext ctx, IUserService svc) =>
 {
     if (id == CurrentUserId(ctx)) return Results.Redirect("/users?err=" + Enc("Không thể tự khóa tài khoản của mình."));
     svc.ToggleLock(id, CurrentUserId(ctx));
     return Results.LocalRedirect("/users");
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUserService svc) =>
 {
@@ -384,7 +431,7 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
     {
         return Results.Redirect("/users?err=" + Enc(ex.Message));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 // P0-3 + P1-3: Admin đặt lại mật khẩu.
 //
@@ -436,7 +483,7 @@ app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IU
     }
 
     return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 // ============================ JOBS (ATS-04, 05, 06) ============================
 // Trình duyệt gửi <input type="number"> theo chuẩn HTML (dấu chấm thập phân), nên phải
@@ -468,7 +515,7 @@ app.MapPost("/jobs/create", async (HttpContext ctx, IJobService svc) =>
     // Luật nghiệp vụ do JobService.Validate phát biểu — hiện nguyên văn cho người đăng tin.
     catch (ArgumentException ex) { return Results.Redirect("/jobs/new?error=" + Enc(ex.Message)); }
     catch (Exception ex) { return Results.Redirect("/jobs/new?error=" + Enc(SafeError(ctx, ex, "tạo tin tuyển dụng"))); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 app.MapPost("/jobs/{id:int}/update", async (int id, HttpContext ctx, IJobService svc) =>
 {
@@ -480,7 +527,7 @@ app.MapPost("/jobs/{id:int}/update", async (int id, HttpContext ctx, IJobService
     catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
     { return Results.Redirect($"/jobs/edit/{id}?error=" + Enc(ex.Message)); }
     catch (Exception ex) { return Results.Redirect($"/jobs/edit/{id}?error=" + Enc(SafeError(ctx, ex, $"sửa tin #{id}"))); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ATS-06: đóng/mở lại tin — nay truyền người thực hiện xuống service để kiểm tra quyền
 // sở hữu. Trước đây hai endpoint này chỉ chặn theo vai trò, nên bất kỳ Mentor nào cũng
@@ -490,14 +537,14 @@ app.MapPost("/jobs/{id:int}/close", (int id, HttpContext ctx, IJobService svc) =
     try { svc.Close(id, CurrentUserId(ctx)); return Results.LocalRedirect("/jobs"); }
     catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
     catch (InvalidOperationException ex) { return Results.Redirect("/jobs?err=" + Enc(ex.Message)); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 app.MapPost("/jobs/{id:int}/reopen", (int id, HttpContext ctx, IJobService svc) =>
 {
     try { svc.Reopen(id, CurrentUserId(ctx)); return Results.LocalRedirect("/jobs"); }
     catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
     catch (InvalidOperationException ex) { return Results.Redirect("/jobs?err=" + Enc(ex.Message)); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ============================ PROFILE (ATS-08, ATS-09) ============================
 app.MapPost("/profile/save", async (HttpContext ctx, IProfileService svc) =>
@@ -528,7 +575,7 @@ app.MapPost("/profile/save", async (HttpContext ctx, IProfileService svc) =>
         return Results.LocalRedirect("/profile?saved=1");
     }
     catch (ArgumentException ex) { return Results.Redirect("/profile?error=" + Enc(ex.Message)); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
 app.MapPost("/profile/cv", async (HttpContext ctx, IProfileService svc) =>
 {
@@ -546,10 +593,25 @@ app.MapPost("/profile/cv", async (HttpContext ctx, IProfileService svc) =>
 
     using var ms = new MemoryStream(capacity: (int)file.Length);
     await file.CopyToAsync(ms);
-    var (ok, err) = await svc.SaveCvAsync(uid, ms.ToArray(), file.FileName, file.ContentType, ctx.RequestAborted);
+    // P2-3: ô tích đồng ý. Thuộc tính required trên thẻ input chỉ ràng buộc trình duyệt;
+    // luật thật nằm ở ProfileService, nên một request tự tạo không lách qua được.
+    var consent = f["aiConsent"].ToString() == "1";
+    var (ok, err) = await svc.SaveCvAsync(uid, ms.ToArray(), file.FileName, file.ContentType, consent, ctx.RequestAborted);
     return ok ? Results.LocalRedirect("/profile?cvsaved=1")
               : Results.Redirect("/profile?cverror=" + Enc(err ?? "Không lưu được CV."));
-}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
+
+// P2-3: rút lại sự đồng ý xử lý dữ liệu bằng AI.
+app.MapPost("/profile/ai-consent/withdraw", (HttpContext ctx, IProfileService svc) =>
+{
+    var uid = CurrentUserId(ctx);
+    if (uid == 0) return Results.LocalRedirect("/login");
+
+    svc.WithdrawAiConsent(uid);
+    return Results.Redirect("/profile?msg=" + Enc(
+        "Đã rút lại đồng ý. Hệ thống sẽ không gửi CV của bạn tới dịch vụ AI nữa. " +
+        "Các kết quả đánh giá đã có trước đó vẫn được giữ lại."));
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
 app.MapGet("/profile/cv/download", async (HttpContext ctx, IProfileService svc) =>
 {
@@ -590,7 +652,7 @@ app.MapPost("/jobs/{id:int}/apply", async (int id, HttpContext ctx, IApplication
     return Results.Redirect(from == "detail"
         ? $"/positions/{id}?" + query
         : "/positions?" + query);
-}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
 // P1-2: sinh viên tự chạy đánh giá độ phù hợp với một tin, trước khi ứng tuyển.
 // Hạn mức, điều kiện hồ sơ/CV và điều kiện tin còn mở đều do service phát biểu — endpoint
@@ -615,7 +677,7 @@ app.MapPost("/positions/{id:int}/self-check", async (int id, HttpContext ctx, IS
     {
         return Results.Redirect($"/positions/{id}?err=" + Enc(SafeError(ctx, ex, $"tự kiểm tra độ phù hợp với tin #{id}")));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
 // P0-4: sinh viên rút đơn. Quyền sở hữu do service kiểm (CandidateProfile.UserId), không
 // kiểm ở đây — nếu viết lại vị ngữ tại chỗ thì hai nơi sẽ trôi khỏi nhau theo thời gian.
@@ -626,7 +688,7 @@ app.MapPost("/applications/{id:int}/withdraw", (int id, HttpContext ctx, IApplic
 
     var ok = svc.Withdraw(id, uid, out var message);
     return Results.Redirect("/my-applications?" + (ok ? "msg=" : "err=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
 // ============================ P2-1: XUẤT CSV + THAO TÁC HÀNG LOẠT ============================
 // Xuất đúng tập đang hiện trên màn hình: cùng quyền (CanModify) và cùng bộ lọc (dựng bằng
@@ -681,7 +743,7 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
         : $"{result.Message} ({foreignCount} đơn không thuộc tin này đã bị bỏ qua.)";
 
     return Results.Redirect($"/jobs/{id}/applicants?" + (result.Updated > 0 ? "msg=" : "err=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================
 app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplicationService svc) =>
@@ -704,6 +766,11 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
     if (a?.CandidateProfile is null || a.Job is null)
         return Results.Redirect($"/applications/{id}?aierror=" + Enc("Không tìm thấy dữ liệu đơn."));
 
+    // P2-3: chưa có sự đồng ý thì dừng hẳn và nói rõ vì sao — KHÔNG lặng lẽ rơi về nhánh
+    // chấm ngoại tuyến, vì con số đó trông y hệt một lần chấm thật.
+    if (!AiConsentGate.Allows(a.CandidateProfile))
+        return Results.Redirect($"/applications/{id}?aierror=" + Enc(AiConsentGate.BlockedForMentor));
+
     try
     {
         var eval = await ai.EvaluateAsync(await build.ForApplicationAsync(a, a.CandidateProfile, ctx.RequestAborted), ctx.RequestAborted);
@@ -720,7 +787,7 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
     {
         return Results.Redirect($"/applications/{id}?aierror=" + Enc(SafeError(ctx, ex, $"chấm điểm đơn #{id}")));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // N1.C: sinh bộ câu hỏi phỏng vấn từ CV đã nộp + JD. Kết quả được LƯU, vì trang render
 // tĩnh: sinh xong rồi redirect thì không còn gì để hiển thị, và mỗi lần mở lại trang sẽ
@@ -732,6 +799,10 @@ app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ct
     var a = svc.GetById(id);
     if (a?.CandidateProfile is null || a.Job is null)
         return Results.Redirect($"/applications/{id}?qerror=" + Enc("Không tìm thấy dữ liệu đơn."));
+
+    // P2-3: bộ câu hỏi cũng soạn từ nội dung CV, nên cùng một luật đồng ý.
+    if (!AiConsentGate.Allows(a.CandidateProfile))
+        return Results.Redirect($"/applications/{id}?qerror=" + Enc(AiConsentGate.BlockedForMentor));
 
     try
     {
@@ -747,7 +818,7 @@ app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ct
     {
         return Results.Redirect($"/applications/{id}?qerror=" + Enc(SafeError(ctx, ex, $"sinh câu hỏi cho đơn #{id}")));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ATS-16: Mentor điều chỉnh điểm (lý do bắt buộc)
 app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, IApplicationService svc) =>
@@ -776,7 +847,7 @@ app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, I
 
     svc.SaveHrScore(id, hr, note, CurrentUserId(ctx));
     return Results.Redirect($"/applications/{id}?hrsaved=1");
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ATS-17: đổi trạng thái đơn · N1.E: kèm lịch phỏng vấn khi chuyển sang "Phỏng vấn"
 app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IApplicationService svc) =>
@@ -811,7 +882,7 @@ app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IAp
     // Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
     // ("thời gian phỏng vấn phải ở tương lai") hiện ra trong khung báo thành công màu xanh.
     return Results.Redirect($"/applications/{id}?" + (ok ? "statusmsg=" : "statuserr=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // N1.B: ghi chú nội bộ về ứng viên — chỉ Mentor chủ tin và Admin, không bao giờ hiện cho SV.
 app.MapPost("/applications/{id:int}/internal-note", async (int id, HttpContext ctx, IApplicationService svc) =>
@@ -820,7 +891,7 @@ app.MapPost("/applications/{id:int}/internal-note", async (int id, HttpContext c
     var f = await ctx.Request.ReadFormAsync();
     svc.SaveInternalNote(id, f["internalNote"].ToString(), CurrentUserId(ctx));
     return Results.Redirect($"/applications/{id}?notesaved=1");
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ============================ NOTIFICATIONS (NTF-01) ============================
 app.MapPost("/notifications/{id:int}/read", (int id, HttpContext ctx, INotificationService svc) =>
@@ -830,7 +901,7 @@ app.MapPost("/notifications/{id:int}/read", (int id, HttpContext ctx, INotificat
     // lấy thẳng từ body — tức là một endpoint chuyển hướng ra ngoài miền.
     var link = svc.MarkRead(id, CurrentUserId(ctx));
     return SafeRedirect(link, "/my-applications");
-}).RequireAuthorization().DisableAntiforgery();
+}).RequireAuthorization();
 
 app.MapRazorComponents<App>();
 

@@ -122,7 +122,10 @@ public static class SeedData
             GithubUrl = "https://github.com/phamthilan", LinkedInUrl = "https://linkedin.com/in/phamthilan",
             PortfolioUrl = "https://phamthilan.dev",
             CvData = SampleCv("Pham Thi Lan"), CvFileName = "CV_PhamThiLan.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow,
+            // P2-3: dữ liệu mẫu có sẵn sự đồng ý, nếu không thì mọi nút "Đánh giá bằng AI"
+            // trên bản demo đều bị chặn và người xem tưởng chức năng hỏng.
+            AiConsentAt = DateTime.UtcNow, AiConsentVersion = CandidateProfile.CurrentAiConsentVersion
         };
         var pKhoa = new CandidateProfile
         {
@@ -135,7 +138,10 @@ public static class SeedData
             GithubUrl = "https://github.com/dovankhoa", LinkedInUrl = "https://linkedin.com/in/dovankhoa",
             PortfolioUrl = "https://khoa.dev",
             CvData = SampleCv("Do Van Khoa"), CvFileName = "CV_DoVanKhoa.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow,
+            // P2-3: dữ liệu mẫu có sẵn sự đồng ý, nếu không thì mọi nút "Đánh giá bằng AI"
+            // trên bản demo đều bị chặn và người xem tưởng chức năng hỏng.
+            AiConsentAt = DateTime.UtcNow, AiConsentVersion = CandidateProfile.CurrentAiConsentVersion
         };
         db.CandidateProfiles.AddRange(pLan, pKhoa);
         db.SaveChanges();

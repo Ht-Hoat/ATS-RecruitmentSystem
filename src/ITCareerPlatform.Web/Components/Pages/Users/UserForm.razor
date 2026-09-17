@@ -6,6 +6,7 @@
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
 <form method="post" action="/users/create" class="form" data-vi-validate>
+    <AntiforgeryField />
     <label>Họ tên</label>
     <input name="fullName" required maxlength="120" placeholder="Nguyễn Văn A" />
     <label>Email</label>
