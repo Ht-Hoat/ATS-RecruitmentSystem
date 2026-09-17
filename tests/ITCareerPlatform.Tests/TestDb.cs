@@ -27,6 +27,23 @@ public sealed class TestDb : IDisposable
         return new AppDbContext(opts);
     }
 
+    /// <summary>
+    /// P1-1: công ty mặc định cho những test không quan tâm tới công ty.
+    ///
+    /// Jobs.CompanyId là NOT NULL kèm khóa ngoại, nên mọi tin đều phải thuộc về một công ty
+    /// có thật. Tạo sẵn đúng một công ty dùng chung thay vì bắt hàng chục test hiện có phải
+    /// khai báo lại — test nào THỰC SỰ kiểm chuyện công ty thì tự dựng công ty riêng.
+    /// </summary>
+    public Company DefaultCompany => _defaultCompany ??= CreateDefaultCompany();
+    private Company? _defaultCompany;
+
+    private Company CreateDefaultCompany()
+    {
+        var c = new Company { Name = "Công ty mặc định (test)" };
+        Db.Companies.Add(c); Db.SaveChanges();
+        return c;
+    }
+
     // Tiện ích: thêm 1 user với vai trò cho trước, trả về Id.
     public User AddUser(string name, string email, int roleId, bool active = true)
     {
@@ -39,14 +56,24 @@ public sealed class TestDb : IDisposable
         return u;
     }
 
+    /// <summary>Mentor đã được gán công ty — đủ điều kiện đăng tin qua JobService.Create.</summary>
+    public User AddMentor(string name = "M", string email = "m@itcp.vn", int? companyId = null)
+    {
+        var u = AddUser(name, email, Roles.MentorId);
+        u.CompanyId = companyId ?? DefaultCompany.Id;
+        Db.SaveChanges();
+        return u;
+    }
+
     public Job AddJob(int createdBy, string title = "Backend .NET",
         string category = "Backend", string techStack = "C#,.NET,SQL Server",
         string level = "Junior", string status = "Open",
         string employmentType = "Onsite", string location = "Hà Nội",
-        decimal salaryMin = 0, decimal salaryMax = 0)
+        decimal salaryMin = 0, decimal salaryMax = 0, int? companyId = null)
     {
         var j = new Job
         {
+            CompanyId = companyId ?? DefaultCompany.Id,
             Title = title, Category = category, TechStack = techStack, Level = level,
             Status = status, CreatedById = createdBy,
             // P0-2: hạn nộp là một NGÀY trên tờ lịch Việt Nam; mốc tạo là một THỜI ĐIỂM ở UTC.

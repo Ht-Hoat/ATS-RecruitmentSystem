@@ -9,6 +9,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<Company> Companies => Set<Company>();   // P1-1
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<CandidateProfile> CandidateProfiles => Set<CandidateProfile>();
     public DbSet<Application> Applications => Set<Application>();
@@ -87,6 +88,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(a => a.User).WithMany()
             .HasForeignKey(a => a.UserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // P1-1: Companies (1) --- (n) Jobs, và (1) --- (n) Users (tài khoản Mentor).
+        // Restrict ở cả hai chiều: xóa một công ty đang có tin hoặc đang có nhân sự phải là
+        // thao tác có ý thức, không được kéo theo cả tin tuyển dụng lẫn tài khoản.
+        b.Entity<Job>()
+            .HasOne(j => j.Company).WithMany(c => c.Jobs)
+            .HasForeignKey(j => j.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<User>()
+            .HasOne(u => u.Company).WithMany()
+            .HasForeignKey(u => u.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Company>().HasIndex(c => c.Name);
+        b.Entity<Job>().HasIndex(j => j.CompanyId);
 
         b.Entity<Job>().Property(j => j.SalaryMin).HasColumnType("decimal(18,2)");
         b.Entity<Job>().Property(j => j.SalaryMax).HasColumnType("decimal(18,2)");

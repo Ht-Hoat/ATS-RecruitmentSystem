@@ -124,6 +124,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ICompanyService, CompanyService>();   // P1-1
 builder.Services.AddScoped<IJobService, JobService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
@@ -363,6 +364,46 @@ app.MapPost("/users/{id:int}/reset-password", (int id, HttpContext ctx, IUserSer
         return Results.Redirect("/users?err=" + Enc(error));
 
     return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+
+// ============================ COMPANIES (P1-1) ============================
+app.MapPost("/companies/save", async (HttpContext ctx, ICompanyService svc) =>
+{
+    var f = await ctx.Request.ReadFormAsync();
+    var id = int.TryParse(f["id"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
+    try
+    {
+        var c = svc.Save(id, new Company
+        {
+            Name = f["name"].ToString(),
+            Website = f["website"].ToString(),
+            Address = f["address"].ToString(),
+            Description = f["description"].ToString()
+        }, CurrentUserId(ctx));
+        return Results.Redirect("/companies?msg=" + Enc($"Đã lưu công ty '{c.Name}'."));
+    }
+    // Luật do CompanyService phát biểu — câu chữ viết sẵn cho người dùng đọc.
+    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
+    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, "lưu công ty"))); }
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+
+app.MapPost("/companies/assign/{userId:int}", async (int userId, HttpContext ctx, ICompanyService svc) =>
+{
+    var f = await ctx.Request.ReadFormAsync();
+    // Ô trống nghĩa là GỠ khỏi công ty, khác hẳn với "gửi lên một id không đọc được".
+    var raw = f["companyId"].ToString();
+    int? companyId = string.IsNullOrWhiteSpace(raw)
+        ? null
+        : int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cid) ? cid : -1;
+    if (companyId == -1) return Results.Redirect("/companies?err=" + Enc("Công ty không hợp lệ."));
+
+    try
+    {
+        svc.AssignToUser(userId, companyId, CurrentUserId(ctx));
+        return Results.Redirect("/companies?msg=" + Enc("Đã cập nhật công ty của tài khoản."));
+    }
+    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
+    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, $"gán công ty cho tài khoản #{userId}"))); }
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
 
 // ============================ JOBS (ATS-04, 05, 06) ============================

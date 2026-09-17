@@ -69,6 +69,45 @@ public class Role
     public ICollection<User> Users { get; set; } = new List<User>();
 }
 
+/// <summary>
+/// P1-1: công ty đứng tên tin tuyển dụng.
+///
+/// Đây là thực thể trung tâm của một hệ thống tuyển dụng mà hệ thống này đang thiếu: trước
+/// bản này Job chỉ có CreatedById trỏ tới một tài khoản Mentor, nên sinh viên đọc
+/// "Backend Developer · Hà Nội · 15-25tr" mà không biết mình đang ứng tuyển cho ai.
+/// </summary>
+public class Company : ITimestamped
+{
+    public int Id { get; set; }
+
+    [Required(ErrorMessage = "Tên công ty không được để trống.")]
+    [MaxLength(160, ErrorMessage = "Tên công ty tối đa 160 ký tự.")]
+    public string Name { get; set; } = "";
+
+    // Website để trống là hợp lệ; có nhập thì phải là https. Luật này được ProfileService
+    // áp cho URL GitHub/LinkedIn theo đúng cách, nên ở đây dùng lại cùng một quy ước.
+    [MaxLength(250, ErrorMessage = "Website tối đa 250 ký tự.")]
+    public string Website { get; set; } = "";
+
+    [MaxLength(2000, ErrorMessage = "Mô tả công ty tối đa 2000 ký tự.")]
+    public string Description { get; set; } = "";
+
+    [MaxLength(250, ErrorMessage = "Địa chỉ tối đa 250 ký tự.")]
+    public string Address { get; set; } = "";
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+
+    public ICollection<Job> Jobs { get; set; } = new List<Job>();
+
+    /// <summary>
+    /// Tên công ty mặc định mà migration gán cho mọi tin và mọi Mentor đang có.
+    /// Không để cột CompanyId nullable chỉ vì dữ liệu cũ: null sẽ lan ra mọi truy vấn hiển
+    /// thị và mọi trang phải tự xử lý trường hợp "chưa có công ty" một lần nữa.
+    /// </summary>
+    public const string PlaceholderName = "Chưa cập nhật";
+}
+
 public class User : ITimestamped
 {
     public int Id { get; set; }
@@ -97,6 +136,14 @@ public class User : ITimestamped
 
     /// <summary>P0-3: Buộc người dùng đổi mật khẩu ở lần đăng nhập tiếp theo khi Admin reset.</summary>
     public bool MustChangePassword { get; set; }
+
+    /// <summary>
+    /// P1-1: công ty của tài khoản — chỉ có nghĩa với vai trò Mentor/HR. Nullable vì Admin
+    /// và Sinh viên IT không thuộc công ty nào, và một Mentor mới tạo chưa được gán ngay.
+    /// Mentor chưa có công ty thì không đăng tin được (JobService từ chối kèm lý do rõ ràng).
+    /// </summary>
+    public int? CompanyId { get; set; }
+    public Company? Company { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -146,6 +193,15 @@ public class Job : ITimestamped
 
     public int CreatedById { get; set; }
     public User? CreatedBy { get; set; }
+
+    /// <summary>
+    /// P1-1: công ty đứng tên tin. Giá trị này LUÔN lấy từ công ty của người tạo, không bao
+    /// giờ nhận từ form — form là thứ người gửi request sửa được, và sửa được nghĩa là đăng
+    /// được tin đứng tên công ty khác.
+    /// </summary>
+    public int CompanyId { get; set; }
+    public Company? Company { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 

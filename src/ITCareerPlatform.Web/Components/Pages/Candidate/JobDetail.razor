@@ -90,6 +90,29 @@ else if (job != null)
         </div>
     </div>
 
+    @* P1-1: khối giới thiệu công ty đứng tên tin. Website chỉ nhận https ở CompanyService
+       nên thẻ a href dưới đây không thể mang scheme javascript:. *@
+    @if (job.Company is not null)
+    {
+        <div class="panel" style="margin-bottom: 20px;">
+            <h2>🏢 @job.Company.Name</h2>
+            <div class="job-meta" style="margin: 10px 0; display: flex; flex-wrap: wrap; gap: 16px;">
+                @if (!string.IsNullOrWhiteSpace(job.Company.Address))
+                {
+                    <span>📍 @job.Company.Address</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(job.Company.Website))
+                {
+                    <span>🔗 <a href="@job.Company.Website" target="_blank" rel="noopener noreferrer">@job.Company.Website</a></span>
+                }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(job.Company.Description))
+            {
+                <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@job.Company.Description</div>
+            }
+        </div>
+    }
+
     <div class="panel" style="margin-bottom: 20px;">
         <h2>Mô tả công việc (JD)</h2>
         <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@job.Description</div>

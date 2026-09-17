@@ -1,0 +1,135 @@
+@page "/companies"
+@attribute [Authorize(Roles = Roles.Admin)]
+@inject ICompanyService Companies
+@inject IUserService Users
+
+@* P1-1: Admin quản lý công ty và gán công ty cho tài khoản đăng tin.
+
+   Chỉ Admin vào được: công ty là thứ trả lời "tin này đứng tên ai". Nếu Mentor tự sửa
+   được công ty của mình thì câu trả lời đó lại do chính người đăng tin quyết định. *@
+
+<div class="page-head">
+    <h1 class="page-title">Quản lý công ty</h1>
+</div>
+
+@if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+
+<div class="panel" style="margin-bottom:20px">
+    <h2>@(editing is null ? "Thêm công ty" : $"Sửa công ty #{editing.Id}")</h2>
+    <form method="post" action="/companies/save" class="form">
+        <input type="hidden" name="id" value="@(editing?.Id ?? 0)" />
+
+        <label>Tên công ty *</label>
+        <input name="name" maxlength="160" required value="@(editing?.Name)" />
+
+        <label>Website</label>
+        <input name="website" type="url" maxlength="250" placeholder="https://congty.vn" value="@(editing?.Website)" />
+
+        <label>Địa chỉ</label>
+        <input name="address" maxlength="250" value="@(editing?.Address)" />
+
+        <label>Giới thiệu công ty</label>
+        <textarea name="description" rows="4" maxlength="2000">@(editing?.Description)</textarea>
+
+        <div style="margin-top:12px">
+            <button class="btn-primary" type="submit">@(editing is null ? "Thêm công ty" : "Lưu thay đổi")</button>
+            @if (editing is not null)
+            {
+                <a class="btn ghost" href="/companies" style="margin-left:8px">Hủy</a>
+            }
+        </div>
+    </form>
+</div>
+
+<table class="tbl">
+    <thead>
+        <tr><th>ID</th><th>Tên công ty</th><th>Website</th><th>Địa chỉ</th><th>Số tin</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var c in companies)
+        {
+            <tr>
+                <td>@c.Id</td>
+                <td><b>@c.Name</b></td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(c.Website))
+                    {
+                        @* Chỉ https mới qua được CompanyService.Validate, nên thẻ a href này an toàn. *@
+                        <a href="@c.Website" target="_blank" rel="noopener noreferrer">@c.Website</a>
+                    }
+                    else { <span class="sub">—</span> }
+                </td>
+                <td>@(string.IsNullOrWhiteSpace(c.Address) ? "—" : c.Address)</td>
+                <td>@jobCounts.GetValueOrDefault(c.Id)</td>
+                <td><a class="btn-sm" href="@($"/companies?edit={c.Id}")">Sửa</a></td>
+            </tr>
+        }
+        @if (companies.Count == 0)
+        {
+            <tr><td colspan="6" class="sub">Chưa có công ty nào. Hãy thêm công ty đầu tiên ở khối bên trên — tài khoản chưa có công ty thì không đăng tin được.</td></tr>
+        }
+    </tbody>
+</table>
+
+<h2 style="margin-top:28px">Gán công ty cho tài khoản đăng tin</h2>
+<p class="sub">Chỉ Admin và Mentor / HR IT mới thuộc về một công ty — đó là hai vai trò đăng được tin tuyển dụng.</p>
+
+<table class="tbl">
+    <thead>
+        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Công ty hiện tại</th><th>Gán công ty</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var u in posters)
+        {
+            <tr>
+                <td>@u.Id</td>
+                <td>@u.FullName</td>
+                <td>@u.Email</td>
+                <td><span class="tag">@Roles.Display(u.Role?.RoleName ?? "")</span></td>
+                <td>
+                    @if (u.CompanyId is null) { <span class="lock">● Chưa gán</span> }
+                    else { <span class="ok">@companyNames.GetValueOrDefault(u.CompanyId.Value, "?")</span> }
+                </td>
+                <td>
+                    <form method="post" action="@($"/companies/assign/{u.Id}")" class="inline">
+                        <select name="companyId">
+                            <option value="">— Chưa gán —</option>
+                            @foreach (var c in companies)
+                            {
+                                <option value="@c.Id" selected="@(c.Id == u.CompanyId)">@c.Name</option>
+                            }
+                        </select>
+                        <button class="btn-sm" type="submit">Lưu</button>
+                    </form>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+    [SupplyParameterFromQuery(Name = "edit")] public int? Edit { get; set; }
+
+    private List<Company> companies = new();
+    private List<User> posters = new();
+    private Dictionary<int, string> companyNames = new();
+    private Dictionary<int, int> jobCounts = new();
+    private Company? editing;
+
+    protected override void OnInitialized()
+    {
+        companies = Companies.GetAll();
+        companyNames = companies.ToDictionary(c => c.Id, c => c.Name);
+        jobCounts = Companies.CountJobsPerCompany();
+
+        // Trang render tĩnh nên form sửa nhận dữ liệu qua ?edit=, không qua trạng thái nội bộ.
+        if (Edit is > 0) editing = companies.FirstOrDefault(c => c.Id == Edit);
+
+        posters = Users.GetAll()
+                       .Where(u => u.RoleId != Roles.StudentId)
+                       .ToList();
+    }
+}

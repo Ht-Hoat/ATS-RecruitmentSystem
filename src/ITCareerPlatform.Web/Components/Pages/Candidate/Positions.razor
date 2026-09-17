@@ -91,6 +91,9 @@ else if (!hasCv)
                 <span class="chip">@j.EmploymentType</span>
             </div>
             <h3><a href="@($"/positions/{j.Id}")" style="color: inherit; text-decoration: none;">@j.Title</a></h3>
+            @* P1-1: tên công ty ngay dưới tiêu đề. Không có nó, sinh viên bấm "Ứng tuyển ngay"
+               mà không biết mình đang nộp hồ sơ cho ai. *@
+            <div class="sub" style="margin:-4px 0 6px 0">🏢 @(j.Company?.Name ?? "Chưa cập nhật")</div>
             <div class="job-tags">
                 @foreach (var t in j.TechStackList)
                 {

@@ -68,6 +68,25 @@ public interface IJobService
         decimal? minSalary = null, string? employmentType = null, string? location = null);
 }
 
+/// <summary>
+/// P1-1: quản lý công ty và việc gán công ty cho tài khoản Mentor.
+/// Chỉ Admin được ghi — nếu Mentor tự sửa được công ty của mình thì việc "tin đứng tên ai"
+/// lại quay về chỗ người gửi request tự quyết, đúng thứ mà P1-1 đi đóng.
+/// </summary>
+public interface ICompanyService
+{
+    List<Company> GetAll();
+    Company? GetById(int id);
+    /// <summary>Công ty của một tài khoản (Mentor). Null nghĩa là chưa được gán.</summary>
+    Company? GetByUserId(int userId);
+    /// <summary>Tạo mới khi id = 0, cập nhật khi id > 0. Ném ArgumentException kèm câu tiếng Việt.</summary>
+    Company Save(int id, Company input, int actorUserId);
+    /// <summary>Gán (hoặc gỡ, khi companyId = null) công ty cho một tài khoản Mentor.</summary>
+    void AssignToUser(int userId, int? companyId, int actorUserId);
+    /// <summary>Số tin mỗi công ty — đếm bằng COUNT trong SQL, không nạp tin về rồi đếm ở C#.</summary>
+    Dictionary<int, int> CountJobsPerCompany();
+}
+
 public interface IProfileService
 {
     CandidateProfile? GetByUserId(int userId);
@@ -686,14 +705,16 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
     private DateTime TodayVn => VietnamDateHelper.Today(clock);
 
     public List<Job> GetAll() =>
-        db.Jobs.OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
+        db.Jobs.Include(j => j.Company)
+               .OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
 
     public List<Job> GetOpen() =>
         db.Jobs.Where(j => j.Status == JobStatus.Open)
                .OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
 
     public List<Job> GetByOwner(int ownerUserId) =>
-        db.Jobs.AsNoTracking().Where(j => j.CreatedById == ownerUserId)
+        db.Jobs.AsNoTracking().Include(j => j.Company)
+               .Where(j => j.CreatedById == ownerUserId)
                .OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
 
     public int CountAll() => db.Jobs.Count();
@@ -707,12 +728,21 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
     public Job? GetVisibleForCandidate(int id)
     {
         var today = TodayVn;
+        // Include Company: trang chi tiết hiện đầy đủ tên, website, mô tả và địa chỉ công ty.
+        // Company không có cột byte[] nào nên đây chỉ là một JOIN, khác hẳn việc kéo CvData.
         return db.Jobs.AsNoTracking()
+                 .Include(j => j.Company)
                  .FirstOrDefault(j => j.Id == id && j.Status == JobStatus.Open && j.Deadline >= today);
     }
 
     public Job Create(Job job)
     {
+        // P1-1: công ty LẤY TỪ TÀI KHOẢN NGƯỜI TẠO, không đọc từ đối tượng truyền vào.
+        // Endpoint dựng Job từ form, nên nếu tin cậy job.CompanyId thì một request tự tạo
+        // kèm companyId=7 sẽ đăng được tin đứng tên công ty khác — và trên màn hình sinh
+        // viên nó trông y hệt một tin thật của công ty đó.
+        job.CompanyId = RequireCompanyOf(job.CreatedById);
+
         Validate(job);
         job.Status = JobStatus.Open;
         db.Jobs.Add(job);
@@ -766,6 +796,22 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
         db.SaveChanges();
 
         audit?.Record(actorUserId, label + " Job", "Jobs", $"{label} tin #{j.Id} '{j.Title}'.");
+    }
+
+    /// <summary>
+    /// Công ty của người đăng tin. Chưa được gán thì từ chối bằng một câu người dùng đọc
+    /// hiểu và biết phải làm gì tiếp — không để FK nổ thành lỗi 500 ở tầng SQL.
+    /// </summary>
+    private int RequireCompanyOf(int userId)
+    {
+        var companyId = db.Users.Where(u => u.Id == userId)
+                                .Select(u => u.CompanyId)
+                                .FirstOrDefault();
+        if (companyId is null)
+            throw new ArgumentException(
+                "Tài khoản của bạn chưa được gán vào công ty nào nên chưa đăng tin được. " +
+                "Hãy nhờ Quản trị viên gán công ty ở trang Quản lý công ty.");
+        return companyId.Value;
     }
 
     public bool CanModify(int jobId, int actorUserId)
@@ -827,7 +873,9 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
     {
         var today = TodayVn;
         // #9: chỉ hiện tin Open và CÒN hạn nộp
-        var q = db.Jobs.AsNoTracking().Where(j => j.Status == JobStatus.Open && j.Deadline >= today);
+        // P1-1: kèm công ty để thẻ tin nói được sinh viên đang ứng tuyển cho ai.
+        var q = db.Jobs.AsNoTracking().Include(j => j.Company)
+                       .Where(j => j.Status == JobStatus.Open && j.Deadline >= today);
 
         if (!string.IsNullOrWhiteSpace(category) && category != "Tất cả")
             q = q.Where(j => j.Category == category);
@@ -861,6 +909,95 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
             _ => q.OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id)
         };
         return q.ToList();
+    }
+}
+
+// =====================================================================
+//  CompanyService (P1-1)
+// =====================================================================
+public class CompanyService(AppDbContext db, IAuditService? audit = null) : ICompanyService
+{
+    public List<Company> GetAll() =>
+        db.Companies.AsNoTracking().OrderBy(c => c.Name).ToList();
+
+    public Company? GetById(int id) => db.Companies.Find(id);
+
+    public Dictionary<int, int> CountJobsPerCompany() =>
+        db.Jobs.AsNoTracking()
+               .GroupBy(j => j.CompanyId)
+               .Select(g => new { CompanyId = g.Key, Count = g.Count() })
+               .ToDictionary(x => x.CompanyId, x => x.Count);
+
+    public Company? GetByUserId(int userId) =>
+        db.Users.AsNoTracking()
+                .Where(u => u.Id == userId && u.CompanyId != null)
+                .Select(u => u.Company!)
+                .FirstOrDefault();
+
+    public Company Save(int id, Company input, int actorUserId)
+    {
+        Validate(input);
+
+        var isNew = id == 0;
+        var c = isNew ? new Company() : db.Companies.Find(id)
+            ?? throw new ArgumentException("Không tìm thấy công ty.");
+
+        // Trùng tên bị chặn ở tầng service: hai công ty cùng tên trên màn hình gán công ty
+        // cho Mentor là hai dòng không phân biệt được, và gán nhầm thì tin đứng tên sai.
+        var name = input.Name.Trim();
+        if (db.Companies.Any(x => x.Name == name && x.Id != id))
+            throw new ArgumentException("Đã có công ty khác mang tên này.");
+
+        c.Name = name;
+        c.Website = input.Website.Trim();
+        c.Description = input.Description.Trim();
+        c.Address = input.Address.Trim();
+
+        if (isNew) db.Companies.Add(c);
+        db.SaveChanges();
+
+        audit?.Record(actorUserId, isNew ? "Create Company" : "Update Company", "Companies",
+            $"{(isNew ? "Tạo" : "Sửa")} công ty '{c.Name}'.");
+        return c;
+    }
+
+    public void AssignToUser(int userId, int? companyId, int actorUserId)
+    {
+        var u = db.Users.Find(userId) ?? throw new ArgumentException("Không tìm thấy tài khoản.");
+
+        // Công ty là thứ trả lời "tin này đứng tên ai", nên nó chỉ có nghĩa với những tài
+        // khoản ĐĂNG ĐƯỢC TIN: Mentor/HR và Admin. Gán cho Sinh viên IT là vô nghĩa và sẽ
+        // khiến màn hình quản trị nói một điều không đúng về tài khoản đó.
+        if (u.RoleId == Roles.StudentId)
+            throw new ArgumentException("Tài khoản Sinh viên IT không thuộc về công ty nào.");
+
+        if (companyId is not null && !db.Companies.Any(c => c.Id == companyId))
+            throw new ArgumentException("Công ty không hợp lệ.");
+
+        u.CompanyId = companyId;
+        db.SaveChanges();
+
+        var name = companyId is null
+            ? "(gỡ khỏi công ty)"
+            : db.Companies.Where(c => c.Id == companyId).Select(c => c.Name).FirstOrDefault() ?? "?";
+        audit?.Record(actorUserId, "Assign Company", "Users", $"Gán '{u.FullName}' vào {name}.");
+    }
+
+    /// <summary>Cùng khuôn với ProfileService/JobService: DataAnnotations trước, luật riêng sau.</summary>
+    private static void Validate(Company input)
+    {
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(input, new ValidationContext(input), results, validateAllProperties: true))
+            throw new ArgumentException(results[0].ErrorMessage ?? "Dữ liệu công ty không hợp lệ.");
+
+        if (string.IsNullOrWhiteSpace(input.Name))
+            throw new ArgumentException("Tên công ty không được để trống.");
+
+        // Website hiện thành thẻ <a href> trên trang của sinh viên. Chỉ nhận https:// —
+        // một giá trị "javascript:..." lọt qua đây là lỗ XSS do chính Admin nhập vào.
+        if (!string.IsNullOrWhiteSpace(input.Website) &&
+            !input.Website.Trim().StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Website công ty phải bắt đầu bằng https://");
     }
 }
 
