@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Application> Applications => Set<Application>();
     public DbSet<ApplicationStatusHistory> ApplicationStatusHistories => Set<ApplicationStatusHistory>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<SelfCheck> SelfChecks => Set<SelfCheck>();   // P1-2
 
     // -----------------------------------------------------------------
     //  Đóng dấu CreatedAt/UpdatedAt một chỗ duy nhất.
@@ -63,6 +64,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 notif.CreatedAt = now;
             else if (entry.Entity is ApplicationStatusHistory hist && hist.ChangedAt == default)
                 hist.ChangedAt = now;
+            else if (entry.Entity is SelfCheck self && self.CreatedAt == default)
+                self.CreatedAt = now;
         }
     }
 
@@ -141,6 +144,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(h => h.Application).WithMany(a => a.StatusHistory)
             .HasForeignKey(h => h.ApplicationId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // P1-2: SelfChecks. Cascade theo cả User lẫn Job vì bản ghi này không có ý nghĩa
+        // độc lập — xóa tài khoản hay xóa tin thì kết quả tự kiểm cũng hết chỗ để đọc.
+        b.Entity<SelfCheck>()
+            .HasOne(x => x.User).WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<SelfCheck>()
+            .HasOne(x => x.Job).WithMany()
+            .HasForeignKey(x => x.JobId)
+            .OnDelete(DeleteBehavior.Restrict);
+        // Hai truy vấn duy nhất của bảng này: đếm hạn mức trong ngày của một người, và lấy
+        // bản gần nhất của (người, tin). Index phủ cả hai.
+        b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.CreatedAt });
+        b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.JobId, x.Id });
 
         // Notifications: index theo người nhận để truy vấn nhanh
         b.Entity<Notification>().HasIndex(n => new { n.UserId, n.IsRead });

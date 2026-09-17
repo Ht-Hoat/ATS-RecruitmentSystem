@@ -514,6 +514,46 @@ public class ApplicationStatusHistory
     public DateTime ChangedAt { get; set; }
 }
 
+// ===== P1-2: Sinh viên tự kiểm tra độ phù hợp trước khi nộp =====
+
+/// <summary>
+/// Một lần sinh viên tự chạy đánh giá độ phù hợp với một tin bất kỳ.
+///
+/// Bảng RIÊNG, không ghi gì vào Application, vì hai lý do đối xứng nhau: điểm sinh viên tự
+/// chạy không được lẫn vào con số nhà tuyển dụng đọc để sàng lọc, và ngược lại điểm nhà
+/// tuyển dụng chấm không được đè lên kết quả sinh viên đang dùng để cải thiện hồ sơ.
+///
+/// Mỗi lần chạy ghi THÊM một bản ghi, không ghi đè: sinh viên cần thấy mình tiến bộ giữa
+/// hai lần, và đó chính là giá trị hướng nghiệp mà ATS-14 hứa.
+/// </summary>
+public class SelfCheck
+{
+    public int Id { get; set; }
+
+    public int UserId { get; set; }
+    public User? User { get; set; }
+
+    public int JobId { get; set; }
+    public Job? Job { get; set; }
+
+    public int Score { get; set; }
+
+    [MaxLength(1000)] public string? Strengths { get; set; }
+    [MaxLength(1000)] public string? Missing { get; set; }
+    [MaxLength(1000)] public string? Roadmap { get; set; }
+
+    /// <summary>Gemini hay Offline — sinh viên phải biết mình đang đọc kết quả loại nào.</summary>
+    [MaxLength(20)] public string? Source { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Số lượt tối đa mỗi người mỗi ngày. Mỗi lượt là một lần gọi Gemini và quota miễn phí
+    /// có trần; không có hạn mức thì một người bấm liên tục là cả hệ thống mất tính năng này.
+    /// </summary>
+    public const int DailyLimit = 5;
+}
+
 // ===== NTF-01: Thông báo cho Sinh viên IT =====
 public class Notification
 {

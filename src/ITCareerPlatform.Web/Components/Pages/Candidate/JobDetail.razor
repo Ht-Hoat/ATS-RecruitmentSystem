@@ -3,6 +3,7 @@
 @inject IJobService Jobs
 @inject IProfileService Profiles
 @inject IApplicationService Applications
+@inject ISelfCheckService SelfChecks
 
 @* P0-1: Trang chi tiết tin tuyển dụng cho Sinh viên IT *@
 
@@ -113,6 +114,50 @@ else if (job != null)
         </div>
     }
 
+    @* P1-2: sinh viên tự chạy đánh giá ĐỘ PHÙ HỢP trước khi nộp. Trước đây con số này chỉ
+       có khi Mentor bấm nút, nên giá trị hướng nghiệp phụ thuộc hành động của chính người
+       đang sàng lọc họ — và sinh viên chỉ biết mình thiếu gì sau khi đã nộp. *@
+    <div class="panel" style="margin-bottom: 20px;">
+        <h2>🎯 Tự kiểm tra độ phù hợp</h2>
+
+        @if (!hasProfile || !hasCv)
+        {
+            <p class="sub">Bạn cần có hồ sơ IT và CV để chạy đánh giá. <a href="/profile">Hoàn thiện hồ sơ</a>.</p>
+        }
+        else
+        {
+            <p class="sub">
+                Kết quả này là của RIÊNG bạn — nhà tuyển dụng không nhìn thấy, và nó không ảnh hưởng
+                tới điểm mà họ chấm cho đơn của bạn.
+                Còn <b>@remainingToday</b> / @SelfCheck.DailyLimit lượt trong hôm nay.
+            </p>
+
+            @if (remainingToday > 0)
+            {
+                <form method="post" action="@($"/positions/{job.Id}/self-check")" class="inline">
+                    <button class="btn-primary" type="submit">
+                        @(latestSelfCheck is null ? "Chạy đánh giá" : "Chạy lại để xem mình tiến bộ chưa")
+                    </button>
+                </form>
+            }
+            else
+            {
+                <p class="lock">● Đã hết lượt hôm nay — hạn mức được cấp lại vào 00:00 ngày mai (giờ Việt Nam).</p>
+            }
+
+            @* Cùng câu chữ với chỗ Mentor chạy đánh giá, để hai bên nói đúng một điều. *@
+            <p class="sub" style="margin-top:8px">🔐 Khi chạy đánh giá, nội dung CV của bạn có thể được gửi tới dịch vụ AI (Google Gemini) để phân tích.</p>
+
+            @if (latestSelfCheck is not null)
+            {
+                <div style="margin-top:14px">
+                    <p class="sub">Kết quả gần nhất: @Ui.DateTimeText(latestSelfCheck.CreatedAt)</p>
+                    <AiEvaluationCard Eval="latestSelfCheckResult" ForStudent="true" />
+                </div>
+            }
+        }
+    </div>
+
     <div class="panel" style="margin-bottom: 20px;">
         <h2>Mô tả công việc (JD)</h2>
         <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@job.Description</div>
@@ -137,6 +182,13 @@ else if (job != null)
     private Dictionary<int, string> appliedStatus = new();
     private int applicantCount;
     private bool hasProfile, hasCv;
+    private SelfCheck? latestSelfCheck;
+    private int remainingToday;
+
+    /// <summary>Chiếu sang AiResult để dùng lại đúng thẻ hiển thị mà Mentor và trang đơn đang dùng.</summary>
+    private AiResult latestSelfCheckResult => new(
+        latestSelfCheck?.Score, latestSelfCheck?.Strengths, latestSelfCheck?.Missing,
+        latestSelfCheck?.Roadmap, latestSelfCheck?.Source);
 
     protected override async Task OnInitializedAsync()
     {
@@ -166,6 +218,8 @@ else if (job != null)
             hasProfile = p != null;
             hasCv = p?.HasCv ?? false;
             appliedStatus = Applications.AppliedJobStatus(uid);
+            latestSelfCheck = SelfChecks.GetLatest(uid, JobId);
+            remainingToday = SelfChecks.RemainingToday(uid);
         }
     }
 }

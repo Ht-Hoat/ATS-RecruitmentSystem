@@ -130,6 +130,9 @@ builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
 builder.Services.AddScoped<IAiService, GeminiAiService>();
+// P1-2: dựng dữ liệu đưa vào AI ở MỘT chỗ, cho cả ba đường (chấm điểm, sinh câu hỏi, tự kiểm tra).
+builder.Services.AddScoped<IAiInputBuilder, AiInputBuilder>();
+builder.Services.AddScoped<ISelfCheckService, SelfCheckService>();
 
 var app = builder.Build();
 
@@ -555,6 +558,31 @@ app.MapPost("/jobs/{id:int}/apply", async (int id, HttpContext ctx, IApplication
         : "/positions?" + query);
 }).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
 
+// P1-2: sinh viên tự chạy đánh giá độ phù hợp với một tin, trước khi ứng tuyển.
+// Hạn mức, điều kiện hồ sơ/CV và điều kiện tin còn mở đều do service phát biểu — endpoint
+// chỉ chuyển câu trả lời về đúng trang chi tiết mà sinh viên đang đứng.
+app.MapPost("/positions/{id:int}/self-check", async (int id, HttpContext ctx, ISelfCheckService svc) =>
+{
+    var uid = CurrentUserId(ctx);
+    if (uid == 0) return Results.LocalRedirect("/login");
+
+    try
+    {
+        var (ok, message) = await svc.RunAsync(userId: uid, jobId: id, ct: ctx.RequestAborted);
+        return Results.Redirect($"/positions/{id}?" + (ok ? "msg=" : "err=") + Enc(message));
+    }
+    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+    {
+        // Người dùng bỏ trang giữa chừng — không còn ai để hiện thông báo, và đây không
+        // phải lỗi nên cũng không ghi log.
+        return Results.Empty;
+    }
+    catch (Exception ex)
+    {
+        return Results.Redirect($"/positions/{id}?err=" + Enc(SafeError(ctx, ex, $"tự kiểm tra độ phù hợp với tin #{id}")));
+    }
+}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+
 // P0-4: sinh viên rút đơn. Quyền sở hữu do service kiểm (CandidateProfile.UserId), không
 // kiểm ở đây — nếu viết lại vị ngữ tại chỗ thì hai nơi sẽ trôi khỏi nhau theo thời gian.
 app.MapPost("/applications/{id:int}/withdraw", (int id, HttpContext ctx, IApplicationService svc) =>
@@ -583,37 +611,8 @@ app.MapGet("/applications/{id:int}/cv", (int id, HttpContext ctx, IApplicationSe
     return Results.File(p.CvData!, p.CvContentType ?? "application/octet-stream", p.CvFileName ?? "CV");
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
-// Dựng dữ liệu đưa vào AI từ một đơn. Dùng chung cho chấm điểm (ATS-13/14) và sinh câu
-// hỏi (N1.C): hai đường phải đọc CÙNG một nguồn, nếu không thì điểm chấm trên CV bản chụp
-// còn câu hỏi lại soạn từ CV hiện tại của hồ sơ — hai kết quả nói về hai ứng viên khác nhau.
-static AiEvaluationInput BuildAiInput(Application a, CandidateProfile p)
-{
-    // Luôn là CV ĐÃ NỘP (bản chụp), không phải CV hiện tại của hồ sơ.
-    var cvText = CvTextExtractor.Extract(a.CvDataSnapshot ?? p.CvData,
-                                         a.HasCvSnapshot ? a.CvFileNameSnapshot : p.CvFileName);
-
-    // Danh sách công nghệ đi vào ô riêng có cấu trúc; phần văn bản tự do chỉ để mô hình đọc.
-    return new AiEvaluationInput(
-        CandidateText: string.Join("\n", new[]
-        {
-            "Kỹ năng: " + p.Skills,
-            "Kinh nghiệm: " + p.Experience,
-            "Học vấn: " + p.Education,
-            "Nội dung CV: " + cvText
-        }),
-        JobText: string.Join("\n", new[]
-        {
-            "Vị trí: " + a.Job!.Title + " (" + a.Job.Level + ")",
-            "Danh mục: " + a.Job.Category,
-            "Yêu cầu: " + a.Job.Requirements,
-            "Mô tả: " + a.Job.Description
-        }),
-        CandidateTech: p.TechSkillTags,
-        RequiredTech: a.Job.TechStack);
-}
-
 // ATS-13/14: AI đánh giá độ phù hợp + gợi ý lộ trình
-app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai) =>
+app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai, IAiInputBuilder build) =>
 {
     if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
 
@@ -623,7 +622,7 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
 
     try
     {
-        var eval = await ai.EvaluateAsync(BuildAiInput(a, a.CandidateProfile), ctx.RequestAborted);
+        var eval = await ai.EvaluateAsync(build.ForApplication(a, a.CandidateProfile), ctx.RequestAborted);
         svc.SaveAiEvaluation(id, eval);
         return Results.Redirect($"/applications/{id}?aiscored=1");
     }
@@ -642,7 +641,7 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
 // N1.C: sinh bộ câu hỏi phỏng vấn từ CV đã nộp + JD. Kết quả được LƯU, vì trang render
 // tĩnh: sinh xong rồi redirect thì không còn gì để hiển thị, và mỗi lần mở lại trang sẽ
 // tốn thêm một lượt gọi Gemini.
-app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai) =>
+app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai, IAiInputBuilder build) =>
 {
     if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
 
@@ -652,7 +651,7 @@ app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ct
 
     try
     {
-        var set = await ai.GenerateQuestionsAsync(BuildAiInput(a, a.CandidateProfile), ctx.RequestAborted);
+        var set = await ai.GenerateQuestionsAsync(build.ForApplication(a, a.CandidateProfile), ctx.RequestAborted);
         svc.SaveAiQuestions(id, set);
         return Results.Redirect($"/applications/{id}?qgenerated=1");
     }
