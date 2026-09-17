@@ -4,6 +4,10 @@ using ITCareerPlatform.Services;
 namespace ITCareerPlatform.Data;
 
 // Dữ liệu mẫu IT Career Platform (chạy sau khi CSDL được tạo).
+// P0-2: dữ liệu mẫu tuân đúng quy ước thời gian của hệ thống — mốc THỜI ĐIỂM lưu ở UTC,
+// còn hạn nộp là một NGÀY trên tờ lịch Việt Nam. Gieo bằng giờ máy chủ sẽ làm dữ liệu mẫu
+// lệch 7 tiếng so với dữ liệu do chính ứng dụng sinh ra, và mọi màn hình thống kê đọc hai
+// nguồn đó như nhau.
 public static class SeedData
 {
     public static void Initialize(AppDbContext db)
@@ -29,9 +33,9 @@ public static class SeedData
             TechStack = "C#, .NET, ASP.NET Core, SQL Server, Docker",
             Description = "Phát triển REST API và hệ thống web bằng ASP.NET Core cho sản phẩm tuyển dụng IT.",
             Requirements = "Thành thạo C#, EF Core, SQL Server; hiểu Docker; 1 năm kinh nghiệm.",
-            Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = DateTime.Today.AddDays(20),
+            Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = VietnamDateHelper.Today().AddDays(20),
             EmploymentType = "Hybrid",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-5)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.UtcNow.AddDays(-5)
         };
         var jFrontend = new Job
         {
@@ -39,9 +43,9 @@ public static class SeedData
             TechStack = "JavaScript, React, TypeScript, HTML, CSS",
             Description = "Xây dựng giao diện người dùng bằng React cho nền tảng IT Career.",
             Requirements = "React, TypeScript, kinh nghiệm 2 năm; hiểu REST API.",
-            Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = DateTime.Today.AddDays(4), // sắp hết hạn
+            Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = VietnamDateHelper.Today().AddDays(4), // sắp hết hạn
             EmploymentType = "Onsite",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-3)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.UtcNow.AddDays(-3)
         };
         var jDevOps = new Job
         {
@@ -49,9 +53,9 @@ public static class SeedData
             TechStack = "Linux, Docker, Kubernetes, CI/CD, Azure",
             Description = "Vận hành hạ tầng, xây dựng pipeline CI/CD.",
             Requirements = "Docker, Kubernetes, GitHub Actions; 3 năm kinh nghiệm.",
-            Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = DateTime.Today.AddDays(25),
+            Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = VietnamDateHelper.Today().AddDays(25),
             EmploymentType = "Remote",
-            Status = JobStatus.Open, CreatedById = mentor2.Id, CreatedAt = DateTime.Now.AddDays(-2)
+            Status = JobStatus.Open, CreatedById = mentor2.Id, CreatedAt = DateTime.UtcNow.AddDays(-2)
         };
         var jDataAi = new Job
         {
@@ -59,9 +63,9 @@ public static class SeedData
             TechStack = "Python, SQL, Machine Learning, LLM API",
             Description = "Xây dựng module sàng lọc CV bằng AI.",
             Requirements = "Python, SQL, hiểu ML cơ bản, LLM API.",
-            Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = DateTime.Today.AddDays(15),
+            Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = VietnamDateHelper.Today().AddDays(15),
             EmploymentType = "Onsite",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-1)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.UtcNow.AddDays(-1)
         };
         var jIntern = new Job
         {
@@ -69,9 +73,9 @@ public static class SeedData
             TechStack = "Manual Testing, SQL, Postman",
             Description = "Kiểm thử chức năng hệ thống.",
             Requirements = "Sinh viên năm cuối CNTT.",
-            Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = DateTime.Today.AddDays(-2),
+            Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = VietnamDateHelper.Today().AddDays(-2),
             EmploymentType = "Onsite",
-            Status = JobStatus.Closed, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-10)
+            Status = JobStatus.Closed, CreatedById = mentor.Id, CreatedAt = DateTime.UtcNow.AddDays(-10)
         };
         db.Jobs.AddRange(jBackend, jFrontend, jDevOps, jDataAi, jIntern);
         db.SaveChanges();
@@ -93,7 +97,7 @@ public static class SeedData
             GithubUrl = "https://github.com/phamthilan", LinkedInUrl = "https://linkedin.com/in/phamthilan",
             PortfolioUrl = "https://phamthilan.dev",
             CvData = SampleCv("Pham Thi Lan"), CvFileName = "CV_PhamThiLan.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.Now
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow
         };
         var pKhoa = new CandidateProfile
         {
@@ -106,7 +110,7 @@ public static class SeedData
             GithubUrl = "https://github.com/dovankhoa", LinkedInUrl = "https://linkedin.com/in/dovankhoa",
             PortfolioUrl = "https://khoa.dev",
             CvData = SampleCv("Do Van Khoa"), CvFileName = "CV_DoVanKhoa.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.Now
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow
         };
         db.CandidateProfiles.AddRange(pLan, pKhoa);
         db.SaveChanges();
@@ -126,9 +130,9 @@ public static class SeedData
             {
                 JobId = job.Id, CandidateProfileId = p.Id,
                 CvFileNameSnapshot = p.CvFileName!, CvDataSnapshot = p.CvData, CvContentTypeSnapshot = p.CvContentType,
-                Status = ApplicationStatus.Submitted, AppliedAt = DateTime.Now.AddDays(-daysAgo),
+                Status = ApplicationStatus.Submitted, AppliedAt = DateTime.UtcNow.AddDays(-daysAgo),
                 AiScore = e.MatchPercent, AiStrengths = e.Strengths, AiMissing = e.Missing,
-                AiRoadmap = e.Roadmap, AiSource = e.Source, AiScoredAt = DateTime.Now
+                AiRoadmap = e.Roadmap, AiSource = e.Source, AiScoredAt = DateTime.UtcNow
             };
         }
         // Lan (Backend stack) ứng tuyển Backend → điểm cao; Khoa (React) ứng tuyển Backend → điểm thấp hơn

@@ -32,7 +32,7 @@ public class ApplicantFilterTests
         var a = new Application
         {
             JobId = job.Id, CandidateProfileId = p.Id, Status = status,
-            AiScore = ai, HrScore = hr, AppliedAt = DateTime.Now,
+            AiScore = ai, HrScore = hr, AppliedAt = DateTime.UtcNow,
             CvFileNameSnapshot = withCv ? "cv.pdf" : "(chưa tải CV)",
             CvDataSnapshot = withCv ? System.Text.Encoding.UTF8.GetBytes("%PDF-1.4") : null
         };

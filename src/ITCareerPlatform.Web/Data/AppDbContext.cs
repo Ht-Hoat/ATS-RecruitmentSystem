@@ -34,7 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     private void StampTimestamps()
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         foreach (var entry in ChangeTracker.Entries<ITimestamped>())
         {
             if (entry.State == EntityState.Added)
@@ -47,6 +47,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 // CreatedAt là bất biến — chặn mọi lần ghi đè vô tình.
                 entry.Property(e => e.CreatedAt).IsModified = false;
             }
+        }
+
+        // P0-2: Đóng dấu tập trung cho các entity không kế thừa ITimestamped nhưng có mốc thời gian
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State != EntityState.Added) continue;
+
+            if (entry.Entity is AuditLog audit && audit.Timestamp == default)
+                audit.Timestamp = now;
+            else if (entry.Entity is Application app && app.AppliedAt == default)
+                app.AppliedAt = now;
+            else if (entry.Entity is Notification notif && notif.CreatedAt == default)
+                notif.CreatedAt = now;
+            else if (entry.Entity is ApplicationStatusHistory hist && hist.ChangedAt == default)
+                hist.ChangedAt = now;
         }
     }
 

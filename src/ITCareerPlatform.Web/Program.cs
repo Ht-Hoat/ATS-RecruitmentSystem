@@ -17,6 +17,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Claim lưu SecurityStamp của user trong cookie, để đối chiếu lại với CSDL mỗi request.
 const string StampClaim = "itcp:stamp";
 const string LoginRateLimitPolicy = "login";
+// P0-3: OnValidatePrincipal đã truy vấn Users mỗi request để đối chiếu SecurityStamp; đọc
+// luôn cờ "buộc đổi mật khẩu" trong cùng truy vấn đó và gửi sang middleware qua Items —
+// rẻ hơn một claim trong cookie (claim có thể cũ tới 8 tiếng) và không tốn thêm lần đọc nào.
+const string MustChangePasswordItem = "itcp:mustchangepw";
 
 // ---------- Blazor (server-rendered) + trạng thái đăng nhập ----------
 builder.Services.AddRazorComponents();
@@ -67,7 +71,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
                 ? null
                 : await db.Users.AsNoTracking()
                                 .Where(u => u.Id == uid)
-                                .Select(u => new { u.IsActive, u.SecurityStamp })
+                                .Select(u => new { u.IsActive, u.SecurityStamp, u.MustChangePassword })
                                 .FirstOrDefaultAsync();
 
             var stillValid = current is not null
@@ -78,7 +82,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             {
                 ctx.RejectPrincipal();
                 await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return;
             }
+
+            if (current!.MustChangePassword)
+                ctx.HttpContext.Items[MustChangePasswordItem] = true;
         };
     });
 
@@ -105,6 +113,12 @@ builder.Services.AddRateLimiter(o =>
 
 // ---------- HttpClient cho Gemini (ATS-13) ----------
 builder.Services.AddHttpClient("gemini", c => c.Timeout = TimeSpan.FromSeconds(30));
+
+// ---------- Nguồn thời gian (P0-2) ----------
+// Một nguồn duy nhất, tiêm được, để test cố định thời điểm mà không cần package ngoài.
+// Mọi service đọc giờ qua TimeProvider rồi quy về UTC; DateTime.Now không còn xuất hiện ở
+// tầng nghiệp vụ, vì giá trị của nó phụ thuộc múi giờ của máy chủ chứ không phải của người dùng.
+builder.Services.AddSingleton(TimeProvider.System);
 
 // ---------- Tầng nghiệp vụ ----------
 builder.Services.AddScoped<IAuditService, AuditService>();
@@ -178,6 +192,29 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.UseAntiforgery();
+
+// ---------- P0-3: chốt buộc đổi mật khẩu ----------
+// Đặt ở ĐÚNG MỘT chỗ thay vì rải điều kiện vào từng trang: trang nào quên là trang đó lọt,
+// và người vừa bị reset mật khẩu vẫn dùng được hệ thống bình thường bằng mật khẩu tạm mà
+// Admin đọc qua điện thoại — tức là mật khẩu tạm trở thành mật khẩu thật.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Items.TryGetValue(MustChangePasswordItem, out var flag) && flag is true)
+    {
+        var path = ctx.Request.Path;
+        // Đúng ba đường được đi: trang đổi mật khẩu, endpoint xử lý nó, và đăng xuất.
+        // Thiếu đường đăng xuất thì người dùng bị kẹt hẳn nếu không nhớ mật khẩu tạm.
+        var allowed = path.StartsWithSegments("/change-password")
+                      || path.StartsWithSegments("/account/change-password")
+                      || path.StartsWithSegments("/account/logout");
+        if (!allowed)
+        {
+            ctx.Response.Redirect("/change-password?forced=1");
+            return;
+        }
+    }
+    await next();
+});
 
 // ---------- Helper dùng chung cho các endpoint ----------
 static int CurrentUserId(HttpContext ctx) => CurrentUser.Id(ctx.User);
@@ -313,6 +350,21 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
     }
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
 
+// P0-3: Admin đặt lại mật khẩu. Mật khẩu tạm quay về trang /users qua query param để hiện
+// ĐÚNG MỘT LẦN cho Admin đọc lại cho người dùng.
+//
+// Đưa mật khẩu qua thanh địa chỉ là điều bình thường thì không chấp nhận được (nó nằm lại
+// trong lịch sử trình duyệt và trong log của mọi proxy đứng giữa). Ở đây tạm chấp nhận
+// được vì hệ thống CHƯA gửi được email và mật khẩu này chỉ dùng được đúng một lần trước
+// khi bị buộc đổi. Khi P1-3 (email) xong thì gửi qua email và bỏ hẳn nhánh này.
+app.MapPost("/users/{id:int}/reset-password", (int id, HttpContext ctx, IUserService svc) =>
+{
+    if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error))
+        return Results.Redirect("/users?err=" + Enc(error));
+
+    return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+
 // ============================ JOBS (ATS-04, 05, 06) ============================
 // Trình duyệt gửi <input type="number"> theo chuẩn HTML (dấu chấm thập phân), nên phải
 // đọc bằng InvariantCulture. Với culture vi-VN, "15.5" từng được hiểu là 155.
@@ -324,8 +376,10 @@ static Job ReadJobForm(IFormCollection f, int actor) => new()
     Location = f["location"].ToString(),
     SalaryMin = decimal.TryParse(f["salaryMin"], NumberStyles.Number, CultureInfo.InvariantCulture, out var mn) ? mn : 0,
     SalaryMax = decimal.TryParse(f["salaryMax"], NumberStyles.Number, CultureInfo.InvariantCulture, out var mx) ? mx : 0,
+    // Hạn nộp là một NGÀY: mặc định một tháng kể từ hôm nay THEO GIỜ VIỆT NAM, không phải
+    // theo ngày của container (vốn chạy UTC và lệch một ngày trong khung 00:00-07:00 giờ VN).
     Deadline = DateTime.TryParse(f["deadline"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
-        ? d : DateTime.Today.AddMonths(1),
+        ? d.Date : VietnamDateHelper.Today().AddMonths(1),
     Category = string.IsNullOrEmpty(f["category"]) ? "Khác" : f["category"].ToString(),
     TechStack = f["techStack"].ToString(),
     Level = string.IsNullOrEmpty(f["level"]) ? "Junior" : f["level"].ToString(),
@@ -433,15 +487,42 @@ app.MapGet("/profile/cv/download", (HttpContext ctx, IProfileService svc) =>
 }).RequireAuthorization();
 
 // ============================ APPLY (ATS-10) ============================
-app.MapPost("/jobs/{id:int}/apply", (int id, HttpContext ctx, IApplicationService svc) =>
+app.MapPost("/jobs/{id:int}/apply", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
     var uid = CurrentUserId(ctx);
     if (uid == 0) return Results.LocalRedirect("/login");
+    // Trước P0-1 endpoint này không đọc form. Một request tự tạo không kèm thân form sẽ làm
+    // ReadFormAsync ném ngoại lệ, nên hỏi HasFormContentType trước: thiếu form nghĩa là
+    // không có "from", tức là quay về danh sách — chứ không phải lỗi 500.
+    var f = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync() : null;
+
     // Cùng quy ước với /applications/{id}/status: thành công và thất bại đi về hai tham số
     // khác nhau. Bản cũ vứt giá trị trả về đi, nên "Tin đã quá hạn nộp hồ sơ" hiện lên
     // trong khung báo thành công màu xanh.
     var ok = svc.Apply(id, uid, out var message);
-    return Results.Redirect("/positions?" + (ok ? "msg=" : "err=") + Enc(message));
+    var query = (ok ? "msg=" : "err=") + Enc(message);
+
+    // P0-1: ứng tuyển từ trang chi tiết thì phải quay lại CHÍNH trang đó, nếu không sinh
+    // viên vừa đọc xong JD lại bị ném về danh sách và mất chỗ đang đứng.
+    //
+    // Form chỉ gửi được đúng một từ khóa "detail", KHÔNG gửi đường dẫn. Nhận đường dẫn thô
+    // rồi redirect theo nó là mở sẵn một lỗ chuyển hướng ra ngoài miền: kẻ tấn công dựng
+    // link /jobs/1/apply?from=//evil.example và nạn nhân tin rằng mình vẫn ở trên hệ thống.
+    var from = f?["from"].ToString();
+    return Results.Redirect(from == "detail"
+        ? $"/positions/{id}?" + query
+        : "/positions?" + query);
+}).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
+
+// P0-4: sinh viên rút đơn. Quyền sở hữu do service kiểm (CandidateProfile.UserId), không
+// kiểm ở đây — nếu viết lại vị ngữ tại chỗ thì hai nơi sẽ trôi khỏi nhau theo thời gian.
+app.MapPost("/applications/{id:int}/withdraw", (int id, HttpContext ctx, IApplicationService svc) =>
+{
+    var uid = CurrentUserId(ctx);
+    if (uid == 0) return Results.LocalRedirect("/login");
+
+    var ok = svc.Withdraw(id, uid, out var message);
+    return Results.Redirect("/my-applications?" + (ok ? "msg=" : "err=") + Enc(message));
 }).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
 
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================
@@ -589,7 +670,12 @@ app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IAp
         // <input type="datetime-local"> gửi "2026-09-20T14:30" theo chuẩn HTML, nên đọc
         // bằng InvariantCulture — giống mọi ô ngày/số khác trong dự án.
         DateTime.TryParse(f["interviewAt"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var at);
-        schedule = new InterviewSchedule(at, f["interviewLink"].ToString(), f["interviewNote"].ToString());
+
+        // P0-2: giá trị đó là GIỜ TƯỜNG VIỆT NAM — thứ Mentor nhìn thấy trên đồng hồ của mình.
+        // Quy về UTC NGAY TẠI ĐÂY, ở biên nhận dữ liệu, để từ đó trở vào trong hệ thống chỉ
+        // còn một loại thời gian. Lưu thẳng giá trị thô sẽ đẩy buổi hẹn muộn đi 7 tiếng.
+        var atUtc = at == default ? default : VietnamDateHelper.ToUtcFromVietnam(at);
+        schedule = new InterviewSchedule(atUtc, f["interviewLink"].ToString(), f["interviewNote"].ToString());
     }
 
     var ok = svc.UpdateStatus(id, status, schedule, CurrentUserId(ctx), out var message);

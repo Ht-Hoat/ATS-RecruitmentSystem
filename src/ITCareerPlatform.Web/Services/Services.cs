@@ -29,6 +29,13 @@ public interface IUserService
     bool ChangePassword(int userId, string currentPassword, string newPassword, out string error);
 
     /// <summary>
+    /// P0-3: Admin đặt lại mật khẩu hộ người dùng và sinh một mật khẩu TẠM.
+    /// Không có đường này thì quên mật khẩu đồng nghĩa mất tài khoản vĩnh viễn — hệ thống
+    /// chưa gửi được email, và /account/register chỉ tạo tài khoản Sinh viên mới.
+    /// </summary>
+    bool ResetPassword(int userId, int actorUserId, out string tempPassword, out string error);
+
+    /// <summary>
     /// Tạo tài khoản quản trị đầu tiên, CHỈ khi hệ thống chưa có Admin nào.
     /// Trả về false kèm lý do; "đã có Admin rồi" cũng trả false nhưng không phải lỗi.
     /// </summary>
@@ -44,6 +51,12 @@ public interface IJobService
     int CountAll();
     int CountOpen();
     Job? GetById(int id);
+    /// <summary>
+    /// P0-1: tin mà SINH VIÊN được phép xem chi tiết — chỉ khi còn Open và chưa quá hạn nộp.
+    /// Trả về entity đầy đủ (kể cả Description/Requirements) chứ không chiếu sang DTO: trang
+    /// chi tiết tồn tại chính là để hiển thị hai trường đó.
+    /// </summary>
+    Job? GetVisibleForCandidate(int id);
     Job Create(Job job);
     void Update(int id, Job input, int actorUserId);        // ATS-05
     void Close(int id, int actorUserId);                    // ATS-06
@@ -91,7 +104,11 @@ public interface IApplicationService
     List<JobApplicantCount> TopJobsByApplicants(int? mentorUserId, int take = 5);
     /// <summary>Số đơn mỗi ngày, ĐÃ đắp đủ cả những ngày không có đơn nào.</summary>
     List<DayCount> ApplicationsPerDay(int? mentorUserId, int days = 14);
-    HashSet<int> AppliedJobIds(int candidateUserId);
+    /// <summary>
+    /// P0-4: JobId -> trạng thái đơn. Trước đây chỉ trả về tập JobId, nên một tin đã RÚT đơn
+    /// vẫn hiện "✔ Đã ứng tuyển" và sinh viên không hiểu vì sao không ứng tuyển lại được.
+    /// </summary>
+    Dictionary<int, string> AppliedJobStatus(int candidateUserId);
     bool CanAccess(int appId, int actorUserId, bool isAdmin);
     void SaveAiEvaluation(int appId, AiEvaluation eval);                  // ATS-13/14
     void SaveHrScore(int appId, int hrScore, string note, int actorUserId); // ATS-16
@@ -101,6 +118,12 @@ public interface IApplicationService
     /// gọi với trạng thái đang có + lịch mới nghĩa là ĐỔI lịch.
     /// </summary>
     bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message);
+
+    /// <summary>
+    /// P0-4: sinh viên tự rút đơn. Chỉ CHỦ ĐƠN gọi được; nhà tuyển dụng không được "rút hộ"
+    /// (vì thế "Đã rút" nằm ngoài <see cref="ApplicationStatus.MentorSelectable"/>).
+    /// </summary>
+    bool Withdraw(int appId, int candidateUserId, out string message);
     List<ApplicationStatusHistory> GetStatusHistory(int appId);
 
     // ===== N1.B: ghi chú nội bộ của Mentor =====
@@ -329,6 +352,9 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
 {
     private const int MinPasswordLength = 8;
 
+    /// <summary>Độ dài mật khẩu tạm do hệ thống sinh — dài hơn mức tối thiểu vì không ai phải gõ nhớ nó.</summary>
+    private const int TempPasswordLength = 14;
+
     /// <summary>Email lưu và tra cứu ở dạng chuẩn hóa, để so sánh bằng '=' vẫn đúng ở mọi collation.</summary>
     public static string NormalizeEmail(string? email) => (email ?? "").Trim().ToLowerInvariant();
 
@@ -409,8 +435,8 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
             UserId = actorUserId,
             Action = "Change Role",
             TableName = "Users",
-            Details = $"Đổi vai trò '{u.FullName}': {oldRole} → {newRole}",
-            Timestamp = DateTime.Now
+            Details = $"Đổi vai trò '{u.FullName}': {oldRole} → {newRole}"
+            // Timestamp do AppDbContext đóng dấu (UTC) — xem StampTimestamps.
         });
         db.SaveChanges();
     }
@@ -465,6 +491,9 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
         { error = "Mật khẩu mới phải khác mật khẩu hiện tại."; return false; }
 
         u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        // P0-3: đổi xong là hết nghĩa vụ — gỡ chốt buộc đổi mật khẩu, nếu không người dùng
+        // vừa đổi xong lại bị middleware đá về /change-password và không thoát ra được.
+        u.MustChangePassword = false;
 
         // Đổi stamp để mọi phiên đang mở bằng mật khẩu CŨ bị từ chối ở request kế tiếp,
         // kể cả phiên trên máy khác — đó mới là điều người dùng mong đợi khi đổi mật khẩu.
@@ -476,6 +505,70 @@ public class UserService(AppDbContext db, IAuditService? audit = null) : IUserSe
 
         audit?.Record(userId, "Change Password", "Users", $"Đổi mật khẩu tài khoản '{u.FullName}'.");
         return true;
+    }
+
+    // P0-3: Admin đặt lại mật khẩu hộ. Trả về mật khẩu tạm qua tham số out để endpoint
+    // hiện MỘT LẦN cho Admin; giá trị này KHÔNG bao giờ được ghi vào AuditLog hay log hệ
+    // thống — nhật ký gom về một nơi nhiều người đọc được, và ở đó nó là mật khẩu dùng được.
+    public bool ResetPassword(int userId, int actorUserId, out string tempPassword, out string error)
+    {
+        tempPassword = "";
+        error = "";
+
+        // Cùng quy ước với toggle-lock và change-role: thao tác quản trị không tự áp lên
+        // chính mình. Admin tự reset mình sẽ tự đăng xuất mình (SecurityStamp tăng) rồi
+        // phải đăng nhập lại bằng một chuỗi ngẫu nhiên chỉ hiện đúng một lần.
+        if (userId == actorUserId)
+        { error = "Không thể tự đặt lại mật khẩu của mình — hãy dùng chức năng Đổi mật khẩu."; return false; }
+
+        var u = db.Users.Find(userId);
+        if (u is null) { error = "Không tìm thấy tài khoản."; return false; }
+
+        var generated = GenerateTempPassword();
+        u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(generated);
+        u.MustChangePassword = true;
+        // Mật khẩu cũ vừa mất hiệu lực, nên mọi phiên đang mở bằng nó cũng phải mất theo —
+        // nếu không, người chiếm được phiên vẫn dùng tiếp như chưa có gì xảy ra.
+        u.SecurityStamp++;
+        db.SaveChanges();
+
+        audit?.Record(actorUserId, "Reset Password", "Users",
+            $"Đặt lại mật khẩu tài khoản '{u.FullName}' ({u.Email}).");
+
+        tempPassword = generated;
+        return true;
+    }
+
+    /// <summary>
+    /// Mật khẩu tạm sinh bằng RandomNumberGenerator (nguồn ngẫu nhiên mật mã học).
+    /// Random và Guid đều KHÔNG dùng được ở đây: Random gieo theo thời gian nên hai lần
+    /// reset gần nhau đoán được nhau, còn Guid v4 có cấu trúc cố định và bảng chữ chỉ 16 ký tự.
+    /// Bảo đảm có đủ cả chữ thường, chữ hoa và chữ số để qua được mọi luật đặt mật khẩu.
+    /// </summary>
+    private static string GenerateTempPassword()
+    {
+        const string lower = "abcdefghijkmnpqrstuvwxyz";      // bỏ l, o — dễ đọc nhầm khi Admin đọc cho người dùng
+        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";      // bỏ I, O
+        const string digits = "23456789";                     // bỏ 0, 1
+        const string all = lower + upper + digits;
+
+        var chars = new char[TempPasswordLength];
+        chars[0] = Pick(lower);
+        chars[1] = Pick(upper);
+        chars[2] = Pick(digits);
+        for (var i = 3; i < chars.Length; i++) chars[i] = Pick(all);
+
+        // Ba ký tự bắt buộc ở trên nếu để nguyên vị trí sẽ thành một khuôn cố định
+        // (luôn thường-hoa-số), nên trộn lại bằng Fisher-Yates cũng với nguồn ngẫu nhiên đó.
+        for (var i = chars.Length - 1; i > 0; i--)
+        {
+            var j = System.Security.Cryptography.RandomNumberGenerator.GetInt32(i + 1);
+            (chars[i], chars[j]) = (chars[j], chars[i]);
+        }
+        return new string(chars);
+
+        static char Pick(string set) =>
+            set[System.Security.Cryptography.RandomNumberGenerator.GetInt32(set.Length)];
     }
 
     // Đường mở khóa một bản triển khai mới. Dữ liệu mẫu chỉ nạp ở Development, nên một
@@ -547,8 +640,8 @@ public class AuditService(AppDbContext db) : IAuditService
             UserId = actorUserId,
             Action = Truncate(action, 60),
             TableName = Truncate(table, 60),
-            Details = Truncate(details, 500),
-            Timestamp = DateTime.Now
+            Details = Truncate(details, 500)
+            // Timestamp do AppDbContext đóng dấu tập trung (UTC) — P0-2.
         });
         db.SaveChanges();
     }
@@ -583,8 +676,15 @@ public class AuditService(AppDbContext db) : IAuditService
 // =====================================================================
 //  JobService (ATS-04, ATS-05, ATS-06, ATS-07)
 // =====================================================================
-public class JobService(AppDbContext db, IAuditService? audit = null) : IJobService
+public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvider? clock = null) : IJobService
 {
+    /// <summary>
+    /// P0-2: hạn nộp là một NGÀY trên tờ lịch Việt Nam, không phải DateTime.Today của máy chủ.
+    /// Container chạy UTC, nên trong khung 00:00-07:00 giờ VN thì DateTime.Today vẫn là hôm
+    /// trước — tin đã hết hạn vẫn hiện trên /positions và vẫn nhận được đơn.
+    /// </summary>
+    private DateTime TodayVn => VietnamDateHelper.Today(clock);
+
     public List<Job> GetAll() =>
         db.Jobs.OrderByDescending(j => j.CreatedAt).ThenByDescending(j => j.Id).ToList();
 
@@ -601,6 +701,15 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
     public int CountOpen() => db.Jobs.Count(j => j.Status == JobStatus.Open);
 
     public Job? GetById(int id) => db.Jobs.Find(id);
+
+    // P0-1: cùng một vị ngữ "còn nhận hồ sơ" mà Filter đang dùng, phát biểu lại đúng một
+    // lần ở đây để trang chi tiết và danh sách không thể nói hai điều khác nhau.
+    public Job? GetVisibleForCandidate(int id)
+    {
+        var today = TodayVn;
+        return db.Jobs.AsNoTracking()
+                 .FirstOrDefault(j => j.Id == id && j.Status == JobStatus.Open && j.Deadline >= today);
+    }
 
     public Job Create(Job job)
     {
@@ -716,7 +825,7 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
     public List<Job> Filter(string? category, string? techStack, string? level, string sort,
         decimal? minSalary = null, string? employmentType = null, string? location = null)
     {
-        var today = DateTime.Today;
+        var today = TodayVn;
         // #9: chỉ hiện tin Open và CÒN hạn nộp
         var q = db.Jobs.AsNoTracking().Where(j => j.Status == JobStatus.Open && j.Deadline >= today);
 
@@ -758,7 +867,7 @@ public class JobService(AppDbContext db, IAuditService? audit = null) : IJobServ
 // =====================================================================
 //  ProfileService (ATS-08, ATS-09, SEC-01)
 // =====================================================================
-public class ProfileService(AppDbContext db) : IProfileService
+public class ProfileService(AppDbContext db, TimeProvider? clock = null) : IProfileService
 {
     public CandidateProfile? GetByUserId(int userId) =>
         db.CandidateProfiles.FirstOrDefault(p => p.UserId == userId);
@@ -828,7 +937,7 @@ public class ProfileService(AppDbContext db) : IProfileService
         p.CvContentType = CvScanner.IsPdf(data)
             ? "application/pdf"
             : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        p.CvUploadedAt = DateTime.Now;
+        p.CvUploadedAt = VietnamDateHelper.UtcNow(clock);   // P0-2: lưu UTC, Ui.* quy đổi khi hiển thị
         db.SaveChanges();
         return (true, null);
     }
@@ -837,8 +946,17 @@ public class ProfileService(AppDbContext db) : IProfileService
 // =====================================================================
 //  ApplicationService (ATS-10 → ATS-17)
 // =====================================================================
-public class ApplicationService(AppDbContext db, INotificationService notify, IAuditService? audit = null) : IApplicationService
+public class ApplicationService(AppDbContext db, INotificationService notify,
+    IAuditService? audit = null, TimeProvider? clock = null) : IApplicationService
 {
+    /// <summary>
+    /// P0-2: lịch phỏng vấn phải cách hiện tại ít nhất chừng này. Không có biên độ thì
+    /// một lịch đặt cách 2 phút vẫn "hợp lệ", trong khi ứng viên còn chưa kịp mở thông báo.
+    /// </summary>
+    internal const int MinScheduleLeadMinutes = 15;
+
+    private DateTime UtcNow => VietnamDateHelper.UtcNow(clock);
+
     // ATS-10.2: 3 lớp kiểm tra nghiệp vụ
     public bool Apply(int jobId, int candidateUserId, out string message)
     {
@@ -846,7 +964,11 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         if (job is null) { message = "Không tìm thấy tin tuyển dụng."; return false; }
         if (job.Status != JobStatus.Open) { message = "Vị trí tuyển dụng này đã đóng, không nhận hồ sơ."; return false; }
         // #9: chặn ứng tuyển khi đã quá hạn nộp (dù trạng thái vẫn Open)
-        if (job.Deadline.Date < DateTime.Today) { message = "Tin tuyển dụng đã quá hạn nộp hồ sơ."; return false; }
+        // P0-2: so với hôm nay theo giờ VIỆT NAM, không phải DateTime.Today của container.
+        // Dùng chung helper với JobService.Filter để hai chỗ không thể lệch nhau: nếu lệch,
+        // tin biến mất khỏi danh sách nhưng vẫn nhận đơn, hoặc ngược lại.
+        if (job.Deadline.Date < VietnamDateHelper.Today(clock))
+        { message = "Tin tuyển dụng đã quá hạn nộp hồ sơ."; return false; }
 
         var profile = db.CandidateProfiles.FirstOrDefault(p => p.UserId == candidateUserId);
         if (profile is null) { message = "Bạn cần tạo hồ sơ IT trước khi ứng tuyển."; return false; }
@@ -863,8 +985,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
             CvFileNameSnapshot = profile.CvFileName ?? "(chưa tải CV)",
             CvDataSnapshot = profile.CvData,
             CvContentTypeSnapshot = profile.CvContentType,
-            Status = ApplicationStatus.Submitted,
-            AppliedAt = DateTime.Now
+            Status = ApplicationStatus.Submitted
+            // AppliedAt do AppDbContext đóng dấu tập trung (UTC) — P0-2.
         });
         try
         {
@@ -1040,9 +1162,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         var accepted = byStatus.GetValueOrDefault(ApplicationStatus.Accepted);
 
         // Mốc 7 ngày tính từ ĐẦU NGÀY chứ không từ thời điểm gọi hàm: nếu trừ thẳng
-        // DateTime.Now, cùng một dashboard mở lúc 9h và lúc 17h sẽ ra hai con số khác nhau
-        // mà không có gì trên màn hình giải thích vì sao.
-        var since = DateTime.Today.AddDays(-6);
+        // thời điểm hiện tại, cùng một dashboard mở lúc 9h và lúc 17h sẽ ra hai con số khác
+        // nhau mà không có gì trên màn hình giải thích vì sao.
+        // P0-2: "đầu ngày" là 00:00 giờ VIỆT NAM, quy về UTC để so với cột AppliedAt (lưu UTC).
+        var since = VietnamDateHelper.StartOfVietnamDayUtc(VietnamDateHelper.Today(clock).AddDays(-6));
         var last7 = ScopedApplications(mentorUserId).Count(a => a.AppliedAt >= since);
 
         // Trung bình chỉ tính trên đơn ĐÃ chấm. Nếu gộp cả đơn chưa chấm vào mẫu số thì
@@ -1099,14 +1222,20 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
     public List<DayCount> ApplicationsPerDay(int? mentorUserId, int days = 14)
     {
         days = Math.Clamp(days, 1, 90);
-        var from = DateTime.Today.AddDays(-(days - 1));
+        var from = VietnamDateHelper.Today(clock).AddDays(-(days - 1));
+        var fromUtc = VietnamDateHelper.StartOfVietnamDayUtc(from);
 
         // Gộp theo ngày trong SQL, rồi ĐẮP ĐỦ những ngày không có đơn nào ở phía C#.
         // Thiếu bước đắp, biểu đồ nối thẳng qua ngày trống và trông như hồ sơ về đều đặn,
         // trong khi thực tế có những ngày không ai nộp.
+        //
+        // P0-2: cộng bù giờ TRƯỚC khi lấy .Date để nhóm theo ngày Việt Nam. Nhóm thẳng trên
+        // cột UTC sẽ đẩy mọi đơn nộp trong khung 00:00-07:00 giờ VN sang cột hôm trước.
+        // Cộng cứng một hằng số (thay vì TimeZoneInfo) vì chỉ có phép này dịch được thành
+        // DATEADD để chạy trong SQL — Việt Nam không có giờ mùa hè nên con số luôn đúng.
         var raw = ScopedApplications(mentorUserId)
-            .Where(a => a.AppliedAt >= from)
-            .GroupBy(a => a.AppliedAt.Date)
+            .Where(a => a.AppliedAt >= fromUtc)
+            .GroupBy(a => a.AppliedAt.AddHours(VietnamDateHelper.OffsetHours).Date)
             .Select(g => new { Day = g.Key, Count = g.Count() })
             .ToList()
             .ToDictionary(x => x.Day, x => x.Count);
@@ -1117,12 +1246,18 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
             .ToList();
     }
 
-    /// <summary>Chỉ lấy cột JobId. Bản cũ dựng cả DTO có JOIN sang Jobs rồi vứt hết đi.</summary>
-    public HashSet<int> AppliedJobIds(int candidateUserId) =>
+    /// <summary>
+    /// Chỉ lấy hai cột JobId + Status. Bản cũ dựng cả DTO có JOIN sang Jobs rồi vứt hết đi;
+    /// bản trước P0-4 chỉ lấy JobId nên không phân biệt được "đã ứng tuyển" với "đã rút đơn".
+    ///
+    /// Một hồ sơ chỉ có tối đa một đơn cho mỗi tin (index duy nhất JobId+CandidateProfileId),
+    /// nên ánh xạ JobId -> Status là một-một. Nếu về sau cho nộp lại thì phải đổi chỗ này trước.
+    /// </summary>
+    public Dictionary<int, string> AppliedJobStatus(int candidateUserId) =>
         db.Applications.AsNoTracking()
                        .Where(a => a.CandidateProfile!.UserId == candidateUserId)
-                       .Select(a => a.JobId)
-                       .ToHashSet();
+                       .Select(a => new { a.JobId, a.Status })
+                       .ToDictionary(x => x.JobId, x => x.Status);
 
     // #5: Mentor chỉ được xem/thao tác đơn thuộc tin do mình tạo; Admin xem tất cả
     public bool CanAccess(int appId, int actorUserId, bool isAdmin)
@@ -1147,7 +1282,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         a.AiMissing = Clip(eval.Missing, 1000);
         a.AiRoadmap = Clip(eval.Roadmap, 1000);
         a.AiSource = Clip(eval.Source, 20);      // Gemini hay Offline — hiển thị cho Mentor biết
-        a.AiScoredAt = DateTime.Now;
+        a.AiScoredAt = UtcNow;
         db.SaveChanges();
     }
 
@@ -1158,7 +1293,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         if (a is null) return;
         a.HrScore = Math.Clamp(hrScore, 0, 100);
         a.HrNote = note;
-        a.HrAdjustedAt = DateTime.Now;
+        a.HrAdjustedAt = UtcNow;
         db.SaveChanges();
 
         audit?.Record(actorUserId, "Score Applicant", "Applications",
@@ -1174,7 +1309,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
     // và sinh viên nhận được một lời mời không nói giờ nào.
     public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message)
     {
-        if (!ApplicationStatus.All.Contains(newStatus))
+        // P0-4: kiểm bằng MentorSelectable chứ không phải All. "Đã rút" có trong All (để ô
+        // lọc và badge hiển thị được) nhưng chỉ chính sinh viên mới đặt được qua Withdraw —
+        // nhà tuyển dụng không được rút đơn thay ứng viên.
+        if (!ApplicationStatus.MentorSelectable.Contains(newStatus))
         { message = "Trạng thái không hợp lệ."; return false; }
 
         var a = db.Applications.Include(x => x.Job)
@@ -1194,7 +1332,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
             if (schedule is null)
             { message = "Vui lòng nhập thời gian phỏng vấn khi chuyển sang trạng thái này."; return false; }
 
-            var invalid = ValidateSchedule(schedule);
+            var invalid = ValidateSchedule(schedule, UtcNow);
             if (invalid is not null) { message = invalid; return false; }
         }
 
@@ -1209,8 +1347,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
                     ApplicationId = a.Id,
                     FromStatus = from,
                     ToStatus = newStatus,
-                    ChangedByUserId = actorUserId,
-                    ChangedAt = DateTime.Now
+                    ChangedByUserId = actorUserId
+                    // ChangedAt do AppDbContext đóng dấu tập trung (UTC) — P0-2.
                 });
                 a.Status = newStatus;
             }
@@ -1250,6 +1388,71 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         }
     }
 
+    // P0-4: sinh viên rút đơn.
+    //
+    // Không gọi lại UpdateStatus vì hai đường khác nhau ở ba điểm cốt lõi: người thao tác là
+    // CHỦ ĐƠN chứ không phải chủ tin, "Đã rút" nằm ngoài MentorSelectable, và thông báo đi
+    // NGƯỢC chiều — tới nhà tuyển dụng thay vì tới sinh viên.
+    public bool Withdraw(int appId, int candidateUserId, out string message)
+    {
+        var a = db.Applications.Include(x => x.Job)
+                               .Include(x => x.CandidateProfile)
+                               .FirstOrDefault(x => x.Id == appId);
+
+        // Sai chủ đơn và đơn không tồn tại trả về CÙNG một câu: nếu tách ra, chênh lệch giữa
+        // hai thông báo chính là thứ xác nhận đơn nào có thật khi có ai đó dò id.
+        if (a?.CandidateProfile is null || a.CandidateProfile.UserId != candidateUserId)
+        { message = "Không tìm thấy đơn."; return false; }
+
+        // Ba trạng thái kết thúc: đơn đã chốt thì rút không còn ý nghĩa gì, và cho rút sẽ
+        // xóa mất dấu vết "đã trúng tuyển" / "đã bị từ chối" trên dòng thời gian.
+        if (a.Status == ApplicationStatus.Withdrawn)
+        { message = "Bạn đã rút đơn này rồi."; return false; }
+        if (a.Status == ApplicationStatus.Accepted)
+        { message = "Đơn đã ở trạng thái Trúng tuyển nên không rút được — vui lòng liên hệ trực tiếp nhà tuyển dụng."; return false; }
+        if (a.Status == ApplicationStatus.Rejected)
+        { message = "Đơn đã bị từ chối nên không cần rút."; return false; }
+
+        // Cùng khuôn transaction với UpdateStatus: đổi trạng thái, ghi lịch sử và bắn thông
+        // báo phải cùng thành hoặc cùng bại. Nếu tách ra, nhà tuyển dụng có thể nhận thông
+        // báo "ứng viên đã rút" về một đơn mà trên màn hình vẫn đang chờ xử lý.
+        using var tx = db.Database.BeginTransaction();
+        try
+        {
+            var from = a.Status;
+            db.ApplicationStatusHistories.Add(new ApplicationStatusHistory
+            {
+                ApplicationId = a.Id,
+                FromStatus = from,
+                ToStatus = ApplicationStatus.Withdrawn,
+                // Ghi chính SINH VIÊN, không phải chủ tin: dòng thời gian phải cho thấy ai
+                // đã rút, nếu không nó trông y hệt một lần nhà tuyển dụng loại hồ sơ.
+                ChangedByUserId = candidateUserId
+            });
+            a.Status = ApplicationStatus.Withdrawn;
+            db.SaveChanges();
+
+            if (a.Job is not null)
+                notify.Add(a.Job.CreatedById,
+                    "Ứng viên rút đơn",
+                    $"Một ứng viên đã rút đơn ứng tuyển vị trí '{a.Job.Title}'.",
+                    $"/applications/{a.Id}");
+
+            audit?.Record(candidateUserId, "Withdraw Application", "Applications",
+                $"Đơn #{appId}: {from} → {ApplicationStatus.Withdrawn}");
+
+            tx.Commit();
+            message = "Đã rút đơn ứng tuyển.";
+            return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            message = "Có lỗi khi rút đơn, vui lòng thử lại.";
+            return false;
+        }
+    }
+
     private static string NotificationTitle(string status) =>
         status == ApplicationStatus.Interview ? "Mời phỏng vấn" : "Cập nhật đơn ứng tuyển";
 
@@ -1266,11 +1469,21 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         return $"{opening} Thời gian: {Ui.DateTimeText(a.InterviewAt)}.{link}";
     }
 
-    /// <summary>Trả null nếu lịch hợp lệ, ngược lại là lý do để hiện cho Mentor.</summary>
-    internal static string? ValidateSchedule(InterviewSchedule s)
+    /// <summary>
+    /// Trả null nếu lịch hợp lệ, ngược lại là lý do để hiện cho Mentor.
+    ///
+    /// P0-2: <paramref name="utcNow"/> được TRUYỀN VÀO chứ không đọc DateTime.Now tại chỗ.
+    /// s.At đã là UTC (endpoint quy đổi từ giờ VN trước khi dựng InterviewSchedule), nên so
+    /// với giờ máy chủ sẽ lệch đúng bằng độ lệch múi giờ của máy đó — trên container UTC thì
+    /// một lịch đã trôi qua 7 tiếng vẫn được chấp nhận, còn test thì đỏ hay xanh tùy máy chạy.
+    /// </summary>
+    internal static string? ValidateSchedule(InterviewSchedule s, DateTime utcNow)
     {
         if (s.At == default) return "Vui lòng chọn thời gian phỏng vấn.";
-        if (s.At <= DateTime.Now) return "Thời gian phỏng vấn phải ở tương lai.";
+        if (s.At <= utcNow) return "Thời gian phỏng vấn phải ở tương lai.";
+        if (s.At < utcNow.AddMinutes(MinScheduleLeadMinutes))
+            return $"Thời gian phỏng vấn phải cách hiện tại ít nhất {MinScheduleLeadMinutes} phút " +
+                   "để ứng viên kịp nhận thông báo và chuẩn bị.";
         if (!string.IsNullOrWhiteSpace(s.Link) && !IsSafeMeetingLink(s.Link))
             return "Link phỏng vấn phải là địa chỉ http hoặc https hợp lệ (Google Meet, Zoom, Teams...).";
         return null;
@@ -1316,7 +1529,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
 
         a.AiQuestions = json;
         a.AiQuestionsSource = set.Source;
-        a.AiQuestionsAt = DateTime.Now;
+        a.AiQuestionsAt = UtcNow;
         db.SaveChanges();
     }
 
@@ -1360,7 +1573,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         var text = Clip(note, 2000);
         a.InternalNote = text;
         a.InternalNoteByUserId = text is null ? null : actorUserId;
-        a.InternalNoteAt = text is null ? null : DateTime.Now;
+        a.InternalNoteAt = text is null ? null : UtcNow;
         db.SaveChanges();
 
         // NỘI DUNG ghi chú không đi vào nhật ký: nhật ký hệ thống thì Admin đọc được, còn
@@ -1380,8 +1593,9 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IA
         if (withinHours <= 0)
             throw new ArgumentException("Số giờ phải lớn hơn 0.", nameof(withinHours));
 
-        var now = DateTime.Now;
-        var cutoff = now.AddHours(-withinHours);
+        // P0-2: cột AppliedAt lưu UTC nên mốc cắt cũng phải ở UTC. Bản cũ dùng giờ máy chủ:
+        // trên container UTC thì "24 giờ qua" thực chất là "từ 17h hôm kia" theo giờ VN.
+        var cutoff = UtcNow.AddHours(-withinHours);
 
         var q = db.Applications.Where(a => a.AppliedAt >= cutoff);
         if (!isAdmin)
@@ -1443,7 +1657,8 @@ public class NotificationService(AppDbContext db) : INotificationService
             Title = Cut(title, 160),
             Message = Cut(message, 500),
             Link = Cut(link, 250),
-            IsRead = false, CreatedAt = DateTime.Now
+            IsRead = false
+            // CreatedAt do AppDbContext đóng dấu tập trung (UTC) — P0-2.
         });
         db.SaveChanges();
     }

@@ -29,6 +29,15 @@ else
             · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
         </p>
         <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.JobTechStack</b></p>
+
+        @if (app.Status != ApplicationStatus.Accepted && app.Status != ApplicationStatus.Rejected && app.Status != ApplicationStatus.Withdrawn)
+        {
+            <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                <form method="post" action="@($"/applications/{app.Id}/withdraw")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                    <button class="btn danger" type="submit">🛑 Rút đơn ứng tuyển</button>
+                </form>
+            </div>
+        }
     </div>
 
     @* N1.E: lịch phỏng vấn hiện ngay trên đơn, không có trang "Lịch phỏng vấn" riêng. *@

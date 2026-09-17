@@ -63,6 +63,8 @@
 @code {
     [Parameter] public Job Model { get; set; } = new();
 
+    @* P0-2: hạn nộp mặc định tính theo lịch VIỆT NAM. DateTime.Today là ngày của máy chủ,
+       nên trên container chạy UTC thì ô này gợi ý sai một ngày suốt khung 00:00-07:00 giờ VN. *@
     private string DeadlineValue => Ui.InputDate(
-        Model.Deadline == default ? DateTime.Today.AddMonths(1) : Model.Deadline);
+        Model.Deadline == default ? VietnamDateHelper.Today().AddMonths(1) : Model.Deadline);
 }

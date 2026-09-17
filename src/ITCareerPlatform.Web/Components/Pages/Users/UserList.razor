@@ -7,10 +7,22 @@
     <a class="btn-primary" href="/users/new">+ Tạo tài khoản</a>
 </div>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+@if (!string.IsNullOrEmpty(TempPw))
+{
+    <div class="alert-ok" style="border-left: 4px solid #16a34a; background: #f0fdf4; padding: 14px; margin-bottom: 16px; border-radius: 4px;">
+        <h3 style="margin: 0 0 6px 0; color: #166534; font-size: 16px;">🔑 Đặt lại mật khẩu thành công!</h3>
+        <p style="margin: 0; font-size: 15px;">
+            Mật khẩu tạm thời cho tài khoản: <code style="font-size: 18px; font-weight: bold; background: #dcfce7; padding: 2px 10px; border-radius: 4px; color: #15803d; letter-spacing: 1px;">@TempPw</code>
+        </p>
+        <p class="sub" style="margin: 8px 0 0 0; color: #166534;">
+            ⚠️ <b>Lưu ý quan trọng:</b> Hãy sao chép và gửi trực tiếp mật khẩu này cho người dùng. Người dùng sẽ bị buộc phải đổi mật khẩu mới ngay khi đăng nhập.
+        </p>
+    </div>
+}
 
 <table class="tbl">
     <thead>
-        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Phân quyền</th><th>Khóa</th></tr>
+        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Phân quyền</th><th>Đặt lại MK</th><th>Khóa</th></tr>
     </thead>
     <tbody>
         @foreach (var u in userList)
@@ -47,6 +59,18 @@
                     }
                     else
                     {
+                        <form method="post" action="@($"/users/{u.Id}/reset-password")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đặt lại mật khẩu cho tài khoản @u.FullName? Mật khẩu tạm thời sẽ được tạo và người dùng phải đổi khi đăng nhập.');">
+                            <button class="btn-sm warning" type="submit" title="Sinh mật khẩu tạm thời">Đặt lại MK</button>
+                        </form>
+                    }
+                </td>
+                <td>
+                    @if (isSelf)
+                    {
+                        <span class="sub">—</span>
+                    }
+                    else
+                    {
                         <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn khóa/mở khóa tài khoản này?');">
                             <button class="btn-sm @(u.IsActive ? "danger" : "")" type="submit">@(u.IsActive ? "Khóa" : "Mở khóa")</button>
                         </form>
@@ -65,6 +89,7 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+    [SupplyParameterFromQuery(Name = "tempPw")] public string? TempPw { get; set; }
     private List<User> userList = new();
     private List<Role> roleList = new();
     private int currentUid;

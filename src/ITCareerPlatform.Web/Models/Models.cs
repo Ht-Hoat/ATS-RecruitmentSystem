@@ -95,7 +95,10 @@ public class User : ITimestamped
     /// </summary>
     public int SecurityStamp { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    /// <summary>P0-3: Buộc người dùng đổi mật khẩu ở lần đăng nhập tiếp theo khi Admin reset.</summary>
+    public bool MustChangePassword { get; set; }
+
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public ICollection<Job> CreatedJobs { get; set; } = new List<Job>();
 }
@@ -143,7 +146,7 @@ public class Job : ITimestamped
 
     public int CreatedById { get; set; }
     public User? CreatedBy { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<Application> Applications { get; set; } = new List<Application>();
@@ -184,7 +187,7 @@ public class AuditLog
     [MaxLength(500)]
     public string Details { get; set; } = "";
 
-    public DateTime Timestamp { get; set; } = DateTime.Now;
+    public DateTime Timestamp { get; set; }
 }
 
 // ===== ATS-08: Hồ sơ Sinh viên IT + ATS-09: CV =====
@@ -236,7 +239,7 @@ public class CandidateProfile : ITimestamped
     [MaxLength(120)] public string? CvContentType { get; set; }
     public DateTime? CvUploadedAt { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<Application> Applications { get; set; } = new List<Application>();
@@ -309,7 +312,7 @@ public class Application
     [Required, MaxLength(30)]
     public string Status { get; set; } = ApplicationStatus.Submitted;
 
-    public DateTime AppliedAt { get; set; } = DateTime.Now;
+    public DateTime AppliedAt { get; set; }
 
     // ===== ATS-13/14: Đánh giá độ phù hợp & Gợi ý lộ trình =====
     public int? AiScore { get; set; }          // % phù hợp (0-100), null nếu chưa đánh giá
@@ -369,7 +372,7 @@ public static class EvaluationSource
     public const string Offline = "Offline";
 }
 
-/// <summary>5 trạng thái xử lý hồ sơ (ATS-17).</summary>
+/// <summary>Các trạng thái xử lý hồ sơ (ATS-17 + P0-4).</summary>
 public static class ApplicationStatus
 {
     public const string Submitted = "Đã nộp";
@@ -377,8 +380,13 @@ public static class ApplicationStatus
     public const string Interview = "Phỏng vấn";
     public const string Accepted = "Trúng tuyển";
     public const string Rejected = "Từ chối";
+    public const string Withdrawn = "Đã rút";
 
-    public static readonly string[] All = { Submitted, Reviewing, Interview, Accepted, Rejected };
+    /// <summary>Tất cả trạng thái (kể cả Đã rút) — dùng cho ô lọc và hiển thị.</summary>
+    public static readonly string[] All = { Submitted, Reviewing, Interview, Accepted, Rejected, Withdrawn };
+
+    /// <summary>Trạng thái Mentor được phép chọn trong dropdown — loại trừ "Đã rút".</summary>
+    public static readonly string[] MentorSelectable = { Submitted, Reviewing, Interview, Accepted, Rejected };
 }
 
 // ===== ATS-17.2: Lịch sử thay đổi trạng thái đơn =====
@@ -392,7 +400,7 @@ public class ApplicationStatusHistory
     [Required, MaxLength(30)] public string ToStatus { get; set; } = "";
 
     public int ChangedByUserId { get; set; }
-    public DateTime ChangedAt { get; set; } = DateTime.Now;
+    public DateTime ChangedAt { get; set; }
 }
 
 // ===== NTF-01: Thông báo cho Sinh viên IT =====
@@ -408,7 +416,7 @@ public class Notification
     [MaxLength(250)] public string Link { get; set; } = "/my-applications";
 
     public bool IsRead { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; }
 }
 
 // =====================================================================

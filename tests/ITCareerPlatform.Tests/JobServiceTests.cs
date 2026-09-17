@@ -18,7 +18,7 @@ public class JobServiceTests
         {
             Title = "Backend .NET", Category = "Backend", Level = "Junior",
             EmploymentType = "TuChoiVe",          // không thuộc Job.EmploymentTypes
-            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+            CreatedById = m.Id, Deadline = VietnamDateHelper.Today().AddDays(10)
         };
 
         var ex = Assert.Throws<ArgumentException>(() => svc.Create(job));
@@ -35,7 +35,7 @@ public class JobServiceTests
         var job = svc.Create(new Job
         {
             Title = "Backend .NET", Category = "Backend", Level = "Junior",
-            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+            CreatedById = m.Id, Deadline = VietnamDateHelper.Today().AddDays(10)
         });
 
         Assert.Equal("Onsite", job.EmploymentType);
@@ -48,7 +48,7 @@ public class JobServiceTests
         var mentor = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
         var svc = new JobService(t.Db);
 
-        var job = svc.Create(new Job { Title = "Backend .NET", CreatedById = mentor.Id, Deadline = DateTime.Today.AddDays(5), Category = "Backend", Level = "Junior", TechStack = "C#,.NET" });
+        var job = svc.Create(new Job { Title = "Backend .NET", CreatedById = mentor.Id, Deadline = VietnamDateHelper.Today().AddDays(5), Category = "Backend", Level = "Junior", TechStack = "C#,.NET" });
 
         Assert.Equal("Open", job.Status);
         Assert.True(job.Id > 0);
@@ -148,7 +148,7 @@ public class JobServiceTests
         var job = t.AddJob(owner.Id);
         var svc = new JobService(t.Db);
 
-        svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = DateTime.Today.AddDays(3) }, admin.Id);
+        svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = VietnamDateHelper.Today().AddDays(3) }, admin.Id);
 
         Assert.Equal("Đã sửa", t.NewContext().Jobs.Find(job.Id)!.Title);
     }

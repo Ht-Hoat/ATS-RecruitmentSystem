@@ -143,8 +143,12 @@ else
         <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px"
               onsubmit="return confirm('Bạn chắc chắn muốn thay đổi trạng thái đơn này?');">
             <label>Trạng thái</label>
+            @* P0-4: dựng từ MentorSelectable chứ không phải All. "Đã rút" chỉ chính sinh viên
+               đặt được, nên để nó trong danh sách này là mời Mentor chọn một thứ mà
+               UpdateStatus chắc chắn từ chối — người dùng thấy lựa chọn rồi bị báo lỗi
+               mà không hiểu vì sao. *@
             <select name="status" id="statusSelect">
-                @foreach (var s in ApplicationStatus.All)
+                @foreach (var s in ApplicationStatus.MentorSelectable)
                 {
                     <option value="@s" selected="@(s == app.Status)">@s</option>
                 }

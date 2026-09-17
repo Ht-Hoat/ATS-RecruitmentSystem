@@ -83,14 +83,14 @@ else if (!hasCv)
 <div class="job-grid">
     @foreach (var j in jobs)
     {
-        var daysLeft = (j.Deadline.Date - DateTime.Today).Days;
+        var daysLeft = (j.Deadline.Date - VietnamDateHelper.Today()).Days;
         <div class="job-card">
             <div class="job-card-head">
                 <span class="@Ui.CategoryClass(j.Category)">@j.Category</span>
                 <span class="@Ui.LevelClass(j.Level)">@j.Level</span>
                 <span class="chip">@j.EmploymentType</span>
             </div>
-            <h3>@j.Title</h3>
+            <h3><a href="@($"/positions/{j.Id}")" style="color: inherit; text-decoration: none;">@j.Title</a></h3>
             <div class="job-tags">
                 @foreach (var t in j.TechStackList)
                 {
@@ -104,9 +104,16 @@ else if (!hasCv)
                 <span>👥 @counts.GetValueOrDefault(j.Id) ứng viên</span>
             </div>
             <div class="job-card-foot">
-                @if (appliedJobIds.Contains(j.Id))
+                @if (appliedStatus.TryGetValue(j.Id, out var status))
                 {
-                    <span class="ok">✔ Đã ứng tuyển</span>
+                    if (status == ApplicationStatus.Withdrawn)
+                    {
+                        <span class="muted">🛑 Đã rút đơn</span>
+                    }
+                    else
+                    {
+                        <span class="ok">✔ Đã ứng tuyển</span>
+                    }
                 }
                 else if (!hasProfile || !hasCv)
                 {
@@ -140,15 +147,14 @@ else if (!hasCv)
     [SupplyParameterFromQuery(Name = "location")] public string? Location { get; set; }
 
     private List<Job> jobs = new();
-    private HashSet<int> appliedJobIds = new();
+    private Dictionary<int, string> appliedStatus = new();
     private Dictionary<int, int> counts = new();
     private bool hasProfile, hasCv;
 
     protected override async Task OnInitializedAsync()
     {
         jobs = Jobs.Filter(Category, Tech, Level, Sort ?? "new", MinSalary, EmploymentType, Location);
-        // Chỉ gộp theo những tin đang hiển thị. Bản cũ gộp cả bảng Applications, nên chi phí
-        // tỉ lệ với toàn bộ lịch sử ứng tuyển chứ không phải với vài tin trên màn hình.
+        // Chỉ gộp theo những tin đang hiển thị.
         counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
 
         if (AuthState is null) return;
@@ -158,7 +164,7 @@ else if (!hasCv)
         var p = Profiles.GetByUserId(uid);
         hasProfile = p != null;
         hasCv = p?.HasCv ?? false;
-        // Chỉ cần tập JobId; bản cũ dựng DTO đầy đủ (kèm JOIN sang Jobs và 8 cột) rồi vứt đi.
-        appliedJobIds = Applications.AppliedJobIds(uid);
+        // P0-4: Ánh xạ JobId -> Status để phân biệt đã ứng tuyển vs đã rút đơn
+        appliedStatus = Applications.AppliedJobStatus(uid);
     }
 }

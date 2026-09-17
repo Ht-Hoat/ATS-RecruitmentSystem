@@ -116,7 +116,7 @@ public class ApplicationServiceTests
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id);
-        job.Deadline = DateTime.Today.AddDays(-1);   // quá hạn hôm qua
+        job.Deadline = VietnamDateHelper.Today().AddDays(-1);   // quá hạn hôm qua (theo lịch VN)
         t.Db.SaveChanges();
         var svc = NewSvc(t);
 
@@ -303,7 +303,7 @@ public class ApplicationServiceTests
 
         // Cập nhật 1 đơn thành quá 24 giờ trước
         var firstApp = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
-        firstApp.AppliedAt = DateTime.Now.AddHours(-25);
+        firstApp.AppliedAt = DateTime.UtcNow.AddHours(-25);
         t.Db.SaveChanges();
 
         var count = svc.CountRecentApplicants(m.Id, isAdmin: false, withinHours: 24);
@@ -446,8 +446,8 @@ public class ApplicationServiceTests
         // Giả lập thời gian nộp khác nhau
         var app1 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
         var app2 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv2.Id);
-        app1.AppliedAt = DateTime.Now.AddDays(-2);
-        app2.AppliedAt = DateTime.Now.AddMinutes(-5);
+        app1.AppliedAt = DateTime.UtcNow.AddDays(-2);
+        app2.AppliedAt = DateTime.UtcNow.AddMinutes(-5);
         t.Db.SaveChanges();
 
         var top = svc.TopUnreviewed(m.Id, isAdmin: false, take: 2);

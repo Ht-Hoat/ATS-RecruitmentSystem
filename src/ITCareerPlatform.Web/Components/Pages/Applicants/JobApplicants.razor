@@ -131,7 +131,9 @@ else
             @{ int idx = 1; }
             @foreach (var a in apps)
             {
-                <tr class="@(Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
+                @* P0-4: đơn đã rút vẫn nằm trong bảng (để Mentor biết chuyện gì đã xảy ra với
+                   ứng viên đó) nhưng hiện mờ hẳn, vì nó không còn là việc cần làm. *@
+                <tr class="@(a.Status == ApplicationStatus.Withdrawn ? "row-withdrawn" : Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
                     <td>@idx</td>
                     <td>@a.FullName</td>
                     <td>@a.Email</td>

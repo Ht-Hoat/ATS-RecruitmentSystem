@@ -109,3 +109,48 @@ dotnet ef database update
 ```
 
 Khi đã có migration, app sẽ tự `Migrate()` thay vì `EnsureCreated()` (xem `Program.cs`).
+
+---
+
+## 🕖 Múi giờ và dữ liệu cũ (P0-2)
+
+Từ bản này, **mọi mốc thời gian được lưu ở UTC** và chỉ quy đổi sang giờ Việt Nam khi
+hiển thị (một chỗ duy nhất: `Ui.ToVietnamTime` trong `UiHelpers.cs`). Hạn nộp (`Deadline`)
+là một **ngày trên tờ lịch Việt Nam**, không phải ngày của máy chủ.
+
+Vì sao đổi: container chạy UTC trong khi người dùng ở UTC+7, nên bản cũ hiển thị mọi mốc
+sớm hơn thực tế 7 giờ, chấp nhận lịch phỏng vấn đã trôi qua tới 7 tiếng, và trong khung
+00:00–07:00 giờ Việt Nam thì tin đã hết hạn vẫn hiện ra và vẫn nhận được đơn.
+
+**Dữ liệu cũ:** các bản ghi tạo trước bản này được lưu bằng giờ của container, sau thay đổi
+này sẽ được đọc như thể chúng là UTC — tức lệch đi đúng bằng độ lệch múi giờ của máy chủ cũ.
+Không có migration dịch chuyển dữ liệu (một lần dịch sai là hỏng vĩnh viễn, và không có
+cách nào biết chắc mốc cũ được ghi ở múi giờ nào).
+
+- **Môi trường Development:** xóa và tạo lại CSDL là xong — `SeedData` sẽ gieo lại đúng quy ước.
+  ```bash
+  cd src/ITCareerPlatform.Web
+  dotnet ef database drop -f
+  dotnet run
+  ```
+- **Môi trường thật:** nếu đã có dữ liệu cần giữ, hãy tự chạy một câu `UPDATE` một lần cho
+  từng cột thời gian (trừ đi độ lệch của máy chủ cũ) **trước khi** triển khai bản mới.
+
+`Dockerfile` có `ENV TZ=Asia/Ho_Chi_Minh`, nhưng đó chỉ để **dòng log** của container đọc
+được theo giờ Việt Nam. Tính đúng đắn của nghiệp vụ không phụ thuộc biến này.
+
+---
+
+## 🔑 Quên mật khẩu — Admin đặt lại (P0-3)
+
+Hệ thống chưa gửi được email, nên đường khôi phục hiện tại đi qua Admin:
+
+1. Admin vào `/users`, bấm **Đặt lại MK** ở dòng tài khoản cần khôi phục.
+2. Trang hiện **một lần** mật khẩu tạm do hệ thống sinh (14 ký tự, nguồn ngẫu nhiên mật mã
+   học). Admin đưa trực tiếp cho người dùng — mật khẩu này **không** được ghi vào
+   `AuditLog` hay log máy chủ.
+3. Người dùng đăng nhập bằng mật khẩu tạm và bị giữ ở `/change-password` cho tới khi đổi
+   xong; mọi trang khác đều chuyển hướng về đó.
+
+Đặt lại mật khẩu làm **mọi phiên đang mở** của tài khoản đó hết hiệu lực ngay ở request kế tiếp.
+Admin không tự đặt lại mật khẩu của chính mình được — hãy dùng chức năng **Đổi mật khẩu**.

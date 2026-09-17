@@ -85,7 +85,8 @@
         roleName = CurrentUser.RoleName(user);
 
         var uid = CurrentUser.Id(user);
-        showBell = CurrentUser.IsStudent(user) && uid > 0;
+        // P0-4: Bật chuông thông báo cho mọi vai trò đã đăng nhập (để Mentor nhận thông báo khi SV rút đơn)
+        showBell = user.Identity?.IsAuthenticated == true && uid > 0;
         if (!showBell) return;
 
         items = Notifs.GetForUser(uid, 8);

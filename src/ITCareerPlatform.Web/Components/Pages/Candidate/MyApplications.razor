@@ -5,9 +5,12 @@
 <h1 class="page-title">Đơn ứng tuyển của tôi</h1>
 <p class="sub">Bạn đã nộp <b>@apps.Count</b> đơn. Bấm "Xem" để đọc <b>đánh giá độ phù hợp & lộ trình gợi ý</b> cho từng vị trí.</p>
 
+@if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+
 <table class="tbl">
     <thead>
-        <tr><th>ID</th><th>Vị trí</th><th>Danh mục</th><th>Cấp bậc</th><th>% phù hợp</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+        <tr><th>ID</th><th>Vị trí</th><th>Danh mục</th><th>Cấp bậc</th><th>% phù hợp</th><th>Ngày nộp</th><th>Trạng thái</th><th>Thao tác</th></tr>
     </thead>
     <tbody>
         @foreach (var a in apps)
@@ -36,7 +39,15 @@
                         <span class="sub" style="font-size:12px">📅 @Ui.DateTimeText(a.InterviewAt)</span>
                     }
                 </td>
-                <td><a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a></td>
+                <td>
+                    <a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a>
+                    @if (a.Status != ApplicationStatus.Accepted && a.Status != ApplicationStatus.Rejected && a.Status != ApplicationStatus.Withdrawn)
+                    {
+                        <form method="post" action="@($"/applications/{a.Id}/withdraw")" class="inline" style="margin-left:4px" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                            <button class="btn-sm ghost" type="submit" title="Rút đơn ứng tuyển">Rút đơn</button>
+                        </form>
+                    }
+                </td>
             </tr>
         }
         @if (apps.Count == 0)
@@ -48,6 +59,8 @@
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
     private List<MyApplicationItem> apps = new();
 
     protected override async Task OnInitializedAsync()
