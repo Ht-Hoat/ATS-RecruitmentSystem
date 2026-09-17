@@ -16,13 +16,14 @@ public class VietnamTimeTests
     private static ApplicationService NewSvc(TestDb t, TimeProvider clock) =>
         new(t.Db, new NotificationService(t.Db), null, clock);
 
+    // Đơn dựng sẵn ở "Đang xem xét" — P1-4 chỉ cho chuyển sang "Phỏng vấn" từ trạng thái này.
     private static (int AppId, User Mentor) SeedApplication(TestDb t)
     {
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var p = t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id);
-        return (t.AddApplication(job.Id, p.Id).Id, m);
+        return (t.AddApplication(job.Id, p.Id, ApplicationStatus.Reviewing).Id, m);
     }
 
     // ===== Hiển thị =====
@@ -105,7 +106,7 @@ public class VietnamTimeTests
 
         Assert.False(ok);
         Assert.Contains("15 phút", msg);
-        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, t.NewContext().Applications.Find(appId)!.Status);
     }
 
     [Fact]

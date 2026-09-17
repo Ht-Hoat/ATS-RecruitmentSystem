@@ -139,6 +139,13 @@ public interface IApplicationService
     bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message);
 
     /// <summary>
+    /// P1-4: bản đầy đủ — kèm phản hồi gửi ứng viên khi từ chối. Ba nạp chồng cùng đi vào
+    /// một thân hàm, nên luật luồng trạng thái chỉ được phát biểu ở đúng một chỗ.
+    /// </summary>
+    bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, string? candidateFeedback,
+        int actorUserId, out string message);
+
+    /// <summary>
     /// P0-4: sinh viên tự rút đơn. Chỉ CHỦ ĐƠN gọi được; nhà tuyển dụng không được "rút hộ"
     /// (vì thế "Đã rút" nằm ngoài <see cref="ApplicationStatus.MentorSelectable"/>).
     /// </summary>
@@ -319,6 +326,9 @@ public record ApplicationDetail(
     string CvFileNameSnapshot, bool HasCv,
     int? AiScore, string? AiStrengths, string? AiMissing, string? AiRoadmap, string? AiSource,
     int? HrScore, string? HrNote,
+    // P1-4: trường ghi chú DUY NHẤT được phép có mặt ở đây. HrNote là lý do chốt điểm mà
+    // trang sinh viên không đọc; InternalNote thì hỏi riêng qua GetInternalNote.
+    string? CandidateFeedback,
     int CandidateUserId, string FullName, string Email, string Phone, DateTime? DateOfBirth,
     string Address, string Education, string Experience, string Skills,
     string GithubUrl, string LinkedInUrl, string PortfolioUrl, string TechSkillTags,
@@ -1231,7 +1241,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                 a.Job.CreatedById, a.Status, a.AppliedAt,
                 a.CvFileNameSnapshot, a.CvDataSnapshot != null || a.CandidateProfile!.CvData != null,
                 a.AiScore, a.AiStrengths, a.AiMissing, a.AiRoadmap, a.AiSource,
-                a.HrScore, a.HrNote,
+                a.HrScore, a.HrNote, a.CandidateFeedback,
                 a.CandidateProfile!.UserId, a.CandidateProfile.FullName, a.CandidateProfile.Email,
                 a.CandidateProfile.Phone, a.CandidateProfile.DateOfBirth, a.CandidateProfile.Address,
                 a.CandidateProfile.Education, a.CandidateProfile.Experience, a.CandidateProfile.Skills,
@@ -1444,7 +1454,11 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
     // N1.E: lịch phỏng vấn ghi trong CHÍNH transaction đổi trạng thái. Tách thành hai thao
     // tác thì có khoảng thời gian đơn đã mang trạng thái "Phỏng vấn" nhưng chưa có giờ hẹn,
     // và sinh viên nhận được một lời mời không nói giờ nào.
-    public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message)
+    public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule, int actorUserId, out string message) =>
+        UpdateStatus(appId, newStatus, schedule, null, actorUserId, out message);
+
+    public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule,
+        string? candidateFeedback, int actorUserId, out string message)
     {
         // P0-4: kiểm bằng MentorSelectable chứ không phải All. "Đã rút" có trong All (để ô
         // lọc và badge hiển thị được) nhưng chỉ chính sinh viên mới đặt được qua Withdraw —
@@ -1463,6 +1477,19 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         // trạng thái KÈM lịch mới chính là thao tác đổi lịch, phải chạy tiếp.
         if (!statusChanged && schedule is null)
         { message = "Trạng thái không thay đổi."; return false; }
+
+        // P1-4: luồng hợp lệ kiểm TRƯỚC mọi thao tác ghi. Bản cũ chỉ hỏi "trạng thái này có
+        // tồn tại không", nên đi được Trúng tuyển → Đã nộp, và mỗi lần đổi lại bắn một thông
+        // báo cho sinh viên về một chuyện không nên xảy ra.
+        if (statusChanged && !ApplicationStatusFlow.CanTransition(a.Status, newStatus))
+        {
+            var next = ApplicationStatusFlow.NextStates(a.Status);
+            message = next.Count == 0
+                ? $"Đơn đã ở trạng thái kết thúc \"{a.Status}\" nên không đổi được nữa."
+                : $"Không thể chuyển từ \"{a.Status}\" sang \"{newStatus}\". " +
+                  $"Bước tiếp theo hợp lệ: {string.Join(", ", next)}.";
+            return false;
+        }
 
         if (newStatus == ApplicationStatus.Interview)
         {
@@ -1498,6 +1525,12 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                 a.InterviewLink = Clip(schedule.Link, 400);
                 a.InterviewNote = Clip(schedule.Note, 500);
             }
+
+            // P1-4: phản hồi chỉ ghi khi THỰC SỰ từ chối. Ghi vô điều kiện thì một lần chuyển
+            // sang "Phỏng vấn" (form luôn gửi mọi ô lên vì trang render tĩnh) sẽ xóa mất phản
+            // hồi đã soạn, hoặc tệ hơn là gắn một lời từ chối vào đơn đang được mời phỏng vấn.
+            if (newStatus == ApplicationStatus.Rejected)
+                a.CandidateFeedback = Clip(candidateFeedback, 1000);
 
             db.SaveChanges();
 
@@ -1597,11 +1630,19 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
     {
         var title = a.Job?.Title ?? "vị trí đã ứng tuyển";
         if (newStatus != ApplicationStatus.Interview)
-            return $"Đơn ứng tuyển vào '{title}' đã chuyển sang trạng thái: {newStatus}.";
+        {
+            var line = $"Đơn ứng tuyển vào '{title}' đã chuyển sang trạng thái: {newStatus}.";
+            // P1-4: phản hồi đi kèm ngay trong thông báo. Trước đây sinh viên bị từ chối chỉ
+            // nhận đúng một câu trạng thái, không có chỗ nào nói vì sao hay nên cải thiện gì.
+            return string.IsNullOrWhiteSpace(a.CandidateFeedback)
+                ? line
+                : $"{line} Phản hồi từ nhà tuyển dụng: {a.CandidateFeedback}";
+        }
 
         var opening = statusChanged
             ? $"Bạn được mời phỏng vấn vị trí '{title}'."
             : $"Lịch phỏng vấn vị trí '{title}' đã được cập nhật.";
+
         var link = string.IsNullOrWhiteSpace(a.InterviewLink) ? "" : $" Link: {a.InterviewLink}";
         return $"{opening} Thời gian: {Ui.DateTimeText(a.InterviewAt)}.{link}";
     }

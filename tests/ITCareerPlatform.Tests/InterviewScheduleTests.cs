@@ -15,14 +15,20 @@ public class InterviewScheduleTests
     private static InterviewSchedule Tomorrow(string? link = "https://meet.google.com/abc-defg-hij") =>
         new(DateTime.UtcNow.AddDays(1), link, "Vòng 1 — kỹ thuật");
 
-    /// <summary>Dựng một đơn ở trạng thái "Đã nộp" và trả về (id đơn, mentor, sinh viên).</summary>
+    /// <summary>
+    /// Dựng một đơn ở trạng thái "Đang xem xét" và trả về (id đơn, mentor, sinh viên).
+    ///
+    /// P1-4: đây là trạng thái DUY NHẤT chuyển thẳng sang "Phỏng vấn" được. Bộ test này nói
+    /// về lịch phỏng vấn chứ không về luồng trạng thái, nên nó bắt đầu ngay trước bước đó —
+    /// luồng được kiểm riêng trong StatusFlowTests.
+    /// </summary>
     private static (int AppId, User Mentor, User Student) Seed(TestDb t)
     {
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var p = t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id);
-        return (t.AddApplication(job.Id, p.Id).Id, m, sv);
+        return (t.AddApplication(job.Id, p.Id, ApplicationStatus.Reviewing).Id, m, sv);
     }
 
     // ===== Lưu lịch =====
@@ -55,7 +61,7 @@ public class InterviewScheduleTests
 
         Assert.False(ok);
         Assert.Contains("thời gian phỏng vấn", msg);
-        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, t.NewContext().Applications.Find(appId)!.Status);
     }
 
     [Fact]
@@ -90,7 +96,7 @@ public class InterviewScheduleTests
 
         Assert.False(ok);
         Assert.Contains("http", msg);
-        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, t.NewContext().Applications.Find(appId)!.Status);
     }
 
     /// <summary>Phỏng vấn trực tiếp thì không có link — chỉ giờ hẹn là bắt buộc.</summary>
@@ -144,7 +150,7 @@ public class InterviewScheduleTests
         using var t = new TestDb();
         var (appId, m, _) = Seed(t);
 
-        var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Submitted, m.Id, out var msg);
+        var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Reviewing, m.Id, out var msg);
 
         Assert.False(ok);
         Assert.Contains("không thay đổi", msg);
@@ -189,11 +195,11 @@ public class InterviewScheduleTests
     public void Notification_LongContent_IsClipped_NotRejected()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var p = t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id, title: new string('T', 160));
-        var appId = t.AddApplication(job.Id, p.Id).Id;
+        var appId = t.AddApplication(job.Id, p.Id, ApplicationStatus.Reviewing).Id;
 
         var longLink = "https://meet.google.com/" + new string('x', 370);
         var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Interview,

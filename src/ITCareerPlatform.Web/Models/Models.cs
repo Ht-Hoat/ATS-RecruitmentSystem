@@ -370,6 +370,17 @@ public class Application
 
     public DateTime AppliedAt { get; set; }
 
+    /// <summary>
+    /// P1-4: phản hồi HIỆN CHO ỨNG VIÊN khi bị từ chối.
+    ///
+    /// Khác hẳn HrNote (lý do chốt điểm) và InternalNote (nhận định riêng của Mentor): đây
+    /// là trường DUY NHẤT trong nhóm ghi chú được phép có mặt trong ApplicationDetail —
+    /// record dùng chung với trang /my-applications/{id} của sinh viên. Trước đây sinh viên
+    /// bị từ chối chỉ nhận đúng câu "đã chuyển sang trạng thái: Từ chối".
+    /// </summary>
+    [MaxLength(1000, ErrorMessage = "Phản hồi gửi ứng viên tối đa 1000 ký tự.")]
+    public string? CandidateFeedback { get; set; }
+
     // ===== ATS-13/14: Đánh giá độ phù hợp & Gợi ý lộ trình =====
     public int? AiScore { get; set; }          // % phù hợp (0-100), null nếu chưa đánh giá
     [MaxLength(1000)] public string? AiStrengths { get; set; }
@@ -443,6 +454,44 @@ public static class ApplicationStatus
 
     /// <summary>Trạng thái Mentor được phép chọn trong dropdown — loại trừ "Đã rút".</summary>
     public static readonly string[] MentorSelectable = { Submitted, Reviewing, Interview, Accepted, Rejected };
+}
+
+/// <summary>
+/// P1-4: luồng chuyển trạng thái hợp lệ.
+///
+/// Trước bản này UpdateStatus chỉ kiểm tra trạng thái mới có nằm trong danh sách hay không,
+/// nên đi được "Trúng tuyển" → "Đã nộp" và "Từ chối" → "Phỏng vấn", và MỖI lần đổi lại bắn
+/// một thông báo cho sinh viên. Không có trạng thái nào là kết thúc.
+///
+/// Bảng dưới đây được phát biểu ĐÚNG MỘT LẦN: dropdown của Mentor dựng từ NextStates, còn
+/// UpdateStatus kiểm bằng CanTransition. Nếu tách thành hai bản, người dùng sẽ thấy một lựa
+/// chọn rồi bị từ chối mà không có gì giải thích vì sao lựa chọn đó lại có ở đó.
+/// </summary>
+public static class ApplicationStatusFlow
+{
+    private static readonly Dictionary<string, string[]> Next = new()
+    {
+        [ApplicationStatus.Submitted] = new[] { ApplicationStatus.Reviewing, ApplicationStatus.Rejected },
+        [ApplicationStatus.Reviewing] = new[] { ApplicationStatus.Interview, ApplicationStatus.Rejected },
+        // "Phỏng vấn" → "Phỏng vấn" là hợp lệ và cố ý: đó là thao tác ĐỔI LỊCH hoặc hẹn vòng
+        // tiếp theo. Bỏ nó đi thì Mentor không đổi được giờ hẹn sau khi đã gửi lời mời.
+        [ApplicationStatus.Interview] = new[] { ApplicationStatus.Accepted, ApplicationStatus.Rejected, ApplicationStatus.Interview },
+        // Ba trạng thái kết thúc: đơn đã chốt thì không quay lại pipeline được nữa.
+        [ApplicationStatus.Accepted] = Array.Empty<string>(),
+        [ApplicationStatus.Rejected] = Array.Empty<string>(),
+        [ApplicationStatus.Withdrawn] = Array.Empty<string>()
+    };
+
+    public static bool CanTransition(string? from, string? to) =>
+        from is not null && to is not null &&
+        Next.TryGetValue(from, out var allowed) && allowed.Contains(to);
+
+    /// <summary>Các bước tiếp theo hợp lệ; rỗng nghĩa là đơn đã chốt.</summary>
+    public static IReadOnlyList<string> NextStates(string? from) =>
+        from is not null && Next.TryGetValue(from, out var allowed) ? allowed : Array.Empty<string>();
+
+    /// <summary>Đơn đã chốt — giao diện thay form đổi trạng thái bằng một dòng giải thích.</summary>
+    public static bool IsTerminal(string? status) => NextStates(status).Count == 0;
 }
 
 // ===== ATS-17.2: Lịch sử thay đổi trạng thái đơn =====

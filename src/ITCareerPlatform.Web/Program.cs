@@ -719,7 +719,12 @@ app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IAp
         schedule = new InterviewSchedule(atUtc, f["interviewLink"].ToString(), f["interviewNote"].ToString());
     }
 
-    var ok = svc.UpdateStatus(id, status, schedule, CurrentUserId(ctx), out var message);
+    // P1-4: cùng lý do với ba ô lịch — ô phản hồi luôn được form gửi lên, nên chỉ đọc khi
+    // Mentor thực sự chọn "Từ chối". Service cũng chỉ ghi ở đúng trạng thái đó, nên đây là
+    // lớp thứ hai chứ không phải chỗ thực thi luật.
+    var feedback = status == ApplicationStatus.Rejected ? f["candidateFeedback"].ToString() : null;
+
+    var ok = svc.UpdateStatus(id, status, schedule, feedback, CurrentUserId(ctx), out var message);
     // Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
     // ("thời gian phỏng vấn phải ở tương lai") hiện ra trong khung báo thành công màu xanh.
     return Results.Redirect($"/applications/{id}?" + (ok ? "statusmsg=" : "statuserr=") + Enc(message));

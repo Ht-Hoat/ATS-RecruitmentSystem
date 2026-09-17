@@ -140,15 +140,29 @@ else
            Ba ô lịch mặc định HIỆN; đoạn script bên dưới chỉ ẩn bớt khi trạng thái đang chọn
            không phải "Phỏng vấn". Làm ngược lại (mặc định ẩn, script hiện) thì máy chặn JS
            sẽ không bao giờ nhìn thấy chúng. *@
+        @if (nextStates.Count == 0)
+        {
+            @* P1-4: đơn ở trạng thái kết thúc. Hiện form rồi từ chối ở bước lưu là bắt người
+               dùng làm một việc vô ích; nói thẳng ra là đơn đã chốt thì rõ ràng hơn. *@
+            <div class="warn-note">
+                Đơn đã ở trạng thái <b>@app.Status</b> — đây là trạng thái kết thúc, không đổi tiếp được.
+                @if (app.Status == ApplicationStatus.Withdrawn)
+                {
+                    <text> Chính ứng viên đã rút đơn này.</text>
+                }
+            </div>
+        }
+        else
+        {
         <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px"
               onsubmit="return confirm('Bạn chắc chắn muốn thay đổi trạng thái đơn này?');">
             <label>Trạng thái</label>
-            @* P0-4: dựng từ MentorSelectable chứ không phải All. "Đã rút" chỉ chính sinh viên
-               đặt được, nên để nó trong danh sách này là mời Mentor chọn một thứ mà
-               UpdateStatus chắc chắn từ chối — người dùng thấy lựa chọn rồi bị báo lỗi
-               mà không hiểu vì sao. *@
+            @* P1-4: dropdown dựng từ ĐÚNG bảng luồng mà UpdateStatus dùng để kiểm tra
+               (ApplicationStatusFlow.NextStates). Liệt kê cả những trạng thái service sẽ từ
+               chối nghĩa là mời người dùng chọn một thứ rồi báo lỗi — họ không có cách nào
+               biết vì sao lựa chọn đó lại có mặt ở đó. *@
             <select name="status" id="statusSelect">
-                @foreach (var s in ApplicationStatus.MentorSelectable)
+                @foreach (var s in nextStates)
                 {
                     <option value="@s" selected="@(s == app.Status)">@s</option>
                 }
@@ -170,10 +184,24 @@ else
                 <p class="sub" style="margin-top:6px">Để trống link nếu phỏng vấn trực tiếp tại văn phòng.</p>
             </div>
 
+            @* P1-4: ô phản hồi gửi ứng viên khi từ chối. Cùng cơ chế với ba ô lịch: mặc định
+               HIỆN, script chỉ ẩn bớt — để máy chặn JavaScript vẫn dùng được chức năng. *@
+            <div id="feedbackField">
+                <p class="form-h">
+                    Phản hồi gửi ứng viên <span class="sub">(tùy chọn, hiện khi chọn "@ApplicationStatus.Rejected")</span>
+                </p>
+                <textarea name="candidateFeedback" rows="3" maxlength="1000"
+                          placeholder="Hồ sơ tốt nhưng chưa đủ kinh nghiệm với Docker/Kubernetes ở vị trí này...">@app.CandidateFeedback</textarea>
+                <p class="sub" style="margin-top:6px">
+                    Ứng viên ĐỌC ĐƯỢC nội dung này. Ghi chú nội bộ và lý do chốt điểm vẫn được giữ kín.
+                </p>
+            </div>
+
             <div class="actions">
                 <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
             </div>
         </form>
+        }
 
         @if (app.HasInterview)
         {
@@ -196,7 +224,11 @@ else
                 var sel = document.getElementById('statusSelect');
                 var box = document.getElementById('interviewFields');
                 if (!sel || !box) return;
-                function sync() { box.style.display = sel.value === '@ApplicationStatus.Interview' ? '' : 'none'; }
+                var fb = document.getElementById('feedbackField');
+                function sync() {
+                    box.style.display = sel.value === '@ApplicationStatus.Interview' ? '' : 'none';
+                    if (fb) fb.style.display = sel.value === '@ApplicationStatus.Rejected' ? '' : 'none';
+                }
                 sel.addEventListener('change', sync);
                 sync();
             })();
@@ -305,6 +337,8 @@ else
     private InternalNoteView? note;
     private InterviewQuestionSet? questions;
     private bool canAccess;
+    /// <summary>P1-4: các bước tiếp theo hợp lệ; rỗng nghĩa là đơn đã chốt.</summary>
+    private IReadOnlyList<string> nextStates = Array.Empty<string>();
 
     protected override async Task OnInitializedAsync()
     {
@@ -319,6 +353,8 @@ else
         // Bản chiếu: không kéo về hai cột byte[] (mỗi cột tới 5MB) mà trang này không hiển thị.
         app = Applications.GetDetail(AppId);
         if (app is null) return;
+
+        nextStates = ApplicationStatusFlow.NextStates(app.Status);
 
         history = Applications.GetStatusHistory(AppId);
 
