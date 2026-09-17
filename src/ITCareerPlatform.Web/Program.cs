@@ -134,6 +134,20 @@ builder.Services.AddScoped<IAiService, GeminiAiService>();
 builder.Services.AddScoped<IAiInputBuilder, AiInputBuilder>();
 builder.Services.AddScoped<ISelfCheckService, SelfCheckService>();
 
+// ---------- Email (P1-3) ----------
+// Chọn bản triển khai NGAY LÚC KHỞI ĐỘNG theo cấu hình, giống cách GeminiAiService xử lý
+// khóa API. Đăng ký bản SMTP rồi để nó tự ném ngoại lệ khi thiếu cấu hình thì mỗi email
+// thành một dòng lỗi trong log, và không có gì nói cho người vận hành biết vì sao.
+var smtpConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"])
+                     && !string.IsNullOrWhiteSpace(builder.Configuration["Smtp:From"] ?? builder.Configuration["Smtp:User"]);
+if (smtpConfigured)
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+else
+    builder.Services.AddScoped<IEmailSender, NullEmailSender>();
+
+// Tiến trình nền quét hàng đợi email 30 giây một lần.
+builder.Services.AddHostedService<OutboxSender>();
+
 var app = builder.Build();
 
 // ---------- Tạo CSDL + seed khi khởi động ----------
@@ -354,59 +368,56 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
     }
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
 
-// P0-3: Admin đặt lại mật khẩu. Mật khẩu tạm quay về trang /users qua query param để hiện
-// ĐÚNG MỘT LẦN cho Admin đọc lại cho người dùng.
+// P0-3 + P1-3: Admin đặt lại mật khẩu.
 //
-// Đưa mật khẩu qua thanh địa chỉ là điều bình thường thì không chấp nhận được (nó nằm lại
-// trong lịch sử trình duyệt và trong log của mọi proxy đứng giữa). Ở đây tạm chấp nhận
-// được vì hệ thống CHƯA gửi được email và mật khẩu này chỉ dùng được đúng một lần trước
-// khi bị buộc đổi. Khi P1-3 (email) xong thì gửi qua email và bỏ hẳn nhánh này.
-app.MapPost("/users/{id:int}/reset-password", (int id, HttpContext ctx, IUserService svc) =>
+// Có SMTP thì mật khẩu tạm đi thẳng vào hộp thư người dùng và KHÔNG bao giờ xuất hiện trên
+// màn hình hay trong thanh địa chỉ. Chưa cấu hình SMTP (hoặc lần gửi vừa rồi hỏng) thì mới
+// lùi về cách cũ — hiện một lần cho Admin đọc lại cho người dùng.
+//
+// Email này gửi TRỰC TIẾP chứ không qua hàng đợi EmailOutbox như ba email trạng thái: xếp
+// hàng nghĩa là mật khẩu nằm ở dạng rõ trong một cột CSDL cho tới khi gửi xong, trong khi
+// Admin lại đang đứng chờ ngay đó để biết kết quả. Gửi thẳng vừa không lưu lại gì, vừa trả
+// lời được ngay là đã tới hay chưa.
+app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IUserService svc, IEmailSender email) =>
 {
     if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error))
         return Results.Redirect("/users?err=" + Enc(error));
 
-    return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
-
-// ============================ COMPANIES (P1-1) ============================
-app.MapPost("/companies/save", async (HttpContext ctx, ICompanyService svc) =>
-{
-    var f = await ctx.Request.ReadFormAsync();
-    var id = int.TryParse(f["id"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
-    try
+    var target = svc.GetAll().FirstOrDefault(u => u.Id == id);
+    if (email.IsConfigured && target is not null)
     {
-        var c = svc.Save(id, new Company
+        try
         {
-            Name = f["name"].ToString(),
-            Website = f["website"].ToString(),
-            Address = f["address"].ToString(),
-            Description = f["description"].ToString()
-        }, CurrentUserId(ctx));
-        return Results.Redirect("/companies?msg=" + Enc($"Đã lưu công ty '{c.Name}'."));
-    }
-    // Luật do CompanyService phát biểu — câu chữ viết sẵn cho người dùng đọc.
-    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
-    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, "lưu công ty"))); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
+            await email.SendAsync(new EmailMessage(
+                target.Email,
+                "Mật khẩu tạm thời — IT Career Platform",
+                string.Join(Environment.NewLine, new[]
+                {
+                    $"Xin chào {target.FullName},",
+                    "",
+                    "Quản trị viên vừa đặt lại mật khẩu cho tài khoản của bạn.",
+                    $"Mật khẩu tạm thời: {tempPassword}",
+                    "",
+                    "Hãy đăng nhập và đổi mật khẩu ngay — hệ thống sẽ giữ bạn ở trang Đổi mật khẩu",
+                    "cho tới khi bạn đổi xong.",
+                    "",
+                    "Trân trọng,",
+                    "IT Career Platform"
+                })), ctx.RequestAborted);
 
-app.MapPost("/companies/assign/{userId:int}", async (int userId, HttpContext ctx, ICompanyService svc) =>
-{
-    var f = await ctx.Request.ReadFormAsync();
-    // Ô trống nghĩa là GỠ khỏi công ty, khác hẳn với "gửi lên một id không đọc được".
-    var raw = f["companyId"].ToString();
-    int? companyId = string.IsNullOrWhiteSpace(raw)
-        ? null
-        : int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cid) ? cid : -1;
-    if (companyId == -1) return Results.Redirect("/companies?err=" + Enc("Công ty không hợp lệ."));
-
-    try
-    {
-        svc.AssignToUser(userId, companyId, CurrentUserId(ctx));
-        return Results.Redirect("/companies?msg=" + Enc("Đã cập nhật công ty của tài khoản."));
+            return Results.Redirect("/users?msg=" + Enc(
+                $"Đã gửi mật khẩu tạm tới {target.Email}. Người dùng phải đổi mật khẩu ngay khi đăng nhập."));
+        }
+        catch (Exception ex)
+        {
+            // Gửi hỏng KHÔNG được làm hỏng việc đặt lại mật khẩu — mật khẩu đã đổi rồi. Lùi
+            // về hiện trên màn hình, nếu không thì tài khoản đó không ai vào được nữa.
+            SafeError(ctx, ex, $"gửi mật khẩu tạm cho tài khoản #{id}");
+            return Results.Redirect("/users?tempPw=" + Enc(tempPassword) + "&mailfailed=1");
+        }
     }
-    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
-    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, $"gán công ty cho tài khoản #{userId}"))); }
+
+    return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin)).DisableAntiforgery();
 
 // ============================ JOBS (ATS-04, 05, 06) ============================

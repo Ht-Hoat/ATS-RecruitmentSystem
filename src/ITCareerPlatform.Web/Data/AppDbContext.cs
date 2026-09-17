@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ApplicationStatusHistory> ApplicationStatusHistories => Set<ApplicationStatusHistory>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SelfCheck> SelfChecks => Set<SelfCheck>();   // P1-2
+    public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();   // P1-3
 
     // -----------------------------------------------------------------
     //  Đóng dấu CreatedAt/UpdatedAt một chỗ duy nhất.
@@ -66,6 +67,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 hist.ChangedAt = now;
             else if (entry.Entity is SelfCheck self && self.CreatedAt == default)
                 self.CreatedAt = now;
+            else if (entry.Entity is EmailOutbox mail && mail.CreatedAt == default)
+                mail.CreatedAt = now;
         }
     }
 
@@ -159,6 +162,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         // bản gần nhất của (người, tin). Index phủ cả hai.
         b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.CreatedAt });
         b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.JobId, x.Id });
+
+        // P1-3: tiến trình nền chỉ hỏi đúng một câu — "email nào chưa gửi và chưa quá số lần
+        // thử" — nên index phủ đúng hai cột đó. Bảng này chỉ tăng, không có index thì mỗi
+        // lần quét (30 giây một lần) là một lần đọc toàn bảng.
+        b.Entity<EmailOutbox>().HasIndex(x => new { x.SentAt, x.Attempts });
 
         // Notifications: index theo người nhận để truy vấn nhanh
         b.Entity<Notification>().HasIndex(n => new { n.UserId, n.IsRead });

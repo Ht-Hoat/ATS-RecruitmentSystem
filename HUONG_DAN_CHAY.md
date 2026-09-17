@@ -154,3 +154,54 @@ Hệ thống chưa gửi được email, nên đường khôi phục hiện tạ
 
 Đặt lại mật khẩu làm **mọi phiên đang mở** của tài khoản đó hết hiệu lực ngay ở request kế tiếp.
 Admin không tự đặt lại mật khẩu của chính mình được — hãy dùng chức năng **Đổi mật khẩu**.
+
+---
+
+## 📧 Email và tệp lịch .ics (P1-3)
+
+Hệ thống gửi email cho **ba sự kiện**: mời phỏng vấn (kèm tệp `.ics` để ứng viên thêm vào
+lịch), trúng tuyển, và từ chối. Email từ chối mang theo phần **Phản hồi gửi ứng viên** nếu
+nhà tuyển dụng có nhập — nhưng **không bao giờ** mang điểm số, lý do chốt điểm hay ghi chú
+nội bộ của Mentor.
+
+**Không cấu hình gì thì hệ thống vẫn chạy bình thường**: email được xếp vào bảng
+`EmailOutbox` và ghi một dòng cảnh báo trong log (chỉ người nhận + tiêu đề, không có nội
+dung). Bản ghi **nằm lại trong hàng đợi**, nên cấu hình SMTP sau đó vẫn gửi được.
+
+### Cấu hình SMTP
+
+Trong `appsettings.Development.json` (đã được `.gitignore`), hoặc bằng biến môi trường:
+
+```json
+{
+  "Smtp": {
+    "Host": "smtp.gmail.com",
+    "Port": 587,
+    "EnableSsl": true,
+    "User": "tai-khoan@gmail.com",
+    "Password": "mat-khau-ung-dung-16-ky-tu",
+    "From": "tai-khoan@gmail.com"
+  }
+}
+```
+
+Với Docker, dùng dấu gạch dưới kép: `Smtp__Host`, `Smtp__Port`, `Smtp__User`,
+`Smtp__Password`, `Smtp__From`, `Smtp__EnableSsl`.
+
+> Gmail yêu cầu **App Password** (bật 2FA rồi tạo ở myaccount.google.com/apppasswords),
+> không dùng được mật khẩu đăng nhập thường.
+
+### Cách gửi hoạt động
+
+Email **không** được gửi ngay trong request đổi trạng thái: SMTP chậm và hay lỗi, gửi đồng
+bộ thì một lần timeout làm nhà tuyển dụng thấy "đổi trạng thái thất bại" dù trạng thái đã
+đổi. Thay vào đó, bản ghi email được thêm **trong cùng transaction** với việc đổi trạng
+thái, rồi một tiến trình nền quét hàng đợi **30 giây một lần**, gửi tối đa 20 bản ghi mỗi
+lượt và bỏ hẳn bản ghi đã thử quá 5 lần (cột `LastError` ghi lý do lần cuối).
+
+### Mật khẩu tạm (P0-3) đi theo đường nào
+
+Có SMTP thì mật khẩu tạm gửi **thẳng vào hộp thư** người dùng và không xuất hiện trên màn
+hình. Chưa cấu hình SMTP — hoặc lần gửi vừa rồi hỏng — thì mới lùi về cách cũ là hiện một
+lần cho Admin đọc lại cho người dùng. Email này gửi trực tiếp chứ không qua `EmailOutbox`,
+vì xếp hàng nghĩa là mật khẩu nằm ở dạng rõ trong một cột CSDL cho tới khi gửi xong.

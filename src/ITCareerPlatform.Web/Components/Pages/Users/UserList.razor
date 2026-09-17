@@ -7,6 +7,7 @@
     <a class="btn-primary" href="/users/new">+ Tạo tài khoản</a>
 </div>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+@if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
 @if (!string.IsNullOrEmpty(TempPw))
 {
     <div class="alert-ok" style="border-left: 4px solid #16a34a; background: #f0fdf4; padding: 14px; margin-bottom: 16px; border-radius: 4px;">
@@ -16,6 +17,13 @@
         </p>
         <p class="sub" style="margin: 8px 0 0 0; color: #166534;">
             ⚠️ <b>Lưu ý quan trọng:</b> Hãy sao chép và gửi trực tiếp mật khẩu này cho người dùng. Người dùng sẽ bị buộc phải đổi mật khẩu mới ngay khi đăng nhập.
+        </p>
+        @* P1-3: nói rõ VÌ SAO mật khẩu lại hiện ra đây — nếu không, người vận hành tưởng
+           đây là cách làm bình thường và không bao giờ đi cấu hình SMTP. *@
+        <p class="sub" style="margin: 6px 0 0 0;">
+            @(MailFailed == "1"
+                ? "Không gửi được email (xem log máy chủ), nên mật khẩu tạm hiện ở đây thay thế."
+                : "Hệ thống chưa cấu hình SMTP nên chưa gửi được email. Cấu hình Smtp:Host và Smtp:From để mật khẩu tạm đi thẳng vào hộp thư người dùng.")
         </p>
     </div>
 }
@@ -89,7 +97,9 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
     [SupplyParameterFromQuery(Name = "tempPw")] public string? TempPw { get; set; }
+    [SupplyParameterFromQuery(Name = "mailfailed")] public string? MailFailed { get; set; }
     private List<User> userList = new();
     private List<Role> roleList = new();
     private int currentUid;

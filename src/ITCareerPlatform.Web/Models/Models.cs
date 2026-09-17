@@ -401,6 +401,13 @@ public class Application
     public DateTime? HrAdjustedAt { get; set; }
 
     /// <summary>
+    /// P1-3: số lần lịch phỏng vấn đã được đặt/đổi. Đi thẳng vào trường SEQUENCE của tệp
+    /// .ics: cùng UID mà SEQUENCE không tăng thì ứng dụng lịch bỏ qua bản cập nhật và giữ
+    /// nguyên giờ cũ — ứng viên đến vào giờ đã hủy.
+    /// </summary>
+    public int InterviewSequence { get; set; }
+
+    /// <summary>
     /// P1-5: ai đã chốt điểm. Cả Admin lẫn Mentor đều chấm được, nên nếu không lưu lại thì
     /// trên màn hình "% chốt" là con số không có chủ — chỉ tra ngược được trong AuditLog.
     /// </summary>
@@ -512,6 +519,43 @@ public class ApplicationStatusHistory
 
     public int ChangedByUserId { get; set; }
     public DateTime ChangedAt { get; set; }
+}
+
+// ===== P1-3: Hàng đợi email =====
+
+/// <summary>
+/// Một email chờ gửi.
+///
+/// Vì sao có bảng này thay vì gửi thẳng trong request đổi trạng thái: SMTP chậm và hay lỗi.
+/// Gửi đồng bộ thì một lần timeout làm nhà tuyển dụng thấy "đổi trạng thái thất bại" trong
+/// khi trạng thái ĐÃ đổi — và không ai biết email có đi hay không.
+///
+/// Bản ghi được thêm TRONG CÙNG transaction với việc đổi trạng thái, nên đã đổi trạng thái
+/// thì chắc chắn có email chờ gửi, và ngược lại giao dịch hỏng thì không sót email nào.
+/// </summary>
+public class EmailOutbox
+{
+    public int Id { get; set; }
+
+    [Required, MaxLength(200)] public string ToEmail { get; set; } = "";
+    [Required, MaxLength(300)] public string Subject { get; set; } = "";
+    [Required, MaxLength(4000)] public string Body { get; set; } = "";
+
+    [MaxLength(200)] public string? AttachmentName { get; set; }
+    /// <summary>Nội dung tệp .ics — vài KB, không phải tệp người dùng tải lên.</summary>
+    public byte[]? AttachmentContent { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    /// <summary>Null nghĩa là chưa gửi được — đó cũng là điều kiện quét của tiến trình nền.</summary>
+    public DateTime? SentAt { get; set; }
+    public int Attempts { get; set; }
+    [MaxLength(500)] public string? LastError { get; set; }
+
+    /// <summary>
+    /// Quá số lần này thì bỏ hẳn. Không có trần, một địa chỉ email sai chính tả sẽ được thử
+    /// lại 30 giây một lần cho tới khi ai đó để ý — tức là mãi mãi.
+    /// </summary>
+    public const int MaxAttempts = 5;
 }
 
 // ===== P1-2: Sinh viên tự kiểm tra độ phù hợp trước khi nộp =====

@@ -1469,7 +1469,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         if (!ApplicationStatus.MentorSelectable.Contains(newStatus))
         { message = "Trạng thái không hợp lệ."; return false; }
 
-        var a = db.Applications.Include(x => x.Job)
+        // P1-3: kèm công ty để email nói được ứng viên đang trao đổi với ai.
+        var a = db.Applications.Include(x => x.Job).ThenInclude(j => j!.Company)
                                .Include(x => x.CandidateProfile)
                                .FirstOrDefault(x => x.Id == appId);
         if (a is null) { message = "Không tìm thấy đơn."; return false; }
@@ -1527,6 +1528,8 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                 a.InterviewAt = schedule.At;
                 a.InterviewLink = Clip(schedule.Link, 400);
                 a.InterviewNote = Clip(schedule.Note, 500);
+                // P1-3: mỗi lần đặt hoặc đổi lịch là một phiên bản mới của CÙNG một sự kiện lịch.
+                a.InterviewSequence++;
             }
 
             // P1-4: phản hồi chỉ ghi khi THỰC SỰ từ chối. Ghi vô điều kiện thì một lần chuyển
@@ -1544,6 +1547,12 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                     statusChanged ? NotificationTitle(newStatus) : "Cập nhật lịch phỏng vấn",
                     BuildStatusMessage(a, newStatus, statusChanged),
                     $"/my-applications/{a.Id}");
+
+            // P1-3: email xếp vào hàng đợi TRONG cùng transaction này. Gửi thẳng ở đây thì một
+            // lần SMTP timeout sẽ làm cả giao dịch hỏng và nhà tuyển dụng thấy "đổi trạng thái
+            // thất bại" dù trạng thái đã đổi; xếp hàng thì đổi được là chắc chắn có email chờ.
+            var mail = StatusEmailComposer.Compose(a, newStatus, statusChanged);
+            if (mail is not null) db.EmailOutbox.Add(mail);
 
             audit?.Record(actorUserId,
                 statusChanged ? "Change Status" : "Reschedule Interview", "Applications",
