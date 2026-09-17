@@ -7,7 +7,7 @@ namespace ITCareerPlatform.Tests;
 // N1.E: lịch phỏng vấn gắn vào trạng thái đơn (Hướng B) · N1.B: ghi chú nội bộ.
 public class InterviewScheduleTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     // P0-2: InterviewSchedule.At là mốc UTC (endpoint đã quy đổi từ giờ VN trước khi dựng).
     // Dùng DateTime.Now ở đây thì trên máy UTC+7 một lịch "2 giờ trước" lại rơi vào tương

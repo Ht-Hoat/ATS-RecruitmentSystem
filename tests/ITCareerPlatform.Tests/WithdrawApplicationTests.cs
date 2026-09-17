@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class WithdrawApplicationTests
 {
     private static ApplicationService NewSvc(TestDb t) =>
-        new(t.Db, new NotificationService(t.Db), new AuditService(t.Db));
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, new AuditService(t.Db));
 
     /// <summary>Một mentor, một sinh viên có hồ sơ, một tin, một đơn ở trạng thái cho trước.</summary>
     private static (int AppId, User Mentor, User Student, Job Job) Seed(

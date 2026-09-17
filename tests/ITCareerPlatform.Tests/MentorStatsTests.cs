@@ -11,7 +11,7 @@ namespace ITCareerPlatform.Tests;
 // đúng mà sai phạm vi vẫn là một lỗ rò, và nó không tự lộ ra khi chạy tay với một tài khoản.
 public class MentorStatsTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     /// <summary>Hai Mentor, mỗi người một tin và số đơn khác nhau — không ai thấy số của người kia.</summary>
     [Fact]

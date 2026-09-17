@@ -1,5 +1,6 @@
 using ITCareerPlatform.Data;
 using ITCareerPlatform.Models;
+using ITCareerPlatform.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,10 +11,24 @@ namespace ITCareerPlatform.Tests;
 public sealed class TestDb : IDisposable
 {
     private readonly SqliteConnection _conn;
+    private readonly string _cvRoot;
     public AppDbContext Db { get; }
+
+    /// <summary>
+    /// P2-2: nơi lưu nội dung CV cho test — một thư mục tạm RIÊNG cho mỗi TestDb, xóa khi
+    /// Dispose. Dùng chung một thư mục thì phần khử trùng lặp theo hash làm các test nhìn
+    /// thấy tệp của nhau và kết quả phụ thuộc thứ tự chạy.
+    /// </summary>
+    public ICvStorage CvStorage { get; }
+
+    /// <summary>Thư mục lưu CV của riêng TestDb này — để test đếm số tệp thật sự nằm trên đĩa.</summary>
+    public string CvRoot => _cvRoot;
 
     public TestDb()
     {
+        _cvRoot = Path.Combine(Path.GetTempPath(), "itcp-cv-test", Guid.NewGuid().ToString("N"));
+        CvStorage = new DiskCvStorage(_cvRoot);
+
         _conn = new SqliteConnection("DataSource=:memory:");
         _conn.Open();
         _conn.CreateFunction("lower", (string? s) => s?.ToLower());
@@ -136,5 +151,14 @@ public sealed class TestDb : IDisposable
     public static DateTime VietnamDayStartUtc(int offsetDays = 0) =>
         VietnamDateHelper.StartOfVietnamDayUtc(VietnamDateHelper.Today().AddDays(offsetDays));
 
-    public void Dispose() { Db.Dispose(); _conn.Dispose(); }
+    public void Dispose()
+    {
+        Db.Dispose();
+        _conn.Dispose();
+        // Dọn thư mục CV tạm. Xóa hỏng (tệp đang bị khóa) không được làm đỏ test — thư mục
+        // nằm trong TEMP nên hệ điều hành sẽ dọn sau.
+        try { if (Directory.Exists(_cvRoot)) Directory.Delete(_cvRoot, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 }

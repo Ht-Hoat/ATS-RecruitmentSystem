@@ -20,7 +20,7 @@ public class SelfCheckServiceTests
     private static SelfCheckService NewSvc(TestDb t, TimeProvider? clock = null)
     {
         var ai = AiServiceTestFactory.Offline();
-        return new SelfCheckService(t.Db, new JobService(t.Db, null, clock), ai, new AiInputBuilder(), clock);
+        return new SelfCheckService(t.Db, new JobService(t.Db, null, clock), ai, new AiInputBuilder(t.CvStorage), clock);
     }
 
     private static (User Student, Job Job) Seed(TestDb t, bool withCv = true, bool withProfile = true)
@@ -260,7 +260,7 @@ public class SelfCheckServiceTests
     /// giải thích được vì sao.
     /// </summary>
     [Fact]
-    public void AiInputBuilder_SelfCheckAndApplication_ShareTheSameShape()
+    public async Task AiInputBuilder_SelfCheckAndApplication_ShareTheSameShape()
     {
         using var t = new TestDb();
         var m = t.AddMentor();
@@ -275,10 +275,10 @@ public class SelfCheckServiceTests
         }).Entity;
         t.Db.SaveChanges();
         app.Job = job;
-        var builder = new AiInputBuilder();
+        var builder = new AiInputBuilder(t.CvStorage);
 
-        var forApp = builder.ForApplication(app, p);
-        var forSelf = builder.ForSelfCheck(p, job);
+        var forApp = await builder.ForApplicationAsync(app, p);
+        var forSelf = await builder.ForSelfCheckAsync(p, job);
 
         // CV giống hệt nhau (bản chụp chính là bản hiện tại), nên bốn ô phải trùng khớp.
         Assert.Equal(forApp.CandidateText, forSelf.CandidateText);

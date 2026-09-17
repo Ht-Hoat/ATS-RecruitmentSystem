@@ -13,7 +13,7 @@ public class ProfileServiceTests
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
         svc.Save(sv.Id, new CandidateProfile
         {
@@ -35,7 +35,7 @@ public class ProfileServiceTests
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
         // Họ tên + email hợp lệ, để lỗi ném ra chắc chắn đến từ luật URL chứ không phải
         // từ ràng buộc bắt buộc của hồ sơ.
@@ -49,13 +49,13 @@ public class ProfileServiceTests
 
     // ATS-09: upload CV hợp lệ -> HasCv = true
     [Fact]
-    public void SaveCv_ValidPdf_SetsHasCv()
+    public async Task SaveCv_ValidPdf_SetsHasCv()
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
-        var (ok, err) = svc.SaveCv(sv.Id, Encoding.UTF8.GetBytes("%PDF-1.4 noi dung cv"), "cv.pdf", "application/pdf");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, Encoding.UTF8.GetBytes("%PDF-1.4 noi dung cv"), "cv.pdf", "application/pdf");
 
         Assert.True(ok);
         Assert.Null(err);
@@ -64,14 +64,14 @@ public class ProfileServiceTests
 
     // SEC-01: chặn chữ ký EICAR
     [Fact]
-    public void SaveCv_EicarSignature_Rejected()
+    public async Task SaveCv_EicarSignature_Rejected()
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
         var eicar = Encoding.ASCII.GetBytes(@"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
 
-        var (ok, err) = svc.SaveCv(sv.Id, eicar, "cv.pdf", "application/pdf");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, eicar, "cv.pdf", "application/pdf");
 
         Assert.False(ok);
         Assert.Contains("mã độc", err);
@@ -79,13 +79,13 @@ public class ProfileServiceTests
 
     // SEC-01: sai định dạng -> từ chối
     [Fact]
-    public void SaveCv_WrongExtension_Rejected()
+    public async Task SaveCv_WrongExtension_Rejected()
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
-        var (ok, err) = svc.SaveCv(sv.Id, Encoding.UTF8.GetBytes("hello"), "cv.exe", "application/octet-stream");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, Encoding.UTF8.GetBytes("hello"), "cv.exe", "application/octet-stream");
 
         Assert.False(ok);
         Assert.Contains("PDF hoặc DOCX", err);
@@ -93,15 +93,15 @@ public class ProfileServiceTests
 
     // SEC-01: quá 5MB -> từ chối
     [Fact]
-    public void SaveCv_TooLarge_Rejected()
+    public async Task SaveCv_TooLarge_Rejected()
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
         var big = new byte[5 * 1024 * 1024 + 1];
         big[0] = (byte)'%'; big[1] = (byte)'P';
 
-        var (ok, err) = svc.SaveCv(sv.Id, big, "cv.pdf", "application/pdf");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, big, "cv.pdf", "application/pdf");
 
         Assert.False(ok);
         Assert.Contains("5MB", err);
@@ -114,7 +114,7 @@ public class ProfileServiceTests
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
         svc.Save(sv.Id, new CandidateProfile
         {
@@ -134,7 +134,7 @@ public class ProfileServiceTests
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        var svc = new ProfileService(t.Db);
+        var svc = new ProfileService(t.Db, t.CvStorage);
 
         var ex = Assert.Throws<ArgumentException>(() => svc.Save(sv.Id, new CandidateProfile
         {
@@ -150,7 +150,7 @@ public class ProfileServiceTests
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
 
-        var p = new ProfileService(t.Db).Save(sv.Id, new CandidateProfile
+        var p = new ProfileService(t.Db, t.CvStorage).Save(sv.Id, new CandidateProfile
         {
             FullName = "Nguyễn Văn A", Email = "a@itcp.vn"
         });

@@ -91,7 +91,14 @@ public interface IProfileService
 {
     CandidateProfile? GetByUserId(int userId);
     CandidateProfile Save(int userId, CandidateProfile input);            // ATS-08
-    (bool ok, string? error) SaveCv(int userId, byte[] data, string fileName, string contentType); // ATS-09 + SEC-01
+    /// <summary>
+    /// ATS-09 + SEC-01 + P2-2: lưu CV. Nội dung đi ra blob storage, CSDL chỉ giữ khóa.
+    /// Bất đồng bộ vì có một lần ghi tệp; đường ghi cũ đồng bộ nên phải đổi chữ ký.
+    /// </summary>
+    Task<(bool ok, string? error)> SaveCvAsync(int userId, byte[] data, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>P2-2: đọc nội dung CV hiện tại — ưu tiên blob storage, lùi về cột cũ nếu chưa di trú.</summary>
+    Task<byte[]?> ReadCvAsync(CandidateProfile profile, CancellationToken ct = default);
 }
 
 public interface IApplicationService
@@ -115,6 +122,13 @@ public interface IApplicationService
     List<MyApplicationItem> GetByCandidate(int userId);
     /// <summary>Bản đầy đủ, có kèm byte[] CV — chỉ dùng cho tải CV và chấm AI.</summary>
     Application? GetById(int id);
+
+    /// <summary>
+    /// P2-2: nội dung CV của một đơn — ưu tiên bản chụp trong blob storage, rồi cột byte[]
+    /// cũ, rồi cuối cùng là CV hiện tại của hồ sơ (dữ liệu trước khi có bản chụp).
+    /// Một chỗ duy nhất phát biểu thứ tự này, thay vì lặp lại ở từng endpoint.
+    /// </summary>
+    Task<(byte[] Data, string FileName, string ContentType)?> ReadCvAsync(int appId, CancellationToken ct = default);
     /// <summary>Bản chiếu để hiển thị: mọi trường trang chi tiết cần, KHÔNG kèm byte[] CV.</summary>
     ApplicationDetail? GetDetail(int id);
     /// <summary>Đếm theo đúng những tin đang hiển thị, thay vì gộp cả bảng Applications.</summary>
@@ -1081,7 +1095,7 @@ public class CompanyService(AppDbContext db, IAuditService? audit = null) : ICom
 // =====================================================================
 //  ProfileService (ATS-08, ATS-09, SEC-01)
 // =====================================================================
-public class ProfileService(AppDbContext db, TimeProvider? clock = null) : IProfileService
+public class ProfileService(AppDbContext db, ICvStorage cvStorage, TimeProvider? clock = null) : IProfileService
 {
     public CandidateProfile? GetByUserId(int userId) =>
         db.CandidateProfiles.FirstOrDefault(p => p.UserId == userId);
@@ -1131,9 +1145,10 @@ public class ProfileService(AppDbContext db, TimeProvider? clock = null) : IProf
         return p;
     }
 
-    public (bool ok, string? error) SaveCv(int userId, byte[] data, string fileName, string contentType)
+    public async Task<(bool ok, string? error)> SaveCvAsync(int userId, byte[] data, string fileName,
+        string contentType, CancellationToken ct = default)
     {
-        // SEC-01: quét tệp trước khi lưu
+        // SEC-01: quét tệp trước khi lưu — và trước cả khi ghi ra đĩa.
         var (safe, err) = CvScanner.Scan(data, fileName);
         if (!safe) return (false, err);
 
@@ -1145,22 +1160,44 @@ public class ProfileService(AppDbContext db, TimeProvider? clock = null) : IProf
             if (u != null) { p.FullName = u.FullName; p.Email = u.Email; }
             db.CandidateProfiles.Add(p);
         }
-        p.CvData = data;
+
+        // P2-2: nội dung ra blob storage, CSDL chỉ giữ khóa. Ghi tệp TRƯỚC khi ghi CSDL: nếu
+        // làm ngược lại và lần ghi tệp hỏng, CSDL sẽ trỏ tới một khóa không tồn tại. Thứ tự
+        // này chỉ có thể để lại một tệp mồ côi — vô hại, và lần lưu sau cùng nội dung sẽ
+        // dùng lại chính nó.
+        p.CvStorageKey = await cvStorage.SaveAsync(data, fileName, ct);
+        // Cột cũ xóa hẳn cho hồ sơ vừa lưu: nội dung đã nằm nơi khác, giữ lại là lưu hai bản.
+        p.CvData = null;
+
         p.CvFileName = fileName;
         // Content-type do trình duyệt gửi lên không đáng tin; suy ra từ nội dung thật đã quét.
         p.CvContentType = CvScanner.IsPdf(data)
             ? "application/pdf"
             : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         p.CvUploadedAt = VietnamDateHelper.UtcNow(clock);   // P0-2: lưu UTC, Ui.* quy đổi khi hiển thị
-        db.SaveChanges();
+        await db.SaveChangesAsync(ct);
         return (true, null);
+    }
+
+    /// <summary>
+    /// Ưu tiên khóa, lùi về cột byte[] nếu hồ sơ chưa di trú — giữ đúng tinh thần fallback
+    /// đang có ở endpoint tải CV của đơn.
+    /// </summary>
+    public async Task<byte[]?> ReadCvAsync(CandidateProfile profile, CancellationToken ct = default)
+    {
+        if (profile.CvStorageKey is not null)
+        {
+            var fromStorage = await cvStorage.ReadAsync(profile.CvStorageKey, ct);
+            if (fromStorage is not null) return fromStorage;
+        }
+        return profile.CvData;
     }
 }
 
 // =====================================================================
 //  ApplicationService (ATS-10 → ATS-17)
 // =====================================================================
-public class ApplicationService(AppDbContext db, INotificationService notify,
+public class ApplicationService(AppDbContext db, INotificationService notify, ICvStorage cvStorage,
     IAuditService? audit = null, TimeProvider? clock = null) : IApplicationService
 {
     /// <summary>
@@ -1195,9 +1232,13 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         {
             JobId = jobId,
             CandidateProfileId = profile.Id,
-            // Đóng băng CV tại thời điểm nộp — về sau SV đổi CV cũng không ảnh hưởng đơn này
+            // Đóng băng CV tại thời điểm nộp — về sau SV đổi CV cũng không ảnh hưởng đơn này.
+            // P2-2: chỉ chép KHÓA, không chép 5MB nội dung. Khóa là hash của nội dung nên bản
+            // chụp vẫn bất biến: sinh viên tải CV mới lên sẽ sinh ra khóa khác, còn khóa cũ
+            // vẫn trỏ đúng tệp cũ. Đơn cũ (chưa di trú) vẫn giữ cột byte[] để đọc được.
             CvFileNameSnapshot = profile.CvFileName ?? "(chưa tải CV)",
-            CvDataSnapshot = profile.CvData,
+            CvStorageKeySnapshot = profile.CvStorageKey,
+            CvDataSnapshot = profile.CvStorageKey is null ? profile.CvData : null,
             CvContentTypeSnapshot = profile.CvContentType,
             Status = ApplicationStatus.Submitted
             // AppliedAt do AppDbContext đóng dấu tập trung (UTC) — P0-2.
@@ -1214,6 +1255,36 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         }
         message = "Ứng tuyển thành công!";
         return true;
+    }
+
+    public async Task<(byte[] Data, string FileName, string ContentType)?> ReadCvAsync(int appId, CancellationToken ct = default)
+    {
+        var a = db.Applications.Include(x => x.CandidateProfile).FirstOrDefault(x => x.Id == appId);
+        if (a is null) return null;
+
+        // 1. Bản chụp trong blob storage — thứ đúng nhất: CV ĐÚNG như lúc ứng viên bấm nộp.
+        if (a.CvStorageKeySnapshot is not null)
+        {
+            var data = await cvStorage.ReadAsync(a.CvStorageKeySnapshot, ct);
+            if (data is not null) return (data, a.CvFileNameSnapshot, a.CvContentTypeSnapshot ?? "application/octet-stream");
+        }
+
+        // 2. Bản chụp còn nằm ở cột cũ (đơn tạo trước khi di trú).
+        if (a.CvDataSnapshot is { Length: > 0 })
+            return (a.CvDataSnapshot, a.CvFileNameSnapshot, a.CvContentTypeSnapshot ?? "application/octet-stream");
+
+        // 3. Cuối cùng mới lùi về CV HIỆN TẠI của hồ sơ — dữ liệu từ trước khi có bản chụp.
+        var p = a.CandidateProfile;
+        if (p is null) return null;
+        if (p.CvStorageKey is not null)
+        {
+            var data = await cvStorage.ReadAsync(p.CvStorageKey, ct);
+            if (data is not null) return (data, p.CvFileName ?? "CV", p.CvContentType ?? "application/octet-stream");
+        }
+        if (p.CvData is { Length: > 0 })
+            return (p.CvData, p.CvFileName ?? "CV", p.CvContentType ?? "application/octet-stream");
+
+        return null;
     }
 
     // ATS-11 + ATS-15: danh sách ứng viên (projection — KHÔNG kéo byte[] CV về)
@@ -1234,9 +1305,9 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         // thì đơn cũ (chưa có cột snapshot) hiện "Thiếu CV" trong khi vẫn tải được CV.
         // So sánh cột blob với null dịch thành IS NOT NULL — nội dung CV KHÔNG bị kéo về.
         if (filter.HasCv == true)
-            q = q.Where(a => a.CvDataSnapshot != null || a.CandidateProfile!.CvData != null);
+            q = q.Where(a => a.CvStorageKeySnapshot != null || a.CvDataSnapshot != null || a.CandidateProfile!.CvStorageKey != null || a.CandidateProfile.CvData != null);
         else if (filter.HasCv == false)
-            q = q.Where(a => a.CvDataSnapshot == null && a.CandidateProfile!.CvData == null);
+            q = q.Where(a => a.CvStorageKeySnapshot == null && a.CvDataSnapshot == null && a.CandidateProfile!.CvStorageKey == null && a.CandidateProfile.CvData == null);
 
         // Lọc theo điểm chốt ngay trong SQL: (HrScore ?? AiScore) dịch thành COALESCE.
         // Không lọc trên FinalScore — đó là property tính ở C#, EF không dịch được, và
@@ -1263,7 +1334,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         var list = q.Select(a => new ApplicantListItem(
                 a.Id, a.CandidateProfile!.FullName, a.CandidateProfile.Email,
                 a.CandidateProfile.TechSkillTags, a.AiScore, a.HrScore, a.Status, a.AppliedAt,
-                a.CvDataSnapshot != null || a.CandidateProfile.CvData != null,
+                a.CvStorageKeySnapshot != null || a.CvDataSnapshot != null || a.CandidateProfile.CvStorageKey != null || a.CandidateProfile.CvData != null,
                 a.CandidateProfile.YearsOfExperience, a.HrScoreByUserId))
             .ToList();
 
@@ -1369,7 +1440,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
             .Select(a => new ApplicationDetail(
                 a.Id, a.JobId, a.Job!.Title, a.Job.Category, a.Job.Level, a.Job.TechStack,
                 a.Job.CreatedById, a.Status, a.AppliedAt,
-                a.CvFileNameSnapshot, a.CvDataSnapshot != null || a.CandidateProfile!.CvData != null,
+                a.CvFileNameSnapshot, a.CvStorageKeySnapshot != null || a.CvDataSnapshot != null || a.CandidateProfile!.CvStorageKey != null || a.CandidateProfile.CvData != null,
                 a.AiScore, a.AiStrengths, a.AiMissing, a.AiRoadmap, a.AiSource,
                 a.HrScore, a.HrNote, a.HrScoreByUserId, a.HrAdjustedAt, a.CandidateFeedback,
                 a.CandidateProfile!.UserId, a.CandidateProfile.FullName, a.CandidateProfile.Email,

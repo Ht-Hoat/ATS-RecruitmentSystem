@@ -126,6 +126,9 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ICompanyService, CompanyService>();   // P1-1
 builder.Services.AddScoped<IJobService, JobService>();
+// P2-2: nội dung CV ra blob storage, CSDL chỉ giữ khóa.
+builder.Services.AddSingleton<ICvStorage, DiskCvStorage>();
+builder.Services.AddScoped<CvMigrationRunner>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IApplicationService, ApplicationService>();
@@ -162,6 +165,21 @@ using (var scope = app.Services.CreateScope())
     // tự tạo sẵn tài khoản quản trị đó.
     if (app.Environment.IsDevelopment())
         SeedData.Initialize(db);
+
+    // ---------- P2-2: di trú CV sang blob storage ----------
+    // Chạy mỗi lần khởi động nhưng không làm gì khi đã di trú xong (điều kiện lọc không còn
+    // khớp dòng nào), nên đây chỉ là một lần SELECT rồi thôi. Đặt ở đây thay vì bắt người
+    // vận hành nhớ chạy một lệnh riêng: quên chạy nghĩa là CV mới tiếp tục dồn vào CSDL.
+    try
+    {
+        scope.ServiceProvider.GetRequiredService<CvMigrationRunner>().RunAsync().GetAwaiter().GetResult();
+    }
+    catch (Exception ex)
+    {
+        // Di trú hỏng KHÔNG được chặn khởi động: đường đọc vẫn lùi về cột byte[] cũ nên hệ
+        // thống chạy bình thường, chỉ là chưa tiết kiệm được chỗ.
+        app.Logger.LogError(ex, "Không di trú được CV sang blob storage. Hệ thống vẫn đọc từ cột cũ.");
+    }
 
     // ---------- Tài khoản quản trị đầu tiên ----------
     // Chạy ở MỌI môi trường nhưng không làm gì khi đã có Admin, nên ở Development đây chỉ
@@ -528,17 +546,22 @@ app.MapPost("/profile/cv", async (HttpContext ctx, IProfileService svc) =>
 
     using var ms = new MemoryStream(capacity: (int)file.Length);
     await file.CopyToAsync(ms);
-    var (ok, err) = svc.SaveCv(uid, ms.ToArray(), file.FileName, file.ContentType);
+    var (ok, err) = await svc.SaveCvAsync(uid, ms.ToArray(), file.FileName, file.ContentType, ctx.RequestAborted);
     return ok ? Results.LocalRedirect("/profile?cvsaved=1")
               : Results.Redirect("/profile?cverror=" + Enc(err ?? "Không lưu được CV."));
 }).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
 
-app.MapGet("/profile/cv/download", (HttpContext ctx, IProfileService svc) =>
+app.MapGet("/profile/cv/download", async (HttpContext ctx, IProfileService svc) =>
 {
     var uid = CurrentUserId(ctx);
     var p = uid == 0 ? null : svc.GetByUserId(uid);
     if (p is null || !p.HasCv) return Results.NotFound();
-    return Results.File(p.CvData!, p.CvContentType ?? "application/octet-stream", p.CvFileName ?? "CV");
+
+    // P2-2: ưu tiên blob storage, lùi về cột byte[] nếu hồ sơ này chưa được di trú.
+    var data = await svc.ReadCvAsync(p, ctx.RequestAborted);
+    return data is null
+        ? Results.NotFound()
+        : Results.File(data, p.CvContentType ?? "application/octet-stream", p.CvFileName ?? "CV");
 }).RequireAuthorization();
 
 // ============================ APPLY (ATS-10) ============================
@@ -661,20 +684,15 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
 
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================
-app.MapGet("/applications/{id:int}/cv", (int id, HttpContext ctx, IApplicationService svc) =>
+app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
     // Quyền sở hữu hỏi qua service — một chỗ duy nhất phát biểu luật, thay vì lặp lại vị ngữ.
     if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.Forbid();
 
-    var a = svc.GetById(id);
-    if (a is null) return Results.NotFound();
-
-    // Ưu tiên CV đã đóng băng khi nộp; fallback CV hồ sơ cho dữ liệu cũ
-    if (a.HasCvSnapshot)
-        return Results.File(a.CvDataSnapshot!, a.CvContentTypeSnapshot ?? "application/octet-stream", a.CvFileNameSnapshot);
-    var p = a.CandidateProfile;
-    if (p is null || !p.HasCv) return Results.NotFound();
-    return Results.File(p.CvData!, p.CvContentType ?? "application/octet-stream", p.CvFileName ?? "CV");
+    // P2-2: thứ tự ưu tiên (bản chụp ở storage → bản chụp ở cột cũ → CV hiện tại của hồ sơ)
+    // do service phát biểu, không viết lại ở đây.
+    var cv = await svc.ReadCvAsync(id, ctx.RequestAborted);
+    return cv is null ? Results.NotFound() : Results.File(cv.Value.Data, cv.Value.ContentType, cv.Value.FileName);
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
 
 // ATS-13/14: AI đánh giá độ phù hợp + gợi ý lộ trình
@@ -688,7 +706,7 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
 
     try
     {
-        var eval = await ai.EvaluateAsync(build.ForApplication(a, a.CandidateProfile), ctx.RequestAborted);
+        var eval = await ai.EvaluateAsync(await build.ForApplicationAsync(a, a.CandidateProfile, ctx.RequestAborted), ctx.RequestAborted);
         svc.SaveAiEvaluation(id, eval);
         return Results.Redirect($"/applications/{id}?aiscored=1");
     }
@@ -717,7 +735,7 @@ app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ct
 
     try
     {
-        var set = await ai.GenerateQuestionsAsync(build.ForApplication(a, a.CandidateProfile), ctx.RequestAborted);
+        var set = await ai.GenerateQuestionsAsync(await build.ForApplicationAsync(a, a.CandidateProfile, ctx.RequestAborted), ctx.RequestAborted);
         svc.SaveAiQuestions(id, set);
         return Results.Redirect($"/applications/{id}?qgenerated=1");
     }

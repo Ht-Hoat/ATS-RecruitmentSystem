@@ -71,7 +71,7 @@ public class SelfCheckService(
         // Không bọc trong transaction: chỉ có đúng một lần ghi, và lần gọi mô hình nằm NGOÀI
         // mọi giao dịch CSDL — giữ transaction mở suốt một lần gọi mạng 30 giây là cách chắc
         // chắn nhất để khóa bảng dưới tải thật.
-        var eval = await ai.EvaluateAsync(inputBuilder.ForSelfCheck(profile, job), ct);
+        var eval = await ai.EvaluateAsync(await inputBuilder.ForSelfCheckAsync(profile, job, ct), ct);
 
         db.SelfChecks.Add(new SelfCheck
         {

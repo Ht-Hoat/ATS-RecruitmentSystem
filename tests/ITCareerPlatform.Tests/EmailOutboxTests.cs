@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class EmailOutboxTests
 {
     private static ApplicationService NewSvc(TestDb t, TimeProvider? clock = null) =>
-        new(t.Db, new NotificationService(t.Db), new AuditService(t.Db), clock);
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, new AuditService(t.Db), clock);
 
     private static (int AppId, User Mentor, CandidateProfile Profile, Job Job) Seed(
         TestDb t, string status = ApplicationStatus.Reviewing)

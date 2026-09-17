@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class ApplicantPagingAndExportTests
 {
     private static ApplicationService NewSvc(TestDb t) =>
-        new(t.Db, new NotificationService(t.Db), new AuditService(t.Db));
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, new AuditService(t.Db));
 
     /// <summary>
     /// n ứng viên cho một tin. Index duy nhất (JobId, CandidateProfileId) chỉ cho mỗi hồ sơ

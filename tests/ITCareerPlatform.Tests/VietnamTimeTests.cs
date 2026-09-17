@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class VietnamTimeTests
 {
     private static ApplicationService NewSvc(TestDb t, TimeProvider clock) =>
-        new(t.Db, new NotificationService(t.Db), null, clock);
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, null, clock);
 
     // Đơn dựng sẵn ở "Đang xem xét" — P1-4 chỉ cho chuyển sang "Phỏng vấn" từ trạng thái này.
     private static (int AppId, User Mentor) SeedApplication(TestDb t)

@@ -295,12 +295,23 @@ public class CandidateProfile : ITimestamped
     [MaxLength(120)] public string? CvContentType { get; set; }
     public DateTime? CvUploadedAt { get; set; }
 
+    /// <summary>
+    /// P2-2: khóa của nội dung CV trong ICvStorage. Cột CvData cũ được GIỮ LẠI để đọc dữ
+    /// liệu chưa di trú — xóa nó trong cùng một bản là cách chắc chắn nhất để mất CV của
+    /// những hồ sơ mà lệnh di trú chưa chạy tới.
+    /// </summary>
+    [MaxLength(80)] public string? CvStorageKey { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<Application> Applications { get; set; } = new List<Application>();
 
-    public bool HasCv => CvData != null && CvData.Length > 0;
+    /// <summary>
+    /// P2-2: "có CV" đúng khi nội dung nằm ở blob storage HOẶC còn trong cột cũ. Chỉ xét một
+    /// trong hai thì sau khi di trú xong, mọi hồ sơ đột nhiên hiện "chưa có CV".
+    /// </summary>
+    public bool HasCv => CvStorageKey != null || (CvData != null && CvData.Length > 0);
 
     /// <summary>Cấp bậc suy ra từ số năm kinh nghiệm — chỉ để hiển thị, không lưu thành cột.</summary>
     public string Level => CandidateLevel.FromYears(YearsOfExperience);
@@ -362,13 +373,17 @@ public class Application
     [MaxLength(260)] public string CvFileNameSnapshot { get; set; } = "";
     public byte[]? CvDataSnapshot { get; set; }
     [MaxLength(120)] public string? CvContentTypeSnapshot { get; set; }
-    public bool HasCvSnapshot => CvDataSnapshot != null && CvDataSnapshot.Length > 0;
+    /// <summary>P2-2: bản chụp có thể nằm ở blob storage hoặc còn trong cột cũ.</summary>
+    public bool HasCvSnapshot => CvStorageKeySnapshot != null || (CvDataSnapshot != null && CvDataSnapshot.Length > 0);
 
     // Đã nộp | Đang xem xét | Phỏng vấn | Trúng tuyển | Từ chối
     [Required, MaxLength(30)]
     public string Status { get; set; } = ApplicationStatus.Submitted;
 
     public DateTime AppliedAt { get; set; }
+
+    /// <summary>P2-2: khóa của BẢN CHỤP CV lúc nộp. Xem ghi chú ở CandidateProfile.CvStorageKey.</summary>
+    [MaxLength(80)] public string? CvStorageKeySnapshot { get; set; }
 
     /// <summary>
     /// P1-4: phản hồi HIỆN CHO ỨNG VIÊN khi bị từ chối.

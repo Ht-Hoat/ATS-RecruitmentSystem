@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class StatusFlowTests
 {
     private static ApplicationService NewSvc(TestDb t) =>
-        new(t.Db, new NotificationService(t.Db), new AuditService(t.Db));
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, new AuditService(t.Db));
 
     private static InterviewSchedule Soon() =>
         new(DateTime.UtcNow.AddDays(1), "https://meet.google.com/abc-defg-hij", "Vòng 1");

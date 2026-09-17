@@ -14,7 +14,7 @@ namespace ITCareerPlatform.Tests;
 public class JobOwnershipAndScorerTests
 {
     private static ApplicationService NewSvc(TestDb t) =>
-        new(t.Db, new NotificationService(t.Db), new AuditService(t.Db));
+        new(t.Db, new NotificationService(t.Db), t.CvStorage, new AuditService(t.Db));
 
     // ===== Danh sách tin theo chủ tin =====
 
