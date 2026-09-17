@@ -164,8 +164,11 @@ public class EmailOutboxTests
         // Mentor gõ 14:30 ngày 20/3 theo giờ Việt Nam; endpoint quy về UTC trước khi lưu.
         var vn = new DateTime(2026, 3, 20, 14, 30, 0);
         var utc = Ui.FromVietnamTime(vn);
+        // Đồng hồ cố định đứng TRƯỚC buổi hẹn, nếu không ValidateSchedule từ chối vì lịch
+        // nằm trong quá khứ và không có email nào được xếp hàng.
+        var clock = new FixedClock(new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc));
 
-        NewSvc(t).UpdateStatus(appId, ApplicationStatus.Interview, At(utc), m.Id, out _);
+        Assert.True(NewSvc(t, clock).UpdateStatus(appId, ApplicationStatus.Interview, At(utc), m.Id, out var msg), msg);
 
         var ics = Encoding.UTF8.GetString(t.NewContext().EmailOutbox.Single().AttachmentContent!);
         Assert.Contains("DTSTART:20260320T073000Z", ics);   // 14:30 VN = 07:30 UTC

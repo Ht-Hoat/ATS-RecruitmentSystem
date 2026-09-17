@@ -100,6 +100,18 @@ public interface IApplicationService
     List<ApplicantListItem> GetByJob(int jobId, string sort = "date");    // ATS-11 + ATS-15
     /// <summary>N1.F: cùng danh sách đó nhưng có lọc. filter = null nghĩa là không lọc gì.</summary>
     List<ApplicantListItem> GetByJob(int jobId, string sort, ApplicantFilter? filter);
+
+    /// <summary>
+    /// P2-1: cùng danh sách đó nhưng theo TRANG. Với một tin 200 ứng viên, bản không phân
+    /// trang không dùng được — và đó là quy mô bình thường của một tin tuyển dụng thật.
+    /// </summary>
+    ApplicantPage GetByJobPaged(int jobId, string sort, ApplicantFilter? filter, int page, int pageSize);
+
+    /// <summary>
+    /// P2-1: đổi trạng thái NHIỀU đơn một lượt. Mỗi đơn vẫn đi qua đúng UpdateStatus để giữ
+    /// nguyên luồng hợp lệ (P1-4), lịch sử, thông báo và hàng đợi email (P1-3).
+    /// </summary>
+    BulkStatusResult BulkUpdateStatus(IReadOnlyCollection<int> appIds, string newStatus, int actorUserId);
     List<MyApplicationItem> GetByCandidate(int userId);
     /// <summary>Bản đầy đủ, có kèm byte[] CV — chỉ dùng cho tải CV và chấm AI.</summary>
     Application? GetById(int id);
@@ -293,6 +305,48 @@ public record ApplicantFilter(
         !string.IsNullOrWhiteSpace(Status) || HasCv is not null ||
         !string.IsNullOrWhiteSpace(Band) || !string.IsNullOrWhiteSpace(Level) ||
         RequiredTech is { Count: > 0 };
+
+    /// <summary>
+    /// P2-1: dựng bộ lọc từ query string — MỘT chỗ duy nhất, dùng chung cho trang danh sách
+    /// và cho endpoint xuất CSV.
+    ///
+    /// Hai bản chép tay sẽ trôi khỏi nhau ngay ở lần thêm tiêu chí lọc tiếp theo, và khi đó
+    /// tệp CSV chứa một tập ứng viên khác với tập đang hiện trên màn hình — người dùng không
+    /// có cách nào phát hiện ra.
+    ///
+    /// Mọi giá trị đều được đối chiếu với danh sách hợp lệ: một giá trị lạ nghĩa là KHÔNG
+    /// lọc theo tiêu chí đó, chứ không phải lọc ra bảng rỗng.
+    /// </summary>
+    public static ApplicantFilter FromQuery(
+        string? status, string? hasCv, string? band, string? level,
+        IEnumerable<string>? tech, IReadOnlyList<string> jobTech)
+    {
+        // Ô tick công nghệ dựng từ chính Tech Stack của tin, nên chỉ nhận giá trị thuộc tin đó.
+        var selected = (tech ?? Array.Empty<string>())
+            .Where(t => jobTech.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return new ApplicantFilter(
+            Status: ApplicationStatus.All.Contains(status) ? status : null,
+            HasCv: hasCv switch { "1" => true, "0" => false, _ => null },
+            Band: ScoreBand.All.Contains(band) ? band : null,
+            Level: CandidateLevel.IsValid(level) ? level : null,
+            RequiredTech: selected.Count > 0 ? selected.ToList() : null);
+    }
+}
+
+/// <summary>
+/// P2-1: một trang ứng viên. Dùng lại đúng khuôn của <see cref="AuditPage"/> — cùng bốn
+/// trường, cùng ba property dẫn xuất — để hai màn hình phân trang không hành xử khác nhau.
+/// </summary>
+public record ApplicantPage(IReadOnlyList<ApplicantListItem> Items, int Total, int Page, int PageSize)
+{
+    public int TotalPages => Total == 0 ? 1 : (int)Math.Ceiling((double)Total / PageSize);
+    public bool HasPrev => Page > 1;
+    public bool HasNext => Page < TotalPages;
+
+    /// <summary>Số thứ tự của dòng đầu trang, để cột "#" đánh số liên tục qua các trang.</summary>
+    public int FirstRowNumber => (Page - 1) * PageSize + 1;
 }
 
 public record MyApplicationItem(int Id, int JobId, string JobTitle, string Category, string Level,
@@ -308,6 +362,19 @@ public record MyApplicationItem(int Id, int JobId, string JobTitle, string Categ
 /// Link để trống được chấp nhận (phỏng vấn trực tiếp); thời gian thì không.
 /// </summary>
 public record InterviewSchedule(DateTime At, string? Link, string? Note);
+
+/// <summary>
+/// P2-1: kết quả một lượt đổi trạng thái hàng loạt. Giữ cả phần THẤT BẠI kèm lý do: báo mỗi
+/// con số thành công thì người dùng không biết mấy đơn kia đi đâu, và sẽ bấm lại lần nữa.
+/// </summary>
+public record BulkStatusResult(int Updated, IReadOnlyList<string> Failures)
+{
+    public int FailedCount => Failures.Count;
+
+    public string Message => FailedCount == 0
+        ? $"Đã cập nhật {Updated} đơn."
+        : $"Đã cập nhật {Updated} đơn, {FailedCount} đơn không hợp lệ: {string.Join("; ", Failures)}";
+}
 
 /// <summary>N1.B: ghi chú nội bộ kèm người ghi và thời điểm. Chỉ trả về cho Mentor/Admin.</summary>
 public record InternalNoteView(string Note, int ByUserId, DateTime At);
@@ -1211,9 +1278,72 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
             list = list.Where(x => wanted.IsSubsetOf(TechList.NormalizedSet(x.TechSkillTags))).ToList();
         }
 
-        return sort == "score"
+        return Sort(list, sort);
+    }
+
+    private static List<ApplicantListItem> Sort(List<ApplicantListItem> list, string sort) =>
+        sort == "score"
             ? list.OrderByDescending(x => x.FinalScore ?? -1).ThenByDescending(x => x.AppliedAt).ToList()
             : list.OrderByDescending(x => x.AppliedAt).ToList();
+
+    // =====================================================================
+    //  P2-1: phân trang.
+    //
+    //  Thứ tự BẮT BUỘC là LỌC XONG rồi mới CẮT TRANG. Làm ngược lại — cắt 20 dòng trong SQL
+    //  rồi mới lọc tech ở C# — thì mỗi trang hiện một số dòng khác nhau (trang 1 còn 7 dòng,
+    //  trang 2 còn 15) và tổng các trang không bằng con số Total in ở chân bảng.
+    //
+    //  Cái giá: khi bộ lọc tech đang bật, phải nạp toàn bộ ứng viên CỦA MỘT TIN về rồi mới
+    //  cắt. Chấp nhận được vì đó là bản chiếu nhẹ (không có cột byte[] nào) và phạm vi là
+    //  một tin chứ không phải cả bảng. Không bật lọc tech thì đi đường SQL thuần với
+    //  COUNT + OFFSET/FETCH như mọi trang danh sách khác.
+    // =====================================================================
+    public ApplicantPage GetByJobPaged(int jobId, string sort, ApplicantFilter? filter, int page, int pageSize)
+    {
+        pageSize = Math.Clamp(pageSize, 5, 200);
+        filter ??= new ApplicantFilter();
+
+        var all = GetByJob(jobId, sort, filter);
+        var total = all.Count;
+
+        // Kẹp cả hai đầu, không chỉ trần dưới: bài học đã ghi trong AuditService — ?p=9999
+        // trên 3 trang dữ liệu từng cho ra bảng rỗng kèm dòng "Trang 9999 / 3" và không có
+        // nút nào quay lại được.
+        var lastPage = total == 0 ? 1 : (int)Math.Ceiling((double)total / pageSize);
+        page = Math.Clamp(page, 1, lastPage);
+
+        var items = all.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return new ApplicantPage(items, total, page, pageSize);
+    }
+
+    // =====================================================================
+    //  P2-1: đổi trạng thái hàng loạt.
+    //
+    //  Đi qua ĐÚNG UpdateStatus cho từng đơn, không viết một đường ghi riêng: luồng hợp lệ
+    //  (P1-4), dòng lịch sử, thông báo và hàng đợi email (P1-3) đều nằm trong đó. Một đường
+    //  ghi tắt "cho nhanh" sẽ bỏ qua cả bốn thứ mà không ai nhận ra cho tới khi ứng viên
+    //  hỏi vì sao mình không nhận được email.
+    // =====================================================================
+    public BulkStatusResult BulkUpdateStatus(IReadOnlyCollection<int> appIds, string newStatus, int actorUserId)
+    {
+        // Mỗi buổi phỏng vấn cần một giờ hẹn riêng, nên không có cách nào đặt lịch cho 20
+        // đơn cùng lúc mà không bịa ra một giờ chung — chặn kèm lời giải thích.
+        if (newStatus == ApplicationStatus.Interview)
+            return new BulkStatusResult(0, new[]
+            {
+                "Không chuyển hàng loạt sang \"Phỏng vấn\" được vì mỗi đơn cần một lịch hẹn riêng — " +
+                "hãy mở từng đơn và đặt lịch."
+            });
+
+        var updated = 0;
+        var failures = new List<string>();
+        foreach (var id in appIds.Distinct())
+        {
+            if (UpdateStatus(id, newStatus, actorUserId, out var message)) updated++;
+            else failures.Add($"#{id}: {message}");
+        }
+
+        return new BulkStatusResult(updated, failures);
     }
 
     public List<MyApplicationItem> GetByCandidate(int userId) =>

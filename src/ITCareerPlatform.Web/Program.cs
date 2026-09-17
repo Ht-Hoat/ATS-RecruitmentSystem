@@ -605,6 +605,61 @@ app.MapPost("/applications/{id:int}/withdraw", (int id, HttpContext ctx, IApplic
     return Results.Redirect("/my-applications?" + (ok ? "msg=" : "err=") + Enc(message));
 }).RequireAuthorization(p => p.RequireRole(Roles.Student)).DisableAntiforgery();
 
+// ============================ P2-1: XUẤT CSV + THAO TÁC HÀNG LOẠT ============================
+// Xuất đúng tập đang hiện trên màn hình: cùng quyền (CanModify) và cùng bộ lọc (dựng bằng
+// ApplicantFilter.FromQuery, chung một hàm với trang). Tệp CSV khác với bảng đang xem là
+// một sai lệch người dùng không có cách nào phát hiện.
+app.MapGet("/jobs/{id:int}/applicants/export", (int id, HttpContext ctx, IJobService jobs, IApplicationService svc) =>
+{
+    if (!jobs.CanModify(id, CurrentUserId(ctx))) return Results.Forbid();
+
+    var job = jobs.GetById(id);
+    if (job is null) return Results.NotFound();
+
+    var q = ctx.Request.Query;
+    var filter = ApplicantFilter.FromQuery(
+        q["status"], q["cv"], q["band"], q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
+
+    var items = svc.GetByJob(id, q["sort"].ToString() is { Length: > 0 } sort ? sort : "date", filter);
+
+    // Tên tệp chỉ gồm mã tin và ngày — KHÔNG lấy tiêu đề tin do người dùng nhập, vì tiêu đề
+    // có thể chứa dấu gạch chéo, dấu ngoặc kép hoặc xuống dòng và làm hỏng header
+    // Content-Disposition.
+    var fileName = $"ung-vien-tin-{id}-{VietnamDateHelper.Today():yyyyMMdd}.csv";
+    return Results.File(CsvExport.Applicants(items), "text/csv; charset=utf-8", fileName);
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+
+app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext ctx, IJobService jobs, IApplicationService svc) =>
+{
+    // Quyền kiểm theo TIN, một lần. UpdateStatus bên trong không nhận actor để kiểm quyền
+    // sở hữu đơn, nên nếu bỏ bước này thì bất kỳ Mentor nào cũng đổi được đơn của tin khác
+    // chỉ bằng cách gửi id đơn tùy ý.
+    if (!jobs.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
+
+    var f = await ctx.Request.ReadFormAsync();
+    var status = f["status"].ToString();
+    var ids = f["applicationId"]
+        .Where(v => int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        .Select(v => int.Parse(v!, NumberStyles.Integer, CultureInfo.InvariantCulture))
+        .ToList();
+
+    if (ids.Count == 0)
+        return Results.Redirect($"/jobs/{id}/applicants?err=" + Enc("Chưa chọn đơn nào."));
+
+    // Chỉ xử lý những đơn THỰC SỰ thuộc tin này. Danh sách id đến từ form, và form là thứ
+    // người gửi request sửa được — thiếu bước lọc này thì quyền kiểm ở trên thành vô nghĩa.
+    var owned = svc.GetByJob(id, "date", null).Select(a => a.Id).ToHashSet();
+    var foreignCount = ids.Count(x => !owned.Contains(x));
+    ids = ids.Where(owned.Contains).ToList();
+
+    var result = svc.BulkUpdateStatus(ids, status, CurrentUserId(ctx));
+    var message = foreignCount == 0
+        ? result.Message
+        : $"{result.Message} ({foreignCount} đơn không thuộc tin này đã bị bỏ qua.)";
+
+    return Results.Redirect($"/jobs/{id}/applicants?" + (result.Updated > 0 ? "msg=" : "err=") + Enc(message));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor)).DisableAntiforgery();
+
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================
 app.MapGet("/applications/{id:int}/cv", (int id, HttpContext ctx, IApplicationService svc) =>
 {
