@@ -400,6 +400,12 @@ public class Application
     [MaxLength(500)] public string? HrNote { get; set; }
     public DateTime? HrAdjustedAt { get; set; }
 
+    /// <summary>
+    /// P1-5: ai đã chốt điểm. Cả Admin lẫn Mentor đều chấm được, nên nếu không lưu lại thì
+    /// trên màn hình "% chốt" là con số không có chủ — chỉ tra ngược được trong AuditLog.
+    /// </summary>
+    public int? HrScoreByUserId { get; set; }
+
     // ===== N1.B: ghi chú nội bộ của Mentor =====
     // Khác HrNote (lý do điều chỉnh điểm, gắn với ATS-16), đây là ghi chú tự do về ứng viên.
     // KHÔNG được đưa vào ApplicationDetail: record đó dùng chung cho cả trang Mentor lẫn

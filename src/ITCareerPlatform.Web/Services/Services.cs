@@ -247,7 +247,7 @@ public interface INotificationService                                     // NTF
 // ===== DTO nhẹ: chỉ các cột cần hiển thị, KHÔNG kèm byte[] CV =====
 public record ApplicantListItem(int Id, string FullName, string Email, string TechSkillTags,
     int? AiScore, int? HrScore, string Status, DateTime AppliedAt,
-    bool HasCv, int YearsOfExperience)
+    bool HasCv, int YearsOfExperience, int? HrScoreByUserId = null)
 {
     public int? FinalScore => HrScore ?? AiScore;   // ATS-16.2
     public IReadOnlyList<string> SkillTagList => TechList.Parse(TechSkillTags);
@@ -325,7 +325,7 @@ public record ApplicationDetail(
     int JobCreatedById, string Status, DateTime AppliedAt,
     string CvFileNameSnapshot, bool HasCv,
     int? AiScore, string? AiStrengths, string? AiMissing, string? AiRoadmap, string? AiSource,
-    int? HrScore, string? HrNote,
+    int? HrScore, string? HrNote, int? HrScoreByUserId, DateTime? HrAdjustedAt,
     // P1-4: trường ghi chú DUY NHẤT được phép có mặt ở đây. HrNote là lý do chốt điểm mà
     // trang sinh viên không đọc; InternalNote thì hỏi riêng qua GetInternalNote.
     string? CandidateFeedback,
@@ -1197,7 +1197,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                 a.Id, a.CandidateProfile!.FullName, a.CandidateProfile.Email,
                 a.CandidateProfile.TechSkillTags, a.AiScore, a.HrScore, a.Status, a.AppliedAt,
                 a.CvDataSnapshot != null || a.CandidateProfile.CvData != null,
-                a.CandidateProfile.YearsOfExperience))
+                a.CandidateProfile.YearsOfExperience, a.HrScoreByUserId))
             .ToList();
 
         // Lọc tech làm SAU khi đã chiếu, ở phía C#. Chuẩn hóa của TechList (thường hóa,
@@ -1241,7 +1241,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
                 a.Job.CreatedById, a.Status, a.AppliedAt,
                 a.CvFileNameSnapshot, a.CvDataSnapshot != null || a.CandidateProfile!.CvData != null,
                 a.AiScore, a.AiStrengths, a.AiMissing, a.AiRoadmap, a.AiSource,
-                a.HrScore, a.HrNote, a.CandidateFeedback,
+                a.HrScore, a.HrNote, a.HrScoreByUserId, a.HrAdjustedAt, a.CandidateFeedback,
                 a.CandidateProfile!.UserId, a.CandidateProfile.FullName, a.CandidateProfile.Email,
                 a.CandidateProfile.Phone, a.CandidateProfile.DateOfBirth, a.CandidateProfile.Address,
                 a.CandidateProfile.Education, a.CandidateProfile.Experience, a.CandidateProfile.Skills,
@@ -1441,6 +1441,9 @@ public class ApplicationService(AppDbContext db, INotificationService notify,
         a.HrScore = Math.Clamp(hrScore, 0, 100);
         a.HrNote = note;
         a.HrAdjustedAt = UtcNow;
+        // P1-5: ghi đè bằng người chấm MỚI NHẤT — "% chốt bởi ai" phải khớp với con số đang
+        // hiển thị, chứ không phải với người đầu tiên từng chấm.
+        a.HrScoreByUserId = actorUserId > 0 ? actorUserId : null;
         db.SaveChanges();
 
         audit?.Record(actorUserId, "Score Applicant", "Applications",

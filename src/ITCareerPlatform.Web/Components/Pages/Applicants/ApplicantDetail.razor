@@ -113,6 +113,15 @@ else
                     {
                         <p>% Mentor xác nhận: <b class="@Ui.ScoreClass(app.HrScore)">@app.HrScore%</b>
                            &nbsp;·&nbsp; Ghi chú: <i>@app.HrNote</i></p>
+                        @* P1-5: cả Admin lẫn Mentor đều chấm được, nên con số này phải nói rõ
+                           là của ai — nếu không, tra được duy nhất qua AuditLog. *@
+                        @if (app.HrScoreByUserId is int scorer)
+                        {
+                            <p class="sub">
+                                Chốt bởi <b>@names.GetValueOrDefault(scorer, "#" + scorer)</b>
+                                lúc @Ui.DateTimeText(app.HrAdjustedAt)
+                            </p>
+                        }
                     }
                     <div class="grid2">
                         <form method="post" action="@($"/applications/{app.Id}/hr-score")">
@@ -368,6 +377,8 @@ else
         // Chỉ hỏi tên của đúng những người xuất hiện trong dòng thời gian và ở ghi chú
         // (nhiều nhất vài người), thay vì nạp toàn bộ bảng Users.
         names = Users.GetNames(history.Select(h => h.ChangedByUserId)
-                                      .Concat(note is null ? [] : [note.ByUserId]));
+                                      .Concat(note is null ? [] : [note.ByUserId])
+                                      // P1-5: thêm người chốt điểm vào cùng một lần hỏi tên.
+                                      .Concat(app.HrScoreByUserId is int by ? [by] : []));
     }
 }

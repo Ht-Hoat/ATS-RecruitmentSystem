@@ -2,6 +2,7 @@
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
+@inject IUserService Users
 
 @* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp · N1.F: bộ lọc pipeline *@
 
@@ -152,7 +153,12 @@ else
                     </td>
                     <td><span class="@Ui.ScoreClass(a.AiScore)">@Ui.ScoreIcon(a.AiScore) @(a.AiScore.HasValue ? a.AiScore + "%" : "Chưa đánh giá")</span></td>
                     <td>
-                        @if (a.HrScore.HasValue) { <span class="@Ui.ScoreClass(a.HrScore)">👤 @a.HrScore%</span> }
+                        @* P1-5: tooltip nói ai đã chốt con số này. *@
+                        @if (a.HrScore.HasValue)
+                        {
+                            <span class="@Ui.ScoreClass(a.HrScore)"
+                                  title="@(a.HrScoreByUserId is int by ? "Chốt bởi " + scorerNames.GetValueOrDefault(by, "#" + by) : "Không rõ người chốt")">👤 @a.HrScore%</span>
+                        }
                         else if (a.AiScore.HasValue) { <span class="sub">(theo AI)</span> }
                         else { <span class="sub">—</span> }
                     </td>
@@ -194,6 +200,8 @@ else
 
     private Job? job;
     private List<ApplicantListItem> apps = new();
+    /// <summary>P1-5: tên người chốt điểm, chỉ hỏi đúng những id xuất hiện trên trang.</summary>
+    private Dictionary<int, string> scorerNames = new();
     private ApplicantFilter filter = new();
     private IReadOnlyList<string> jobTech = Array.Empty<string>();
     private HashSet<string> selectedTech = new();
@@ -224,6 +232,11 @@ else
             RequiredTech: selectedTech.Count > 0 ? selectedTech.ToList() : null);
 
         apps = Applications.GetByJob(JobId, Sort ?? "date", filter);
+
+        // Chỉ hỏi tên của đúng những người đã chốt điểm trong danh sách này (nhiều nhất vài
+        // người), thay vì nạp cả bảng Users — cùng cách mà dòng thời gian đang làm.
+        scorerNames = Users.GetNames(apps.Where(a => a.HrScoreByUserId.HasValue)
+                                         .Select(a => a.HrScoreByUserId!.Value));
 
         // Đếm bằng COUNT(*) để hiện "đang lọc X / Y", không nạp lại danh sách lần thứ hai.
         totalCount = filter.IsActive
