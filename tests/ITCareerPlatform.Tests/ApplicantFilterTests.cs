@@ -62,7 +62,6 @@ public class ApplicantFilterTests
         Assert.False(new ApplicantFilter().IsActive);
         Assert.True(new ApplicantFilter(Status: ApplicationStatus.Rejected).IsActive);
         Assert.True(new ApplicantFilter(HasCv: false).IsActive);
-        Assert.True(new ApplicantFilter(Band: ScoreBand.High).IsActive);
         Assert.True(new ApplicantFilter(Level: CandidateLevel.Senior).IsActive);
         Assert.True(new ApplicantFilter(RequiredTech: new[] { "C#" }).IsActive);
     }
@@ -113,74 +112,6 @@ public class ApplicantFilterTests
 
         Assert.True(got[0].HasCv);
         Assert.False(got[1].HasCv);
-    }
-
-    // ===== Lọc theo khoảng % phù hợp =====
-
-    [Fact]
-    public void FilterByBand_UsesFinalScore_PreferringHrOverAi()
-    {
-        using var t = new TestDb();
-        var (job, _) = SeedJob(t);
-        AddApplicant(t, job, "high", ai: 95);
-        AddApplicant(t, job, "mid", ai: 60);
-        AddApplicant(t, job, "low", ai: 20);
-        // AI chấm thấp nhưng Mentor đã chốt 90 — phải nằm ở khoảng cao, theo điểm chốt.
-        AddApplicant(t, job, "hrhigh", ai: 10, hr: 90);
-        var svc = NewSvc(t);
-
-        var high = svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.High));
-        Assert.Equal(2, high.Count);
-        Assert.Contains(high, x => x.FullName.Contains("hrhigh"));
-
-        Assert.Single(svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.Mid)));
-        Assert.Single(svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.Low)));
-    }
-
-    /// <summary>
-    /// Đây là lý do phải có khoảng thứ tư: đơn chưa chấm có COALESCE = NULL nên rơi khỏi
-    /// cả ba khoảng số. Không có "Chưa đánh giá" thì chúng biến mất khỏi mọi lựa chọn.
-    /// </summary>
-    [Fact]
-    public void UnscoredApplicants_FallOutOfNumericBands_ButHaveTheirOwn()
-    {
-        using var t = new TestDb();
-        var (job, _) = SeedJob(t);
-        AddApplicant(t, job, "scored", ai: 75);
-        AddApplicant(t, job, "new1");
-        AddApplicant(t, job, "new2");
-        var svc = NewSvc(t);
-
-        Assert.DoesNotContain(svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.High)),
-            x => x.FinalScore is null);
-        Assert.DoesNotContain(svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.Low)),
-            x => x.FinalScore is null);
-
-        var unscored = svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: ScoreBand.Unscored));
-        Assert.Equal(2, unscored.Count);
-        Assert.All(unscored, x => Assert.Null(x.FinalScore));
-    }
-
-    /// <summary>Ba khoảng số không chồng lấn và không để lọt điểm nào từ 0 tới 100.</summary>
-    [Theory]
-    [InlineData(0, ScoreBand.Low)]
-    [InlineData(49, ScoreBand.Low)]
-    [InlineData(50, ScoreBand.Mid)]
-    [InlineData(80, ScoreBand.Mid)]
-    [InlineData(81, ScoreBand.High)]
-    [InlineData(100, ScoreBand.High)]
-    public void ScoreBands_CoverEveryScoreExactlyOnce(int score, string expectedBand)
-    {
-        using var t = new TestDb();
-        var (job, _) = SeedJob(t);
-        AddApplicant(t, job, "x", ai: score);
-        var svc = NewSvc(t);
-
-        foreach (var band in ScoreBand.All)
-        {
-            var hit = svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: band)).Count;
-            Assert.Equal(band == expectedBand ? 1 : 0, hit);
-        }
     }
 
     // ===== Lọc theo cấp bậc =====
@@ -268,13 +199,11 @@ public class ApplicantFilterTests
         AddApplicant(t, job, "match", tags: "C#,Docker", years: 5, ai: 90, status: ApplicationStatus.Reviewing);
         AddApplicant(t, job, "wrongstatus", tags: "C#,Docker", years: 5, ai: 90, status: ApplicationStatus.Rejected);
         AddApplicant(t, job, "wronglevel", tags: "C#,Docker", years: 0, ai: 90, status: ApplicationStatus.Reviewing);
-        AddApplicant(t, job, "wrongscore", tags: "C#,Docker", years: 5, ai: 10, status: ApplicationStatus.Reviewing);
         AddApplicant(t, job, "wrongtech", tags: "C#", years: 5, ai: 90, status: ApplicationStatus.Reviewing);
 
         var got = NewSvc(t).GetByJob(job.Id, "date", new ApplicantFilter(
             Status: ApplicationStatus.Reviewing,
             HasCv: true,
-            Band: ScoreBand.High,
             Level: CandidateLevel.Senior,
             RequiredTech: new[] { "C#", "Docker" }));
 
@@ -308,7 +237,7 @@ public class ApplicantFilterTests
         Assert.True(ScoreBand.LabelsMatchThresholds);
     }
 
-    /// <summary>Huy hiệu, dòng tô sáng và bộ lọc phải phân loại cùng một điểm giống nhau.</summary>
+    /// <summary>Huy hiệu và dòng tô sáng phải phân loại cùng một điểm giống nhau.</summary>
     [Theory]
     [InlineData(100, ScoreBand.High, "score score-high", true)]
     [InlineData(81, ScoreBand.High, "score score-high", true)]
@@ -316,24 +245,13 @@ public class ApplicantFilterTests
     [InlineData(50, ScoreBand.Mid, "score score-mid", false)]
     [InlineData(49, ScoreBand.Low, "score score-low", false)]
     [InlineData(0, ScoreBand.Low, "score score-low", false)]
-    public void Badge_RowHighlight_AndFilter_AgreeOnEveryScore(
+    public void Badge_And_RowHighlight_AgreeOnEveryScore(
         int score, string expectedBand, string expectedCss, bool expectedTopRow)
     {
-        using var t = new TestDb();
-        var (job, _) = SeedJob(t);
-        AddApplicant(t, job, "x", ai: score);
-        var svc = NewSvc(t);
-
-        // 1) màu huy hiệu
         Assert.Equal(expectedCss, Ui.ScoreClass(score));
-        // 2) dòng có được tô sáng không
         Assert.Equal(expectedTopRow, Ui.IsTopScore(score));
-        // 3) rơi vào đúng một khoảng lọc, và là khoảng được chờ đợi
-        foreach (var band in ScoreBand.All)
-        {
-            var hit = svc.GetByJob(job.Id, "date", new ApplicantFilter(Band: band)).Count;
-            Assert.Equal(band == expectedBand ? 1 : 0, hit);
-        }
+        // Nhãn chú giải tương ứng với màu (xem ScoreBandLabels_MatchTheNumericThresholds).
+        Assert.Contains(expectedBand, new[] { ScoreBand.High, ScoreBand.Mid, ScoreBand.Low });
     }
 
     [Fact]
@@ -346,7 +264,7 @@ public class ApplicantFilterTests
         AddApplicant(t, jobA, "a", ai: 90);
         AddApplicant(t, jobB, "b", ai: 90);
 
-        var got = NewSvc(t).GetByJob(jobA.Id, "date", new ApplicantFilter(Band: ScoreBand.High));
+        var got = NewSvc(t).GetByJob(jobA.Id, "date", new ApplicantFilter(HasCv: true));
 
         Assert.Equal("SV a", Assert.Single(got).FullName);
     }

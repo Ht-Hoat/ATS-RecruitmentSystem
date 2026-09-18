@@ -22,6 +22,21 @@ public interface ICvStorage
     Task DeleteAsync(string key, CancellationToken ct = default);
 }
 
+public static class CvStorageExtensions
+{
+    /// <summary>
+    /// P2-2: ưu tiên khóa lưu trữ, lùi về cột byte[] cũ khi chưa di trú hoặc khóa đã mất tệp.
+    /// Mảng rỗng coi như không có. MỘT chỗ phát biểu thứ tự này cho mọi đường đọc CV — tải CV,
+    /// chấm AI, tự kiểm tra — để chúng không thể trả lời khác nhau cho cùng một đơn.
+    /// </summary>
+    public static async Task<byte[]?> ReadOrLegacyAsync(this ICvStorage storage, string? key, byte[]? legacy,
+        CancellationToken ct = default)
+    {
+        if (key is not null && await storage.ReadAsync(key, ct) is { } data) return data;
+        return legacy is { Length: > 0 } ? legacy : null;
+    }
+}
+
 /// <summary>
 /// Bản triển khai đầu tiên: lưu tệp trên đĩa theo thư mục cấu hình (CvStorage:RootPath).
 ///

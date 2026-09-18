@@ -213,8 +213,6 @@ public static class CurrentUser
         user?.FindFirstValue(ClaimTypes.Role) ?? "";
 
     public static bool IsAdmin(ClaimsPrincipal? user) => user?.IsInRole(Roles.Admin) ?? false;
-
-    public static bool IsStudent(ClaimsPrincipal? user) => user?.IsInRole(Roles.Student) ?? false;
 }
 
 /// <summary>

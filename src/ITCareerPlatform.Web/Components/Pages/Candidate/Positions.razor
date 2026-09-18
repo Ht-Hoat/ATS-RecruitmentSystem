@@ -132,7 +132,7 @@ else if (!hasCv)
                 else
                 {
                     <form method="post" action="@($"/jobs/{j.Id}/apply")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn ứng tuyển vị trí này? CV hiện tại sẽ được gắn vào đơn.');">
-                        <AntiforgeryField />
+                        <AntiforgeryToken />
                         <button class="btn-sm" type="submit">Ứng tuyển ngay</button>
                     </form>
                 }

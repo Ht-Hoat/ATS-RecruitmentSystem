@@ -475,7 +475,6 @@ public class Application
     public int? FinalScore => HrScore ?? AiScore;
     public bool HasAiEvaluation => AiScore.HasValue;
     public bool IsOfflineEvaluation => AiSource == EvaluationSource.Offline;
-    public bool HasInternalNote => !string.IsNullOrWhiteSpace(InternalNote);
     public bool HasAiQuestions => !string.IsNullOrWhiteSpace(AiQuestions);
     public bool HasInterviewSchedule => InterviewAt.HasValue;
 

@@ -22,7 +22,9 @@ const string LoginRateLimitPolicy = "login";
 // rẻ hơn một claim trong cookie (claim có thể cũ tới 8 tiếng) và không tốn thêm lần đọc nào.
 const string MustChangePasswordItem = "itcp:mustchangepw";
 
-// P2-3: hai đường POST được miễn kiểm tra chống giả mạo (CSRF).
+// P2-3: hai đường POST được miễn kiểm tra chống giả mạo (CSRF): /account/login và
+// /account/register, đánh dấu bằng .DisableAntiforgery() ngay trên endpoint — middleware bên
+// dưới đọc chính metadata đó, nên chỉ có MỘT nơi khai báo miễn trừ.
 //
 // Lý do miễn trừ: cả hai chạy TRƯỚC khi có phiên, và một lần đối chiếu token hỏng ở đây —
 // cookie token hết hạn vì tab đăng nhập mở quá lâu, hoặc người dùng bấm Quay lại — sẽ chặn
@@ -30,7 +32,6 @@ const string MustChangePasswordItem = "itcp:mustchangepw";
 // theo IP, và một yêu cầu giả mạo tới chúng cũng chỉ làm nạn nhân đăng nhập vào MỘT tài
 // khoản khác chứ không thao tác được gì trên tài khoản của chính họ.
 // MỌI endpoint còn lại đều bị kiểm tra.
-string[] antiforgeryExemptPaths = { "/account/login", "/account/register" };
 
 // ---------- Blazor (server-rendered) + trạng thái đăng nhập ----------
 builder.Services.AddRazorComponents();
@@ -159,10 +160,18 @@ if (smtpConfigured)
 else
     builder.Services.AddScoped<IEmailSender, NullEmailSender>();
 
-// Tiến trình nền quét hàng đợi email 30 giây một lần.
-builder.Services.AddHostedService<OutboxSender>();
+// Tiến trình nền quét hàng đợi email 30 giây một lần — chỉ khi gửi được. Chưa có SMTP thì nó
+// chỉ quét rồi ghi lại "chưa cấu hình" cho từng dòng mỗi 30 giây mà không gửi được gì; email vẫn
+// nằm trong EmailOutbox và được gửi sau khi cấu hình SMTP rồi khởi động lại.
+if (smtpConfigured)
+    builder.Services.AddHostedService<OutboxSender>();
 
 var app = builder.Build();
+
+if (!smtpConfigured)
+    app.Logger.LogWarning(
+        "Chưa cấu hình SMTP (Smtp:Host, Smtp:From): email mời phỏng vấn / trúng tuyển / từ chối " +
+        "được xếp vào bảng EmailOutbox và CHƯA gửi đi. Cấu hình SMTP rồi khởi động lại để gửi.");
 
 // ---------- Tạo CSDL + seed khi khởi động ----------
 using (var scope = app.Services.CreateScope())
@@ -262,7 +271,7 @@ app.UseAntiforgery();
 app.Use(async (ctx, next) =>
 {
     if (HttpMethods.IsPost(ctx.Request.Method) &&
-        !antiforgeryExemptPaths.Contains(ctx.Request.Path.Value, StringComparer.OrdinalIgnoreCase))
+        ctx.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Antiforgery.IAntiforgeryMetadata>() is not { RequiresValidation: false })
     {
         var antiforgery = ctx.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
         try
@@ -310,7 +319,6 @@ app.Use(async (ctx, next) =>
 
 // ---------- Helper dùng chung cho các endpoint ----------
 static int CurrentUserId(HttpContext ctx) => CurrentUser.Id(ctx.User);
-static bool IsAdmin(HttpContext ctx) => CurrentUser.IsAdmin(ctx.User);
 static string Enc(string s) => Uri.EscapeDataString(s);
 
 /// Ghi ngoại lệ ngoài dự kiến vào log rồi trả về một câu chung cho người dùng.
@@ -459,7 +467,7 @@ app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IU
     if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error))
         return Results.Redirect("/users?err=" + Enc(error));
 
-    var target = svc.GetAll().FirstOrDefault(u => u.Id == id);
+    var target = svc.GetById(id);
     if (email.IsConfigured && target is not null)
     {
         try
@@ -782,7 +790,7 @@ app.MapGet("/jobs/{id:int}/applicants/export", (int id, HttpContext ctx, IJobSer
 
     var q = ctx.Request.Query;
     var filter = ApplicantFilter.FromQuery(
-        q["status"], q["cv"], null, q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
+        q["status"], q["cv"], q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
 
     var items = svc.GetByJob(id, q["sort"].ToString() is { Length: > 0 } sort ? sort : "date", filter);
 
@@ -800,8 +808,8 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
     var f = await ctx.Request.ReadFormAsync();
     var status = f["status"].ToString();
     var ids = f["applicationId"]
-        .Where(v => int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-        .Select(v => int.Parse(v!, NumberStyles.Integer, CultureInfo.InvariantCulture))
+        .Select(v => int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : (int?)null)
+        .OfType<int>()
         .ToList();
 
     if (ids.Count == 0)
@@ -818,7 +826,7 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
 app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
     // Quyền sở hữu hỏi qua service — một chỗ duy nhất phát biểu luật, thay vì lặp lại vị ngữ.
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.Forbid();
+    if (!svc.CanAccess(id, CurrentUserId(ctx))) return Results.Forbid();
 
     // P2-2: thứ tự ưu tiên (bản chụp ở storage → bản chụp ở cột cũ → CV hiện tại của hồ sơ)
     // do service phát biểu, không viết lại ở đây.

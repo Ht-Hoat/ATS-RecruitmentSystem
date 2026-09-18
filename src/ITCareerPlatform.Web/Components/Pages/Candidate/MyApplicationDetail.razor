@@ -33,11 +33,11 @@ else
         </p>
         <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.JobTechStack</b></p>
 
-        @if (app.Status != ApplicationStatus.Accepted && app.Status != ApplicationStatus.Rejected && app.Status != ApplicationStatus.Withdrawn)
+        @if (!ApplicationStatusFlow.IsTerminal(app.Status))
         {
             <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
                 <form method="post" action="@($"/applications/{app.Id}/withdraw")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
-                    <AntiforgeryField />
+                    <AntiforgeryToken />
                     <button class="btn danger" type="submit">🛑 Rút đơn ứng tuyển</button>
                 </form>
             </div>
@@ -118,7 +118,7 @@ else
             @if (prepBlockedReason is null)
             {
                 <form method="post" action="@($"/my-applications/{app.Id}/interview-prep")" style="margin-top:12px">
-                    <AntiforgeryField />
+                    <AntiforgeryToken />
                     <button class="btn-ai" type="submit">@(questions is null ? "💬 Tạo bộ câu hỏi luyện phỏng vấn" : "🔄 Tạo bộ câu hỏi mới")</button>
                 </form>
                 <p class="sub" style="margin-top:8px">🔐 Nội dung CV của bạn có thể được gửi tới dịch vụ AI (Google Gemini) để soạn câu hỏi.</p>
@@ -158,7 +158,8 @@ else
         app = uid > 0 ? Applications.GetForCandidate(AppId, uid) : null;
         if (app is null) return;
 
-        questions = InterviewPrep.Get(AppId, uid);
-        prepBlockedReason = InterviewPrep.WhyNot(AppId, uid);
+        var prep = InterviewPrep.GetState(AppId, uid);
+        questions = prep?.Questions;
+        prepBlockedReason = prep?.BlockedReason;
     }
 }
