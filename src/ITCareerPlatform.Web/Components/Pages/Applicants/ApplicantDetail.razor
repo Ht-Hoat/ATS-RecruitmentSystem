@@ -23,17 +23,12 @@ else
 
     @if (AiScored == "1") { <div class="alert-ok">Đã đánh giá độ phù hợp & tạo gợi ý lộ trình.</div> }
     @if (!string.IsNullOrEmpty(AiError)) { <div class="alert-err">Lỗi AI: @AiError</div> }
-    @if (HrSaved == "1") { <div class="alert-ok">Đã lưu điểm đánh giá của Mentor.</div> }
-    @if (!string.IsNullOrEmpty(HrError)) { <div class="alert-err">@HrError</div> }
     @if (!string.IsNullOrEmpty(StatusMsg)) { <div class="alert-ok">@StatusMsg</div> }
     @if (!string.IsNullOrEmpty(StatusErr)) { <div class="alert-err">@StatusErr</div> }
-    @if (NoteSaved == "1") { <div class="alert-ok">Đã lưu ghi chú nội bộ.</div> }
     @if (!canModify)
     {
-        <div class="warn-note">👁 Chế độ chỉ xem — chấm điểm, đổi trạng thái, ghi chú và sinh câu hỏi do Mentor đăng tin thực hiện.</div>
+        <div class="warn-note">👁 Chế độ chỉ xem — đánh giá và quyết định tuyển dụng do Mentor đăng tin thực hiện.</div>
     }
-    @if (QGenerated == "1") { <div class="alert-ok">Đã sinh bộ câu hỏi phỏng vấn.</div> }
-    @if (!string.IsNullOrEmpty(QError)) { <div class="alert-err">Lỗi sinh câu hỏi: @QError</div> }
 
     <!-- Section 1: thông tin ứng tuyển -->
     <div class="panel">
@@ -118,63 +113,22 @@ else
                     </form>
                 }
 
-                <!-- ATS-16: Mentor duyệt / điều chỉnh % phù hợp -->
-                <div class="hr-adjust">
-                    <h3>Đánh giá của Mentor</h3>
-                    @if (app.HrScore.HasValue)
-                    {
-                        <p>% Mentor xác nhận: <b class="@Ui.ScoreClass(app.HrScore)">@app.HrScore%</b>
-                           &nbsp;·&nbsp; Ghi chú: <i>@app.HrNote</i></p>
-                        @* P1-5: con số này phải nói rõ là của ai — nếu không, tra được duy
-                           nhất qua AuditLog. (Đơn cũ có thể mang tên Admin, từ trước khi Admin
-                           chuyển sang chỉ xem.) *@
-                        @if (app.HrScoreByUserId is int scorer)
-                        {
-                            <p class="sub">
-                                Chốt bởi <b>@names.GetValueOrDefault(scorer, "#" + scorer)</b>
-                                lúc @Ui.DateTimeText(app.HrAdjustedAt)
-                            </p>
-                        }
-                    }
-                    @if (canModify)
-                    {
-                    <div class="grid2">
-                        <form method="post" action="@($"/applications/{app.Id}/hr-score")">
-                            <AntiforgeryField />
-                            <input type="hidden" name="agree" value="1" />
-                            <button class="btn-sm" type="submit">✅ Đồng ý với đánh giá AI (@app.AiScore%)</button>
-                        </form>
-                        <form method="post" action="@($"/applications/{app.Id}/hr-score")" class="adjust-form" data-vi-validate>
-                            <AntiforgeryField />
-                            <input type="hidden" name="agree" value="0" />
-                            <div class="inline">
-                                <input name="hrScore" type="number" min="0" max="100" placeholder="% phù hợp (0-100)" required />
-                            </div>
-                            <textarea name="hrNote" rows="2" minlength="10" maxlength="500" placeholder="Lý do điều chỉnh (tối thiểu 10 ký tự)..." required></textarea>
-                            <button class="btn-sm ghost" type="submit">✏️ Lưu điều chỉnh</button>
-                        </form>
-                    </div>
-                    }
-                    else if (!app.HrScore.HasValue)
-                    {
-                        <p class="sub">Mentor chưa chốt điểm cho đơn này.</p>
-                    }
-                </div>
+                @* Không còn khối "đồng ý với AI / chốt %": con số chốt tay không dẫn tới hành động
+                   nào. Quyết định thật của nhà tuyển dụng — mời phỏng vấn hay từ chối — nằm ở mục 5;
+                   điểm AI ở trên chỉ để tham khảo và xếp hạng trong danh sách ứng viên. *@
             }
         </div>
     </div>
 
-    <!-- Section 5: trạng thái + timeline -->
+    <!-- Section 5: quyết định tuyển dụng + dòng thời gian -->
     <div class="panel" style="margin-top:16px">
-        <h2>5 · Trạng thái ứng tuyển (ATS-17)</h2>
-        @* N1.E — Hướng B: lịch phỏng vấn nằm ngay trong form đổi trạng thái, không tách trang.
-           Ba ô lịch mặc định HIỆN; đoạn script bên dưới chỉ ẩn bớt khi trạng thái đang chọn
-           không phải "Phỏng vấn". Làm ngược lại (mặc định ẩn, script hiện) thì máy chặn JS
-           sẽ không bao giờ nhìn thấy chúng. *@
+        <h2>5 · Quyết định tuyển dụng</h2>
+        @* Mỗi quyết định là một thẻ riêng với đúng những ô nó cần, thay cho một ô chọn trạng thái
+           chung. Mọi thẻ gửi về cùng /applications/{id}/status; luồng hợp lệ vẫn do
+           ApplicationStatusFlow ở service phát biểu, và sinh viên nhận thông báo + email như cũ. *@
         @if (nextStates.Count == 0)
         {
-            @* P1-4: đơn ở trạng thái kết thúc. Hiện form rồi từ chối ở bước lưu là bắt người
-               dùng làm một việc vô ích; nói thẳng ra là đơn đã chốt thì rõ ràng hơn. *@
+            @* P1-4: đơn ở trạng thái kết thúc — nói thẳng thay vì hiện form rồi từ chối khi lưu. *@
             <div class="warn-note">
                 Đơn đã ở trạng thái <b>@app.Status</b> — đây là trạng thái kết thúc, không đổi tiếp được.
                 @if (app.Status == ApplicationStatus.Withdrawn)
@@ -189,54 +143,68 @@ else
         }
         else
         {
-        <form method="post" action="@($"/applications/{app.Id}/status")" class="form" style="max-width:560px;padding:16px"
-              onsubmit="return confirm('Bạn chắc chắn muốn thay đổi trạng thái đơn này?');">
-              <AntiforgeryField />
-            <label>Trạng thái</label>
-            @* P1-4: dropdown dựng từ ĐÚNG bảng luồng mà UpdateStatus dùng để kiểm tra
-               (ApplicationStatusFlow.NextStates). Liệt kê cả những trạng thái service sẽ từ
-               chối nghĩa là mời người dùng chọn một thứ rồi báo lỗi — họ không có cách nào
-               biết vì sao lựa chọn đó lại có mặt ở đó. *@
-            <select name="status" id="statusSelect">
-                @foreach (var s in nextStates)
+            <p class="sub">Trạng thái hiện tại: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
+                — ứng viên nhận thông báo và email ngay khi bạn chọn.</p>
+
+            @if (nextStates.Contains(ApplicationStatus.Reviewing))
+            {
+                <form method="post" action="@($"/applications/{app.Id}/status")" style="margin-bottom:12px">
+                    <AntiforgeryField />
+                    <input type="hidden" name="status" value="@ApplicationStatus.Reviewing" />
+                    <button class="btn-sm ghost" type="submit">👀 Đánh dấu "Đang xem xét"</button>
+                    <span class="sub" style="margin-left:8px">Để các Mentor khác biết hồ sơ đã có người đọc.</span>
+                </form>
+            }
+
+            <div class="decision-grid">
+                @if (nextStates.Contains(ApplicationStatus.Interview))
                 {
-                    <option value="@s" selected="@(s == app.Status)">@s</option>
+                    var rescheduling = app.Status == ApplicationStatus.Interview;
+                    <form method="post" action="@($"/applications/{app.Id}/status")" class="decision-card decision-go"
+                          onsubmit="return confirm('@(rescheduling ? "Gửi lịch phỏng vấn mới cho ứng viên?" : "Mời ứng viên này phỏng vấn?")');">
+                        <AntiforgeryField />
+                        <input type="hidden" name="status" value="@ApplicationStatus.Interview" />
+                        <h3>@(rescheduling ? "📅 Đổi lịch phỏng vấn" : "✅ Mời phỏng vấn")</h3>
+                        <p class="sub">CV phù hợp? Hẹn lịch — ứng viên nhận lời mời kèm tệp lịch .ics.</p>
+                        <label>Thời gian</label>
+                        <input name="interviewAt" type="datetime-local" required value="@Ui.InputDateTimeLocal(app.InterviewAt)" />
+                        <label>Link họp (Google Meet / Zoom / Teams)</label>
+                        <input name="interviewLink" type="url" maxlength="400" placeholder="Để trống nếu phỏng vấn trực tiếp"
+                               value="@app.InterviewLink" />
+                        <label>Ghi chú cho ứng viên</label>
+                        <textarea name="interviewNote" rows="2" maxlength="500"
+                                  placeholder="Vòng 1 — phỏng vấn kỹ thuật, khoảng 45 phút...">@app.InterviewNote</textarea>
+                        <button class="btn-sm" type="submit">@(rescheduling ? "Gửi lịch mới" : "Gửi lời mời phỏng vấn")</button>
+                    </form>
                 }
-            </select>
 
-            <div id="interviewFields">
-                <p class="form-h">Lịch phỏng vấn <span class="sub">(bắt buộc khi chọn "@ApplicationStatus.Interview")</span></p>
+                @if (nextStates.Contains(ApplicationStatus.Accepted))
+                {
+                    <form method="post" action="@($"/applications/{app.Id}/status")" class="decision-card decision-win"
+                          onsubmit="return confirm('Xác nhận nhận ứng viên này? Đây là quyết định cuối, không đổi lại được.');">
+                        <AntiforgeryField />
+                        <input type="hidden" name="status" value="@ApplicationStatus.Accepted" />
+                        <h3>🏆 Nhận vào làm</h3>
+                        <p class="sub">Sau buổi phỏng vấn: ứng viên nhận thông báo và email chúc mừng.</p>
+                        <button class="btn-sm success" type="submit">Xác nhận trúng tuyển</button>
+                    </form>
+                }
 
-                <label>Thời gian</label>
-                <input name="interviewAt" type="datetime-local" value="@Ui.InputDateTimeLocal(app.InterviewAt)" />
-
-                <label>Link phỏng vấn (Google Meet / Zoom / Teams)</label>
-                <input name="interviewLink" type="url" maxlength="400" placeholder="https://meet.google.com/..."
-                       value="@app.InterviewLink" />
-
-                <label>Ghi chú cho ứng viên</label>
-                <textarea name="interviewNote" rows="2" maxlength="500"
-                          placeholder="Vòng 1 — phỏng vấn kỹ thuật, khoảng 45 phút...">@app.InterviewNote</textarea>
-                <p class="sub" style="margin-top:6px">Để trống link nếu phỏng vấn trực tiếp tại văn phòng.</p>
+                @if (nextStates.Contains(ApplicationStatus.Rejected))
+                {
+                    <form method="post" action="@($"/applications/{app.Id}/status")" class="decision-card decision-stop"
+                          onsubmit="return confirm('Từ chối hồ sơ này? Đây là quyết định cuối, không đổi lại được.');">
+                        <AntiforgeryField />
+                        <input type="hidden" name="status" value="@ApplicationStatus.Rejected" />
+                        <h3>❌ Từ chối</h3>
+                        <p class="sub">Ứng viên ĐỌC ĐƯỢC phản hồi này — viết để họ biết cần cải thiện gì.</p>
+                        <label>Phản hồi gửi ứng viên (tùy chọn)</label>
+                        <textarea name="candidateFeedback" rows="4" maxlength="1000"
+                                  placeholder="Hồ sơ tốt nhưng chưa đủ kinh nghiệm với Docker/Kubernetes ở vị trí này...">@app.CandidateFeedback</textarea>
+                        <button class="btn-sm danger-outline" type="submit">Gửi từ chối</button>
+                    </form>
+                }
             </div>
-
-            @* P1-4: ô phản hồi gửi ứng viên khi từ chối. Cùng cơ chế với ba ô lịch: mặc định
-               HIỆN, script chỉ ẩn bớt — để máy chặn JavaScript vẫn dùng được chức năng. *@
-            <div id="feedbackField">
-                <p class="form-h">
-                    Phản hồi gửi ứng viên <span class="sub">(tùy chọn, hiện khi chọn "@ApplicationStatus.Rejected")</span>
-                </p>
-                <textarea name="candidateFeedback" rows="3" maxlength="1000"
-                          placeholder="Hồ sơ tốt nhưng chưa đủ kinh nghiệm với Docker/Kubernetes ở vị trí này...">@app.CandidateFeedback</textarea>
-                <p class="sub" style="margin-top:6px">
-                    Ứng viên ĐỌC ĐƯỢC nội dung này. Ghi chú nội bộ và lý do chốt điểm vẫn được giữ kín.
-                </p>
-            </div>
-
-            <div class="actions">
-                <button class="btn-sm" type="submit">Cập nhật trạng thái</button>
-            </div>
-        </form>
         }
 
         @if (app.HasInterview)
@@ -255,20 +223,6 @@ else
             </div>
         }
 
-        <script>
-            (function () {
-                var sel = document.getElementById('statusSelect');
-                var box = document.getElementById('interviewFields');
-                if (!sel || !box) return;
-                var fb = document.getElementById('feedbackField');
-                function sync() {
-                    box.style.display = sel.value === '@ApplicationStatus.Interview' ? '' : 'none';
-                    if (fb) fb.style.display = sel.value === '@ApplicationStatus.Rejected' ? '' : 'none';
-                }
-                sel.addEventListener('change', sync);
-                sync();
-            })();
-        </script>
 
         <div class="timeline">
             <div class="tl-item">
@@ -285,111 +239,21 @@ else
         </div>
     </div>
 
-    <!-- Section 6: câu hỏi phỏng vấn do AI sinh (N1.C) -->
-    <div class="panel" style="margin-top:16px">
-        <h2>6 · Câu hỏi phỏng vấn gợi ý (AI)</h2>
-        @if (questions is null)
-        {
-            <p class="sub">Chưa sinh bộ câu hỏi cho ứng viên này.</p>
-            @if (canModify)
-            {
-                <form method="post" action="@($"/applications/{app.Id}/ai-questions")">
-                    <AntiforgeryField />
-                    <button class="btn-ai" type="submit">💬 Sinh câu hỏi phỏng vấn từ CV &amp; JD</button>
-                </form>
-                <p class="sub" style="margin-top:8px">🔐 Nội dung CV của ứng viên có thể được gửi tới dịch vụ AI (Google Gemini) để phân tích.</p>
-            }
-        }
-        else
-        {
-            @if (questions.IsOffline)
-            {
-                <div class="warn-note">
-                    📴 Bộ câu hỏi này dựng bằng công thức đối chiếu ngoại tuyến, không phải mô hình AI
-                    (chưa cấu hình khóa Gemini hoặc lần gọi vừa rồi thất bại).
-                </div>
-            }
-            <ol class="q-list">
-                @foreach (var q in questions.Items)
-                {
-                    <li class="q-item">
-                        <div class="q-text">@q.Question</div>
-                        <span class="tag">@q.Category</span>
-                        @if (!string.IsNullOrWhiteSpace(q.Hint))
-                        {
-                            <div class="q-hint">💡 @q.Hint</div>
-                        }
-                    </li>
-                }
-            </ol>
-            <div class="warn-note" style="margin-top:12px">
-                🔒 Bộ câu hỏi chỉ hiển thị cho Mentor và Admin — đưa trước cho ứng viên thì
-                buổi phỏng vấn không còn đo được gì.
-            </div>
-            @if (canModify)
-            {
-                <form method="post" action="@($"/applications/{app.Id}/ai-questions")" class="inline" style="margin-top:10px">
-                    <AntiforgeryField />
-                    <button class="btn-sm ghost" type="submit">🔄 Sinh lại</button>
-                </form>
-            }
-        }
-    </div>
 
-    <!-- Section 7: ghi chú nội bộ (N1.B) -->
-    <div class="panel" style="margin-top:16px">
-        <h2>7 · Ghi chú nội bộ</h2>
-        <div class="warn-note">
-            🔒 Chỉ Mentor tạo tin và Admin đọc được mục này. <b>Ứng viên không bao giờ nhìn thấy.</b>
-            Khác với "Lý do điều chỉnh điểm" ở mục 4 — đó là ghi chú gắn với điểm số.
-        </div>
-        @if (note is not null)
-        {
-            <p class="sub" style="margin-top:12px">
-                Ghi lần cuối bởi <b>@names.GetValueOrDefault(note.ByUserId, "#" + note.ByUserId)</b>
-                lúc @Ui.DateTimeText(note.At)
-            </p>
-        }
-        @if (!canModify)
-        {
-            @* Chỉ xem: đọc được nội dung, không sửa được. *@
-            @if (note is null) { <p class="sub" style="margin-top:12px">Chưa có ghi chú.</p> }
-            else { <div style="white-space:pre-wrap;margin-top:8px">@note.Note</div> }
-        }
-        else
-        {
-        <form method="post" action="@($"/applications/{app.Id}/internal-note")" class="form" style="max-width:640px;padding:16px">
-            <AntiforgeryField />
-            <textarea name="internalNote" rows="5" maxlength="2000"
-                      placeholder="Nhận định về ứng viên, điểm cần hỏi kỹ ở vòng sau, mức lương mong muốn...">@note?.Note</textarea>
-            <div class="actions">
-                <button class="btn-sm" type="submit">Lưu ghi chú</button>
-                <span class="sub">Xóa hết nội dung rồi lưu để gỡ ghi chú.</span>
-            </div>
-        </form>
-        }
-    </div>
 }
 
 @code {
     [Parameter] public int AppId { get; set; }
     [SupplyParameterFromQuery(Name = "aiscored")] public string? AiScored { get; set; }
     [SupplyParameterFromQuery(Name = "aierror")] public string? AiError { get; set; }
-    [SupplyParameterFromQuery(Name = "hrsaved")] public string? HrSaved { get; set; }
-    [SupplyParameterFromQuery(Name = "hrerror")] public string? HrError { get; set; }
     [SupplyParameterFromQuery(Name = "statusmsg")] public string? StatusMsg { get; set; }
     [SupplyParameterFromQuery(Name = "statuserr")] public string? StatusErr { get; set; }
-    [SupplyParameterFromQuery(Name = "notesaved")] public string? NoteSaved { get; set; }
-    [SupplyParameterFromQuery(Name = "qgenerated")] public string? QGenerated { get; set; }
-    [SupplyParameterFromQuery(Name = "qerror")] public string? QError { get; set; }
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private ApplicationDetail? app;
     private List<ApplicationStatusHistory> history = new();
     private Dictionary<int, string> names = new();
-    private InternalNoteView? note;
-    private InterviewQuestionSet? questions;
     private bool canAccess;   // xem: Mentor chủ tin hoặc Admin
     private bool canModify;   // thao tác: chỉ Mentor chủ tin
     /// <summary>P1-4: các bước tiếp theo hợp lệ; rỗng nghĩa là đơn đã chốt.</summary>
@@ -415,18 +279,8 @@ else
 
         history = Applications.GetStatusHistory(AppId);
 
-        // N1.B: ghi chú nội bộ hỏi RIÊNG, sau khi canAccess đã qua — chỉ trang của nhà
-        // tuyển dụng gọi hàm này.
-        note = Applications.GetInternalNote(AppId);
-
-        // N1.C: bộ câu hỏi cũng hỏi riêng, cùng lý do — không nằm trong ApplicationDetail.
-        questions = Applications.GetAiQuestions(AppId);
-
-        // Chỉ hỏi tên của đúng những người xuất hiện trong dòng thời gian và ở ghi chú
-        // (nhiều nhất vài người), thay vì nạp toàn bộ bảng Users.
-        names = Users.GetNames(history.Select(h => h.ChangedByUserId)
-                                      .Concat(note is null ? [] : [note.ByUserId])
-                                      // P1-5: thêm người chốt điểm vào cùng một lần hỏi tên.
-                                      .Concat(app.HrScoreByUserId is int by ? [by] : []));
+        // Chỉ hỏi tên của những người xuất hiện trong dòng thời gian (nhiều nhất vài người),
+        // thay vì nạp toàn bộ bảng Users.
+        names = Users.GetNames(history.Select(h => h.ChangedByUserId));
     }
 }

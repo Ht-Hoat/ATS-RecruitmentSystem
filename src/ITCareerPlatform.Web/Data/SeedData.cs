@@ -56,8 +56,27 @@ public static class SeedData
         {
             Title = "Lập trình viên Backend .NET", Category = "Backend", Level = "Junior",
             TechStack = "C#, .NET, ASP.NET Core, SQL Server, Docker",
-            Description = "Phát triển REST API và hệ thống web bằng ASP.NET Core cho sản phẩm tuyển dụng IT.",
-            Requirements = "Thành thạo C#, EF Core, SQL Server; hiểu Docker; 1 năm kinh nghiệm.",
+            Description = """
+                Tham gia đội phát triển nền tảng tuyển dụng IT phục vụ hàng nghìn sinh viên và doanh nghiệp.
+
+                Công việc chính:
+                - Thiết kế và phát triển REST API bằng ASP.NET Core cho các module tin tuyển dụng, hồ sơ ứng viên, đơn ứng tuyển.
+                - Làm việc với SQL Server qua EF Core: thiết kế bảng, viết migration, tối ưu truy vấn chậm.
+                - Viết unit test (xUnit) cho tầng nghiệp vụ; tham gia code review cùng team.
+                - Đóng gói dịch vụ bằng Docker, phối hợp DevOps đưa lên môi trường staging và production.
+
+                Quyền lợi:
+                - Làm việc hybrid 3 ngày văn phòng, 2 ngày tại nhà.
+                - Mentor 1-1 trong 3 tháng đầu; ngân sách học tập và chứng chỉ hằng năm.
+                - Review lương 2 lần/năm, thưởng dự án, bảo hiểm sức khỏe.
+                """,
+            Requirements = """
+                - Tối thiểu 1 năm kinh nghiệm lập trình C# / .NET (tính cả thực tập).
+                - Nắm vững ASP.NET Core Web API, EF Core, LINQ và SQL Server.
+                - Hiểu nguyên lý REST, xác thực bằng cookie/JWT, xử lý lỗi và ghi log.
+                - Biết dùng Git, Docker ở mức build và chạy container.
+                - Ưu tiên: đã viết unit test, từng làm với Azure hoặc CI/CD.
+                """,
             Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = VietnamDateHelper.Today().AddDays(20),
             EmploymentType = "Hybrid",
             Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-5)
@@ -66,8 +85,27 @@ public static class SeedData
         {
             Title = "Frontend Developer (React)", Category = "Frontend", Level = "Middle",
             TechStack = "JavaScript, React, TypeScript, HTML, CSS",
-            Description = "Xây dựng giao diện người dùng bằng React cho nền tảng IT Career.",
-            Requirements = "React, TypeScript, kinh nghiệm 2 năm; hiểu REST API.",
+            Description = """
+                Phát triển giao diện web cho nền tảng IT Career — nơi sinh viên tìm việc và nhà tuyển dụng sàng lọc hồ sơ.
+
+                Công việc chính:
+                - Xây dựng các màn hình tìm việc, hồ sơ ứng viên, dashboard nhà tuyển dụng bằng React + TypeScript.
+                - Tích hợp REST API do team backend cung cấp; xử lý trạng thái tải, lỗi và phân trang.
+                - Đảm bảo giao diện responsive, đạt chuẩn truy cập cơ bản (WCAG AA).
+                - Viết component tái sử dụng và tài liệu cho design system nội bộ.
+
+                Quyền lợi:
+                - Làm việc onsite tại TP.HCM, MacBook cấp riêng.
+                - 13 tháng lương, thưởng theo hiệu quả dự án.
+                - Được tham gia các buổi tech talk và hội thảo frontend trong nước.
+                """,
+            Requirements = """
+                - Tối thiểu 2 năm kinh nghiệm với React (hooks, context, router).
+                - Thành thạo TypeScript, HTML5, CSS3; biết Flexbox/Grid.
+                - Hiểu cách gọi REST API, xử lý bất đồng bộ và quản lý state.
+                - Có ý thức về hiệu năng (lazy loading, memo) và trải nghiệm người dùng.
+                - Ưu tiên: đã dùng Next.js, Tailwind hoặc viết test với Testing Library.
+                """,
             Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = VietnamDateHelper.Today().AddDays(4), // sắp hết hạn
             EmploymentType = "Onsite",
             Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-3)
@@ -76,8 +114,27 @@ public static class SeedData
         {
             Title = "DevOps Engineer", Category = "DevOps", Level = "Senior",
             TechStack = "Linux, Docker, Kubernetes, CI/CD, Azure",
-            Description = "Vận hành hạ tầng, xây dựng pipeline CI/CD.",
-            Requirements = "Docker, Kubernetes, GitHub Actions; 3 năm kinh nghiệm.",
+            Description = """
+                Chịu trách nhiệm hạ tầng và quy trình triển khai cho các sản phẩm có hàng triệu người dùng.
+
+                Công việc chính:
+                - Vận hành cụm Kubernetes trên Azure; tối ưu chi phí và khả năng mở rộng.
+                - Xây dựng và duy trì pipeline CI/CD (GitHub Actions) cho nhiều team phát triển.
+                - Thiết lập giám sát, cảnh báo và quy trình xử lý sự cố (on-call luân phiên).
+                - Viết Infrastructure as Code, chuẩn hóa môi trường dev/staging/production.
+
+                Quyền lợi:
+                - Làm việc hoàn toàn từ xa, có trợ cấp thiết bị và internet.
+                - Phụ cấp on-call; ngân sách chứng chỉ Azure/CKA.
+                - Thưởng cuối năm theo kết quả kinh doanh.
+                """,
+            Requirements = """
+                - Tối thiểu 3 năm kinh nghiệm DevOps / SRE.
+                - Thành thạo Linux, Docker, Kubernetes (Helm, Ingress, autoscaling).
+                - Đã xây dựng pipeline CI/CD bằng GitHub Actions, GitLab CI hoặc Azure DevOps.
+                - Có kinh nghiệm với Terraform hoặc Bicep; hiểu mạng và bảo mật cơ bản.
+                - Ưu tiên: có chứng chỉ Azure Administrator hoặc CKA.
+                """,
             Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = VietnamDateHelper.Today().AddDays(25),
             EmploymentType = "Remote",
             Status = JobStatus.Open, CreatedById = mentor2.Id, CompanyId = vng.Id, CreatedAt = DateTime.UtcNow.AddDays(-2)
@@ -86,8 +143,27 @@ public static class SeedData
         {
             Title = "Kỹ sư Data/AI (NLP)", Category = "Data/AI", Level = "Junior",
             TechStack = "Python, SQL, Machine Learning, LLM API",
-            Description = "Xây dựng module sàng lọc CV bằng AI.",
-            Requirements = "Python, SQL, hiểu ML cơ bản, LLM API.",
+            Description = """
+                Tham gia xây dựng tính năng AI cho nền tảng tuyển dụng: đọc hiểu CV và đánh giá độ phù hợp với mô tả công việc.
+
+                Công việc chính:
+                - Xây dựng module trích xuất thông tin từ CV (kỹ năng, kinh nghiệm, học vấn) bằng NLP và LLM API.
+                - Thiết kế prompt và bộ tiêu chí chấm độ phù hợp giữa CV và JD; đo độ chính xác trên tập dữ liệu thật.
+                - Xử lý và làm sạch dữ liệu bằng Python, SQL; xây dựng pipeline đánh giá tự động.
+                - Phối hợp team backend đưa mô hình vào sản phẩm, theo dõi chi phí và độ trễ.
+
+                Quyền lợi:
+                - Làm việc onsite tại TP.HCM, cấp máy cấu hình cao cho công việc AI.
+                - Được tiếp cận dữ liệu và bài toán thực tế; mentor từ team Data/AI.
+                - Ngân sách tham dự hội thảo AI trong nước.
+                """,
+            Requirements = """
+                - Thành thạo Python (pandas, requests); viết được truy vấn SQL cơ bản đến trung bình.
+                - Hiểu kiến thức Machine Learning cơ bản: phân loại, đánh giá mô hình, overfitting.
+                - Đã dùng LLM API (OpenAI, Gemini, Claude...) và biết viết prompt có cấu trúc.
+                - Có khả năng đọc tài liệu tiếng Anh chuyên ngành.
+                - Ưu tiên: đã làm đồ án hoặc dự án cá nhân về NLP, có GitHub minh họa.
+                """,
             Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = VietnamDateHelper.Today().AddDays(15),
             EmploymentType = "Onsite",
             Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-1)
@@ -96,8 +172,24 @@ public static class SeedData
         {
             Title = "Thực tập sinh Kiểm thử (QA)", Category = "QA", Level = "Intern",
             TechStack = "Manual Testing, SQL, Postman",
-            Description = "Kiểm thử chức năng hệ thống.",
-            Requirements = "Sinh viên năm cuối CNTT.",
+            Description = """
+                Chương trình thực tập 3 tháng dành cho sinh viên muốn theo nghề kiểm thử phần mềm.
+
+                Công việc chính:
+                - Đọc tài liệu yêu cầu, viết test case và thực hiện kiểm thử chức năng cho web app.
+                - Kiểm thử API bằng Postman; kiểm tra dữ liệu bằng các truy vấn SQL đơn giản.
+                - Ghi nhận và theo dõi lỗi trên Jira; tham gia kiểm thử hồi quy trước mỗi lần phát hành.
+
+                Quyền lợi:
+                - Trợ cấp thực tập hằng tháng; có cơ hội trở thành nhân viên chính thức.
+                - Được đào tạo quy trình kiểm thử và công cụ thực tế.
+                """,
+            Requirements = """
+                - Sinh viên năm 3, năm 4 ngành CNTT hoặc liên quan.
+                - Hiểu quy trình phát triển phần mềm cơ bản; cẩn thận, tỉ mỉ.
+                - Biết SQL cơ bản; từng dùng Postman là một lợi thế.
+                - Làm việc tối thiểu 4 buổi/tuần tại văn phòng Hà Nội.
+                """,
             Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = VietnamDateHelper.Today().AddDays(-2),
             EmploymentType = "Onsite",
             Status = JobStatus.Closed, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-10)

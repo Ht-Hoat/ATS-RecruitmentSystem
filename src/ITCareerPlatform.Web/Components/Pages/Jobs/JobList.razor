@@ -40,28 +40,31 @@
                     @if (j.Status == JobStatus.Open) { <span class="ok">● Đang mở</span> }
                     else { <span class="lock">● Đã đóng</span> }
                 </td>
-                <td class="nowrap">
-                    <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                    @if (isAdmin)
-                    {
-                        @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
-                    }
-                    else if (j.Status == JobStatus.Open)
-                    {
-                        <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
-                        <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
-                            <AntiforgeryField />
-                            <button class="btn-sm danger" type="submit">Đóng</button>
-                        </form>
-                    }
-                    else
-                    {
-                        <span class="btn-sm ghost disabled" title="Mở lại tin trước khi sửa">Sửa</span>
-                        <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline">
-                            <AntiforgeryField />
-                            <button class="btn-sm" type="submit">Mở lại</button>
-                        </form>
-                    }
+                <td>
+                    @* Ba nút cùng một hàng, cùng cỡ. Tin đã đóng không hiện nút "Sửa" mờ nữa — nút
+                       "Mở lại" đã nói rõ bước cần làm, và service vẫn chặn sửa tin đã đóng. *@
+                    <div class="row-actions">
+                        <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
+                        @if (isAdmin)
+                        {
+                            @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
+                        }
+                        else if (j.Status == JobStatus.Open)
+                        {
+                            <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
+                            <form method="post" action="@($"/jobs/{j.Id}/close")" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
+                                <AntiforgeryField />
+                                <button class="btn-sm danger-outline" type="submit">Đóng tin</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form method="post" action="@($"/jobs/{j.Id}/reopen")">
+                                <AntiforgeryField />
+                                <button class="btn-sm success-outline" type="submit" title="Mở lại để nhận hồ sơ và sửa tin">Mở lại</button>
+                            </form>
+                        }
+                    </div>
                 </td>
             </tr>
         }

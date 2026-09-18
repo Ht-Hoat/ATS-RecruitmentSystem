@@ -1,6 +1,7 @@
 @page "/my-applications/{AppId:int}"
 @attribute [Authorize(Roles = Roles.Student)]
 @inject IApplicationService Applications
+@inject IInterviewPrepService InterviewPrep
 
 @* Sinh viên xem chi tiết đơn của MÌNH + đánh giá độ phù hợp & lộ trình (ATS-14) *@
 
@@ -18,6 +19,8 @@ else
         <h1 class="page-title">Chi tiết đơn ứng tuyển</h1>
         <a class="btn" href="/my-applications">← Về danh sách đơn</a>
     </div>
+    @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+    @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
 
     <div class="panel">
         <h2>Vị trí ứng tuyển</h2>
@@ -42,8 +45,7 @@ else
     </div>
 
     @* P1-4: phản hồi của nhà tuyển dụng. Đây là trường DUY NHẤT trong nhóm ghi chú được
-       hiện cho ứng viên — HrNote (lý do chốt điểm) và InternalNote (nhận định riêng của
-       Mentor) không có trong CandidateApplicationView nên trang này không đọc được chúng. *@
+       hiện cho ứng viên; CandidateApplicationView không mang trường ghi chú nào khác. *@
     @if (!string.IsNullOrWhiteSpace(app.CandidateFeedback))
     {
         <div class="panel" style="margin-top:16px;border-left:4px solid #6366f1">
@@ -80,6 +82,54 @@ else
         </div>
     }
 
+    @* Chuẩn bị phỏng vấn: mở khi được mời phỏng vấn. Bộ câu hỏi đã tạo vẫn hiện cả sau đó
+       (trúng tuyển / bị từ chối) để sinh viên xem lại. *@
+    @if (app.Status == ApplicationStatus.Interview || questions is not null)
+    {
+        <div class="panel" style="margin-top:16px;border-left:4px solid #6366f1">
+            <h2>🎤 Chuẩn bị phỏng vấn</h2>
+            <p class="sub">
+                Những câu nhà tuyển dụng nhiều khả năng sẽ hỏi, soạn từ CV bạn đã nộp và mô tả công việc —
+                kèm gợi ý cách trả lời. Hãy tự trả lời thành tiếng trước buổi phỏng vấn.
+            </p>
+            @if (questions is not null)
+            {
+                @if (questions.IsOffline)
+                {
+                    <div class="warn-note">
+                        📴 Bộ câu hỏi này dựng bằng công thức đối chiếu Tech Stack ngoại tuyến, không phải
+                        mô hình AI — dùng như danh sách gợi ý cơ bản.
+                    </div>
+                }
+                <ol class="q-list">
+                    @foreach (var q in questions.Items)
+                    {
+                        <li class="q-item">
+                            <div class="q-text">@q.Question</div>
+                            <span class="tag">@q.Category</span>
+                            @if (!string.IsNullOrWhiteSpace(q.Hint))
+                            {
+                                <div class="q-hint">💡 Gợi ý trả lời: @q.Hint</div>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+            @if (prepBlockedReason is null)
+            {
+                <form method="post" action="@($"/my-applications/{app.Id}/interview-prep")" style="margin-top:12px">
+                    <AntiforgeryField />
+                    <button class="btn-ai" type="submit">@(questions is null ? "💬 Tạo bộ câu hỏi luyện phỏng vấn" : "🔄 Tạo bộ câu hỏi mới")</button>
+                </form>
+                <p class="sub" style="margin-top:8px">🔐 Nội dung CV của bạn có thể được gửi tới dịch vụ AI (Google Gemini) để soạn câu hỏi.</p>
+            }
+            else if (app.Status == ApplicationStatus.Interview)
+            {
+                <p class="sub" style="margin-top:12px">@prepBlockedReason</p>
+            }
+        </div>
+    }
+
     <div class="panel" style="margin-top:16px">
         <h2>🧭 Đánh giá độ phù hợp & Gợi ý lộ trình cho bạn</h2>
         <AiEvaluationCard Eval="app.Ai" ForStudent="true" />
@@ -93,7 +143,11 @@ else
 @code {
     [Parameter] public int AppId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
     private CandidateApplicationView? app;
+    private InterviewQuestionSet? questions;
+    private string? prepBlockedReason;
 
     protected override async Task OnInitializedAsync()
     {
@@ -102,5 +156,9 @@ else
         // Bản chiếu riêng cho ứng viên, lọc chủ đơn ngay trong SQL: đơn của người khác trả
         // null giống hệt đơn không tồn tại, và không có byte[] CV nào đi kèm.
         app = uid > 0 ? Applications.GetForCandidate(AppId, uid) : null;
+        if (app is null) return;
+
+        questions = InterviewPrep.Get(AppId, uid);
+        prepBlockedReason = InterviewPrep.WhyNot(AppId, uid);
     }
 }

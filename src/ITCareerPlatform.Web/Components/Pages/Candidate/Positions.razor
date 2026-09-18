@@ -90,10 +90,16 @@ else if (!hasCv)
                 <span class="@Ui.LevelClass(j.Level)">@j.Level</span>
                 <span class="chip">@j.EmploymentType</span>
             </div>
-            <h3><a href="@($"/positions/{j.Id}")" style="color: inherit; text-decoration: none;">@j.Title</a></h3>
+            <h3><a class="job-title-link" href="@($"/positions/{j.Id}")">@j.Title</a></h3>
             @* P1-1: tên công ty ngay dưới tiêu đề. Không có nó, sinh viên bấm "Ứng tuyển ngay"
                mà không biết mình đang nộp hồ sơ cho ai. *@
             <div class="sub" style="margin:-4px 0 6px 0">🏢 @(j.Company?.Name ?? "Chưa cập nhật")</div>
+            @* Trích mở đầu JD để sinh viên biết công việc là gì trước khi bấm vào — chỉ tag công
+               nghệ thì không nói được vị trí này làm gì hằng ngày. Bản đầy đủ ở trang chi tiết. *@
+            @if (!string.IsNullOrWhiteSpace(j.Description))
+            {
+                <p class="job-excerpt">@j.Description</p>
+            }
             <div class="job-tags">
                 @foreach (var t in j.TechStackList)
                 {
@@ -107,6 +113,7 @@ else if (!hasCv)
                 <span>👥 @counts.GetValueOrDefault(j.Id) ứng viên</span>
             </div>
             <div class="job-card-foot">
+                <div>
                 @if (appliedStatus.TryGetValue(j.Id, out var status))
                 {
                     if (status == ApplicationStatus.Withdrawn)
@@ -129,6 +136,8 @@ else if (!hasCv)
                         <button class="btn-sm" type="submit">Ứng tuyển ngay</button>
                     </form>
                 }
+                </div>
+                <a class="btn-sm ghost" href="@($"/positions/{j.Id}")">Xem chi tiết JD →</a>
             </div>
         </div>
     }

@@ -149,6 +149,27 @@ public class HttpEndpointTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.StartsWith("text/csv", ok.Content.Headers.ContentType?.ToString());
     }
 
+    // ===== Trang chi tiết tin =====
+
+    /// <summary>
+    /// Trang chi tiết từng hiển thị bản tin nạp bằng Find (không kèm Company), nên khối giới
+    /// thiệu công ty không bao giờ hiện. Kiểm cả JD và yêu cầu nằm trên trang.
+    /// </summary>
+    [Fact]
+    public async Task JobDetail_ShowsCompany_JD_AndRequirements()
+    {
+        var student = await LoginAs("khoa@itcp.vn");
+        var job = app.Query(db => db.Jobs.Include(j => j.Company).Single(j => j.Title == "DevOps Engineer"));
+
+        // So trên văn bản đã giải mã: Razor mã hóa ký tự tiếng Việt thành thực thể HTML.
+        var html = WebUtility.HtmlDecode(await student.GetStringAsync($"/positions/{job.Id}"));
+
+        Assert.Contains($"🏢 {job.Company!.Name}", html);
+        Assert.Contains("Mô tả công việc (JD)", html);
+        Assert.Contains(job.Description.Split('\n')[0].Trim(), html);
+        Assert.Contains("Yêu cầu ứng viên", html);
+    }
+
     // ===== Đăng xuất =====
 
     /// <summary>
@@ -195,7 +216,7 @@ public class HttpEndpointTests(AppFactory app) : IClassFixture<AppFactory>
         var detail = await admin.GetAsync($"/applications/{appId}");
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
         var detailHtml = await detail.Content.ReadAsStringAsync();
-        foreach (var action in new[] { "/ai-evaluate", "/ai-questions", "/hr-score", "/status\"", "/internal-note" })
+        foreach (var action in new[] { "/ai-evaluate", "/status\"" })
             Assert.DoesNotContain(action, detailHtml);
 
         // Trang tạo tin: không vào được.
@@ -209,8 +230,7 @@ public class HttpEndpointTests(AppFactory app) : IClassFixture<AppFactory>
                  {
                      ($"/jobs/{jobId}/close", []),
                      ($"/applications/{appId}/status", [("status", ApplicationStatus.Rejected)]),
-                     ($"/applications/{appId}/hr-score", [("agree", "0"), ("hrScore", "10"), ("hrNote", "Admin tự chốt điểm.")]),
-                     ($"/applications/{appId}/internal-note", [("internalNote", "Ghi chú của Admin")]),
+                     ($"/applications/{appId}/ai-evaluate", []),
                      ($"/jobs/{jobId}/applicants/bulk-status", [("status", ApplicationStatus.Rejected), ("applicationId", appId.ToString())]),
                  })
         {
@@ -229,8 +249,6 @@ public class HttpEndpointTests(AppFactory app) : IClassFixture<AppFactory>
         });
         Assert.Equal(JobStatus.Open, after.Job);
         Assert.NotEqual(ApplicationStatus.Rejected, after.App.Status);
-        Assert.NotEqual(10, after.App.HrScore);
-        Assert.Null(after.App.InternalNote);
     }
 
     // ===== P1-1: hai endpoint công ty từng bị xóa nhầm =====

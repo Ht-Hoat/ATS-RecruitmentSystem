@@ -100,7 +100,7 @@ public static class AiConsentGate
 {
     public const string BlockedForMentor =
         "Ứng viên chưa đồng ý cho hệ thống gửi CV tới dịch vụ AI để phân tích, nên không chạy " +
-        "đánh giá được. Bạn vẫn xem CV, chấm điểm và đổi trạng thái đơn bình thường.";
+        "đánh giá được. Bạn vẫn xem CV và mời phỏng vấn hoặc từ chối bình thường.";
 
     public const string BlockedForStudent =
         "Bạn cần đồng ý cho hệ thống gửi CV tới dịch vụ AI trước khi chạy đánh giá. " +
@@ -212,7 +212,6 @@ public interface IApplicationService
     /// </summary>
     bool CanModify(int appId, int actorUserId);
     void SaveAiEvaluation(int appId, AiEvaluation eval);                  // ATS-13/14
-    void SaveHrScore(int appId, int hrScore, string note, int actorUserId); // ATS-16
     bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message); // ATS-17
     /// <summary>
     /// N1.E: đổi trạng thái kèm lịch phỏng vấn. Bắt buộc có lịch khi chuyển sang "Phỏng vấn";
@@ -234,15 +233,9 @@ public interface IApplicationService
     bool Withdraw(int appId, int candidateUserId, out string message);
     List<ApplicationStatusHistory> GetStatusHistory(int appId);
 
-    // ===== N1.B: ghi chú nội bộ của Mentor =====
-    // Hỏi riêng chứ không gắn vào ApplicationDetail: record đó dùng chung cho cả trang
-    // Mentor lẫn trang Sinh viên. Chỗ gọi phải đi qua CanAccess trước.
-    InternalNoteView? GetInternalNote(int appId);
-    void SaveInternalNote(int appId, string? note, int actorUserId);
-
-    // ===== N1.C: bộ câu hỏi phỏng vấn do AI sinh =====
-    // Cũng nằm ngoài ApplicationDetail, cùng lý do với ghi chú nội bộ: đưa trước bộ câu
-    // hỏi cho ứng viên thì buổi phỏng vấn không còn đo được gì nữa.
+    // ===== N1.C: bộ câu hỏi luyện phỏng vấn do AI sinh =====
+    // Dành cho SINH VIÊN chuẩn bị buổi phỏng vấn đã được mời; đọc/ghi qua InterviewPrepService,
+    // nơi kiểm chủ đơn, trạng thái và sự đồng ý xử lý dữ liệu.
     InterviewQuestionSet? GetAiQuestions(int appId);
     void SaveAiQuestions(int appId, InterviewQuestionSet set);
 
@@ -453,9 +446,6 @@ public record BulkStatusResult(int Updated, IReadOnlyList<string> Failures, int 
     }
 }
 
-/// <summary>N1.B: ghi chú nội bộ kèm người ghi và thời điểm. Chỉ trả về cho Mentor/Admin.</summary>
-public record InternalNoteView(string Note, int ByUserId, DateTime At);
-
 /// <summary>Kết quả đánh giá đã lưu — dùng chung cho thẻ hiển thị của Mentor và Sinh viên.</summary>
 public record AiResult(int? Score, string? Strengths, string? Missing, string? Roadmap, string? Source)
 {
@@ -491,8 +481,8 @@ public record ApplicationDetail(
     string CvFileNameSnapshot, bool HasCv,
     int? AiScore, string? AiStrengths, string? AiMissing, string? AiRoadmap, string? AiSource,
     int? HrScore, string? HrNote, int? HrScoreByUserId, DateTime? HrAdjustedAt,
-    // P1-4: phản hồi gửi ứng viên. HrNote là lý do chốt điểm — record này chỉ dành cho nhà
-    // tuyển dụng nên được phép mang; InternalNote thì hỏi riêng qua GetInternalNote.
+    // HrScore/HrNote/HrScoreByUserId: điểm chốt tay từ bản cũ — không còn nhập mới, giữ để đơn
+    // cũ vẫn đọc được. P1-4: CandidateFeedback là phản hồi gửi ứng viên khi từ chối.
     string? CandidateFeedback,
     int CandidateUserId, string FullName, string Email, string Phone, DateTime? DateOfBirth,
     string Address, string Education, string Experience, string Skills,
@@ -1848,45 +1838,6 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         db.SaveChanges();
     }
 
-    // ATS-16: Mentor điều chỉnh điểm (không đụng tới AiScore)
-    internal const int HrNoteMinLength = 10;
-    internal const int HrNoteMaxLength = 500;   // khớp [MaxLength(500)] của Application.HrNote
-
-    public void SaveHrScore(int appId, int hrScore, string note, int actorUserId = 0)
-    {
-        // Luật phát biểu Ở ĐÂY chứ không chỉ ở endpoint hay ở min/max/minlength/maxlength của
-        // thẻ input. Thiếu bước kiểm độ dài, một request tự tạo với lý do 600 ký tự đi thẳng
-        // xuống SQL Server và nổ thành "String or binary data would be truncated" — lỗi 500.
-        // Điểm ngoài khoảng bị TỪ CHỐI chứ không lặng lẽ kẹp về 0-100: 150 là lỗi nhập liệu,
-        // không phải ý định chấm 100.
-        if (hrScore is < 0 or > 100)
-            throw new ArgumentException("Điểm điều chỉnh phải từ 0 đến 100.");
-        var text = (note ?? "").Trim();
-        if (text.Length < HrNoteMinLength)
-            throw new ArgumentException($"Vui lòng nhập lý do điều chỉnh (≥ {HrNoteMinLength} ký tự).");
-        if (text.Length > HrNoteMaxLength)
-            throw new ArgumentException($"Lý do điều chỉnh tối đa {HrNoteMaxLength} ký tự.");
-
-        // actorUserId = 0 là đường hệ thống (seed, job nền) — không có người để kiểm quyền.
-        if (actorUserId > 0 && !CanModify(appId, actorUserId))
-            throw new UnauthorizedAccessException("Chỉ Mentor tạo tin mới chốt điểm được cho đơn này.");
-
-        var a = db.Applications.Find(appId);
-        if (a is null) return;
-        a.HrScore = hrScore;
-        a.HrNote = text;
-        a.HrAdjustedAt = UtcNow;
-        // P1-5: ghi đè bằng người chấm MỚI NHẤT — "% chốt bởi ai" phải khớp với con số đang
-        // hiển thị, chứ không phải với người đầu tiên từng chấm.
-        a.HrScoreByUserId = actorUserId > 0 ? actorUserId : null;
-        db.SaveChanges();
-
-        // Chỉ ghi con số, KHÔNG ghi lý do: HrNote là nhận định của Mentor về ứng viên, cùng loại
-        // với InternalNote — mà nội dung InternalNote cũng đã được giữ ngoài nhật ký hệ thống.
-        audit?.Record(actorUserId, "Score Applicant", "Applications",
-            $"Chốt {a.HrScore}% cho đơn #{appId}.");
-    }
-
     // ATS-17: đổi trạng thái + ghi lịch sử + thông báo cho SV (cùng transaction)
     public bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message) =>
         UpdateStatus(appId, newStatus, null, actorUserId, out message);
@@ -2291,35 +2242,6 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
             // thay vì để cả trang chi tiết ứng viên đổ lỗi 500 vì một cột hỏng.
             return null;
         }
-    }
-
-    // ===== N1.B: ghi chú nội bộ của Mentor =====
-
-    public InternalNoteView? GetInternalNote(int appId) =>
-        db.Applications.AsNoTracking()
-            .Where(a => a.Id == appId && a.InternalNote != null && a.InternalNote != "")
-            .Select(a => new InternalNoteView(
-                a.InternalNote!, a.InternalNoteByUserId ?? 0, a.InternalNoteAt ?? a.AppliedAt))
-            .FirstOrDefault();
-
-    public void SaveInternalNote(int appId, string? note, int actorUserId)
-    {
-        if (!CanModify(appId, actorUserId))
-            throw new UnauthorizedAccessException("Chỉ Mentor tạo tin mới ghi chú được cho đơn này.");
-
-        var a = db.Applications.Find(appId);
-        if (a is null) return;
-
-        var text = Clip(note, 2000);
-        a.InternalNote = text;
-        a.InternalNoteByUserId = text is null ? null : actorUserId;
-        a.InternalNoteAt = text is null ? null : UtcNow;
-        db.SaveChanges();
-
-        // NỘI DUNG ghi chú không đi vào nhật ký: nhật ký hệ thống thì Admin đọc được, còn
-        // ghi chú là nhận định riêng của Mentor về ứng viên. Chỉ ghi lại việc đã có thao tác.
-        audit?.Record(actorUserId, text is null ? "Clear Internal Note" : "Save Internal Note",
-            "Applications", $"Ghi chú nội bộ đơn #{appId}.");
     }
 
     public List<ApplicationStatusHistory> GetStatusHistory(int appId) =>

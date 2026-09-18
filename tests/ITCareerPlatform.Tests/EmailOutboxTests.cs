@@ -133,16 +133,15 @@ public class EmailOutboxTests
 
     /// <summary>
     /// RANH GIỚI: email đi ra khỏi hệ thống và có thể được chuyển tiếp cho bất kỳ ai, nên
-    /// tuyệt đối không mang điểm số hay ghi chú nội bộ của Mentor.
+    /// tuyệt đối không mang điểm số hay nhận xét của AI.
     /// </summary>
     [Fact]
-    public void RejectionEmail_CarriesFeedback_ButNeverScoresOrInternalNotes()
+    public void RejectionEmail_CarriesFeedback_ButNeverScores()
     {
         using var t = new TestDb();
         var (appId, m, _, _) = Seed(t, ApplicationStatus.Interview);
         var svc = NewSvc(t);
-        svc.SaveHrScore(appId, 37, "Yếu phần thuật toán, không nên tuyển.", m.Id);
-        svc.SaveInternalNote(appId, "Ứng viên nói chuyện lan man, không tập trung.", m.Id);
+        svc.SaveAiEvaluation(appId, new AiEvaluation(37, "Nền tảng ổn", "Yếu phần thuật toán", "Luyện thêm", EvaluationSource.Offline));
 
         svc.UpdateStatus(appId, ApplicationStatus.Rejected, null,
             "Bạn nên bổ sung kinh nghiệm thực tế với hệ thống phân tán.", m.Id, out _);
@@ -151,7 +150,6 @@ public class EmailOutboxTests
         Assert.Contains("hệ thống phân tán", mail.Body);
         Assert.DoesNotContain("37", mail.Body);
         Assert.DoesNotContain("thuật toán", mail.Body);
-        Assert.DoesNotContain("lan man", mail.Body);
     }
 
     // ===== Nội dung .ics =====

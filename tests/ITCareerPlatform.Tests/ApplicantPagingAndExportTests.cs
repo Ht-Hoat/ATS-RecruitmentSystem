@@ -202,21 +202,19 @@ public class ApplicantPagingAndExportTests
 
     /// <summary>
     /// Tệp CSV rời khỏi hệ thống và thường được gửi qua email hay chat, nên không được mang
-    /// theo nội dung CV, ghi chú nội bộ hay câu hỏi phỏng vấn.
+    /// theo nội dung CV hay câu hỏi phỏng vấn.
     /// </summary>
     [Fact]
-    public void Csv_NeverCarriesCvOrInternalNotes()
+    public void Csv_NeverCarriesCvContent()
     {
         using var t = new TestDb();
-        var (job, m) = SeedApplicants(t, 1);
+        var (job, _) = SeedApplicants(t, 1);
         var svc = NewSvc(t);
-        var appId = t.NewContext().Applications.Single().Id;
-        svc.SaveInternalNote(appId, "Ghi chú tuyệt mật về ứng viên", m.Id);
 
         var csv = Encoding.UTF8.GetString(CsvExport.Applicants(svc.GetByJob(job.Id)));
 
-        Assert.DoesNotContain("tuyệt mật", csv);
         Assert.DoesNotContain("%PDF", csv);
+        Assert.DoesNotContain("% chốt", csv);   // cột điểm chốt tay đã bỏ
     }
 
     [Fact]

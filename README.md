@@ -56,10 +56,9 @@ Xác thực **Cookie**, phân quyền theo **Role** (`Admin` / `Mentor` / `SinhV
 | ATS-11/12 | Mentor xem DS + chi tiết hồ sơ + tải CV | `JobApplicants.razor`, `ApplicantDetail.razor` |
 | ATS-13/14 | AI **đánh giá độ phù hợp + gợi ý lộ trình** (Mentor & SV cùng xem) | `GeminiAiService`, `AiEvaluationCard`, `MyApplicationDetail.razor` |
 | ATS-15 | Xếp hạng + phân màu theo **% phù hợp** | `JobApplicants.razor`, `Ui.ScoreClass` |
-| ATS-16 | Human-in-the-loop (HrScore ≠ AiScore) | `ApplicationService.SaveHrScore` |
+| ATS-16 | Human-in-the-loop: điểm AI chỉ để tham khảo/xếp hạng; quyết định cuối (mời phỏng vấn / từ chối / nhận) do Mentor chọn | `ApplicantDetail.razor` (thẻ quyết định), `ApplicationService.UpdateStatus` |
 | ATS-17 | Trạng thái 5 bước + lịch sử timeline | `ApplicationService.UpdateStatus`, `ApplicationStatusHistory` |
 | ATS-18 | Dashboard biểu đồ | `DashboardAnalytics.razor` (Chart.js) |
-| ITC-01/02/03 | Tài nguyên IT: cổng việc, mẫu CV, roadmap+checklist | `Pages/Resources/*` |
 | **NTF-01** | Thông báo cho SV khi đổi trạng thái | `NotificationService`, chuông ở `MainLayout` |
 | **SEC-01** | Quét CV an toàn (chặn exe/EICAR) | `CvScanner` |
 | **TST-01/02/03** | Kiểm thử tự động | `tests/ITCareerPlatform.Tests/*` |
@@ -77,11 +76,11 @@ AI đóng vai **cố vấn hướng nghiệp**: với mỗi đơn, trả về **
 - Mật khẩu băm **BCrypt**. API key để trong `appsettings.Development.json` (đã `.gitignore`).
 - CV bị **quét** trước khi lưu: chặn tệp thực thi (MZ/ELF) và chữ ký thử virus EICAR.
 - Phân quyền endpoint bằng `RequireAuthorization(RequireRole(...))` + `[Authorize]` trên trang.
-- **Mentor chỉ xem/thao tác ứng viên của tin do chính mình tạo.** Admin **chỉ xem** phần tuyển dụng (mọi tin, ứng viên, thống kê) để giám sát; đăng/sửa/đóng tin, chấm AI, chốt điểm, đổi trạng thái, ghi chú, xuất CSV đều chỉ Mentor tạo tin làm được — kiểm ở tầng service (`CanView` / `CanModify`), không chỉ ẩn nút.
+- **Mentor chỉ xem/thao tác ứng viên của tin do chính mình tạo.** Admin **chỉ xem** phần tuyển dụng (mọi tin, ứng viên, thống kê) để giám sát; đăng/sửa/đóng tin, chấm AI, mời phỏng vấn, từ chối, nhận, xuất CSV đều chỉ Mentor tạo tin làm được — kiểm ở tầng service (`CanView` / `CanModify`), không chỉ ẩn nút.
 
 ## 🩹 Các điểm nghẽn đã xử lý (bản review)
 - **Hiệu năng:** danh sách ứng viên/đơn dùng **projection DTO** (`ApplicantListItem`, `MyApplicationItem`) nên KHÔNG kéo `byte[]` CV về khi chỉ hiển thị bảng; số ứng viên đếm 1 lần bằng `CountAllByJob()` (bỏ N+1).
-- **Bảo mật:** vá lỗ hổng leo quyền ngang — Mentor không truy cập được đơn của tin người khác (trang + 4 endpoint: tải CV, đánh giá AI, điều chỉnh điểm, đổi trạng thái).
+- **Bảo mật:** vá lỗ hổng leo quyền ngang — Mentor không truy cập được đơn của tin người khác (trang + các endpoint: tải CV, đánh giá AI, đổi trạng thái).
 - **Nghiệp vụ:** chặn ứng tuyển khi **quá hạn nộp** (`Deadline`), ẩn tin hết hạn khỏi `/positions`; bắt `DbUpdateException` khi 2 request nộp trùng cùng lúc → báo thân thiện thay vì lỗi 500; thêm trang lỗi chung `/error`.
 
 ## 📌 Hạn chế đã biết & hướng phát triển

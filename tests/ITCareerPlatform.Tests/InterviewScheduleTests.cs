@@ -211,72 +211,7 @@ public class InterviewScheduleTests
         Assert.True(n.Title.Length <= 160);
     }
 
-    // ===== N1.B: ghi chú nội bộ =====
-
-    [Fact]
-    public void SaveInternalNote_RoundTrips_WithAuthorAndTimestamp()
-    {
-        using var t = new TestDb();
-        var (appId, m, _) = Seed(t);
-        var svc = NewSvc(t);
-
-        svc.SaveInternalNote(appId, "  Ứng viên mạnh về SQL, cần hỏi kỹ về Docker.  ", m.Id);
-
-        var note = svc.GetInternalNote(appId);
-        Assert.NotNull(note);
-        Assert.Equal("Ứng viên mạnh về SQL, cần hỏi kỹ về Docker.", note!.Note);   // đã trim
-        Assert.Equal(m.Id, note.ByUserId);
-        Assert.True(note.At <= DateTime.UtcNow);
-    }
-
-    [Fact]
-    public void GetInternalNote_WhenNeverWritten_IsNull()
-    {
-        using var t = new TestDb();
-        var (appId, _, _) = Seed(t);
-
-        Assert.Null(NewSvc(t).GetInternalNote(appId));
-    }
-
-    [Fact]
-    public void SaveInternalNote_EmptyText_ClearsNoteAndAuthor()
-    {
-        using var t = new TestDb();
-        var (appId, m, _) = Seed(t);
-        var svc = NewSvc(t);
-        svc.SaveInternalNote(appId, "ghi chú cũ", m.Id);
-
-        svc.SaveInternalNote(appId, "   ", m.Id);
-
-        Assert.Null(svc.GetInternalNote(appId));
-        var a = t.NewContext().Applications.Find(appId)!;
-        Assert.Null(a.InternalNote);
-        Assert.Null(a.InternalNoteByUserId);
-        Assert.Null(a.InternalNoteAt);
-    }
-
-    /// <summary>
-    /// Ghi chú nội bộ KHÔNG được nằm trong ApplicationDetail: record đó là thứ trang
-    /// /my-applications/{id} của sinh viên đọc. Đây là ranh giới của N1.B.
-    /// </summary>
-    [Fact]
-    public void ApplicationDetail_DoesNotExposeInternalNote()
-    {
-        using var t = new TestDb();
-        var (appId, m, _) = Seed(t);
-        var svc = NewSvc(t);
-        svc.SaveInternalNote(appId, "Không được lộ ra cho ứng viên", m.Id);
-
-        var detail = svc.GetDetail(appId)!;
-
-        var names = typeof(ApplicationDetail).GetProperties().Select(p => p.Name).ToList();
-        Assert.DoesNotContain("InternalNote", names);
-        Assert.DoesNotContain("InternalNoteByUserId", names);
-        Assert.DoesNotContain("InternalNoteAt", names);
-        Assert.NotNull(detail);
-    }
-
-    /// <summary>Ngược lại, lịch phỏng vấn PHẢI có trong ApplicationDetail — sinh viên cần đọc.</summary>
+    /// <summary>Lịch phỏng vấn PHẢI có trong ApplicationDetail — sinh viên cần đọc.</summary>
     [Fact]
     public void ApplicationDetail_CarriesInterviewSchedule()
     {
