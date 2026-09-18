@@ -55,7 +55,7 @@ public class ProfileServiceTests
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var svc = new ProfileService(t.Db, t.CvStorage);
 
-        var (ok, err) = await svc.SaveCvAsync(sv.Id, Encoding.UTF8.GetBytes("%PDF-1.4 noi dung cv"), "cv.pdf", "application/pdf");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, Encoding.UTF8.GetBytes("%PDF-1.4 noi dung cv"), "cv.pdf", "application/pdf", aiConsentGiven: true);
 
         Assert.True(ok);
         Assert.Null(err);

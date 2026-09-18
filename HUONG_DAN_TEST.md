@@ -30,7 +30,7 @@ dotnet test --filter "FullyQualifiedName~AiServiceTests"
 | Tệp test | Story | Kịch bản kiểm thử |
 |----------|-------|-------------------|
 | `UserServiceTests` | ATS-01/02, EXT-01 | Đăng ký tạo SV (RoleId=3), mật khẩu **băm BCrypt** (không plaintext), email trùng, mật khẩu < 8 ký tự, đổi vai trò ghi **AuditLog**, khóa/mở khóa |
-| `JobServiceTests` | ATS-04/05/07 | Tạo tin → Open, lương max<min → lỗi, lọc theo **Category**, tìm **TechStack** không phân biệt hoa thường, chỉ trả tin Open, chặn sửa tin **Closed**, chặn sửa khi **không phải chủ tin/Admin**, Admin sửa được |
+| `JobServiceTests` | ATS-04/05/07 | Tạo tin → Open, lương max<min → lỗi, lọc theo **Category**, tìm **TechStack** không phân biệt hoa thường, chỉ trả tin Open, chặn sửa tin **Closed**, chặn sửa khi **không phải Mentor chủ tin** (kể cả Admin — Admin chỉ xem, xem `AdminReadOnlyTests`) |
 | `ApplicationServiceTests` | ATS-10/15/16/17 | **5 kịch bản Apply** (tin đóng / chưa hồ sơ / chưa CV / trùng / hợp lệ), **đóng băng CV vào đơn** (SV đổi CV sau không ảnh hưởng đơn cũ), đổi trạng thái ghi **lịch sử** + tạo **thông báo** (NTF-01), **HrScore không ghi đè AiScore** + FinalScore ưu tiên HrScore, xếp hạng theo % phù hợp giảm dần |
 | `ProfileServiceTests` | ATS-08/09, SEC-01 | Lưu 4 trường IT, URL GitHub sai → lỗi, upload CV hợp lệ → HasCv, **chặn EICAR (mã độc)**, sai định dạng, quá 5MB |
 | `AiServiceTests` | ATS-13/14 (TST-03) | Khớp tech cao → **%≥70**, không khớp → **≤40** kèm lộ trình, **tất định**, % luôn trong [0,100], trả đủ 3 mục Điểm mạnh/Thiếu sót/Lộ trình |

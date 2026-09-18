@@ -633,6 +633,13 @@ public class SelfCheck
     /// có trần; không có hạn mức thì một người bấm liên tục là cả hệ thống mất tính năng này.
     /// </summary>
     public const int DailyLimit = 5;
+
+    /// <summary>
+    /// Giá trị Source của một lượt ĐÃ GIỮ CHỖ nhưng chưa có kết quả. Lượt được giữ chỗ (đếm
+    /// vào hạn mức) TRƯỚC khi gọi AI, để năm request song song không cùng lọt qua bước đếm.
+    /// Lượt đang chờ không bao giờ được hiện ra như một kết quả.
+    /// </summary>
+    public const string PendingSource = "Pending";
 }
 
 // ===== NTF-01: Thông báo cho Sinh viên IT =====

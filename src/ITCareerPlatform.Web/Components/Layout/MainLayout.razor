@@ -20,54 +20,79 @@
                         <a href="/dashboard">Thống kê</a>
                     </AuthorizeView>
 
+                    @* "Hồ sơ của tôi" không còn ở đây: nó thuộc về TÀI KHOẢN, nên nằm trong menu tài
+                       khoản ở góc dưới — cùng chỗ với đổi mật khẩu và đăng xuất. Nhóm "Tài nguyên IT"
+                       cũng bỏ khỏi thanh bên; ba trang đó vào từ Trang chủ sinh viên. *@
                     <AuthorizeView Roles="@Roles.Student" Context="c">
                         <a href="/positions">Việc làm IT</a>
-                        <a href="/profile">Hồ sơ của tôi</a>
                         <a href="/my-applications">Đơn của tôi</a>
-                        <div class="nav-group">Tài nguyên IT</div>
-                        <a href="/resources">Cổng tuyển dụng</a>
-                        <a href="/toolkit">Roadmap & Checklist</a>
                     </AuthorizeView>
                 </nav>
 
-                <div class="userbox">
-                    @if (showBell)
-                    {
-                        <details class="bell">
-                            <summary>🔔 Thông báo @if (unread > 0) { <span class="badge-dot">@unread</span> }</summary>
-                            <div class="bell-list">
-                                @if (items.Count == 0)
-                                {
-                                    <div class="bell-empty">Chưa có thông báo.</div>
-                                }
-                                @foreach (var n in items)
-                                {
-                                    @* Chỉ gửi id. Đường dẫn chuyển tới được đọc từ CSDL ở phía server —
-                                       trước đây nó là một ô ẩn trong form, tức là do client quyết định. *@
-                                    <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
-                                        <AntiforgeryField />
-                                        <button type="submit">
-                                            <b>@n.Title</b>
-                                            <span>@n.Message</span>
-                                            <i>@Ui.ShortDateTimeText(n.CreatedAt)</i>
-                                        </button>
-                                    </form>
-                                }
-                            </div>
-                        </details>
-                    }
-                    <div class="uname">@context.User.Identity?.Name</div>
-                    <div class="urole">@Roles.Display(roleName)</div>
-                    @* N1.A: nằm ngoài mọi AuthorizeView theo vai trò — cả ba vai trò đều đổi được. *@
-                    <a class="userlink" href="/change-password">🔑 Đổi mật khẩu</a>
-                    <form method="post" action="/account/logout"><button class="btn-out" type="submit">Đăng xuất</button></form>
-                        <AntiforgeryField />
-                </div>
+                @* Menu tài khoản: bấm vào tên để mở. Dùng <details> nên chạy được cả khi trang
+                   không có JavaScript (trang render tĩnh); script trong App.razor chỉ thêm việc
+                   đóng menu khi bấm ra ngoài. *@
+                <details class="account dropdown">
+                    <summary title="@context.User.Identity?.Name — bấm để mở menu tài khoản">
+                        <span class="avatar">@Initials(context.User.Identity?.Name)</span>
+                        <span class="who">
+                            <span class="uname">@context.User.Identity?.Name</span>
+                            <span class="urole">@Roles.Display(roleName)</span>
+                        </span>
+                        <span class="caret">▴</span>
+                    </summary>
+                    <div class="menu menu-up">
+                        <AuthorizeView Roles="@Roles.Student" Context="s">
+                            <a href="/profile">👤 Hồ sơ của tôi</a>
+                        </AuthorizeView>
+                        @* N1.A: cả ba vai trò đều đổi được mật khẩu. *@
+                        <a href="/change-password">🔑 Đổi mật khẩu</a>
+                        <div class="menu-sep"></div>
+                        <form method="post" action="/account/logout">
+                            <AntiforgeryField />
+                            <button class="menu-danger" type="submit">↩ Đăng xuất</button>
+                        </form>
+                    </div>
+                </details>
             </Authorized>
         </AuthorizeView>
     </aside>
     <main class="content">
-        @Body
+        @if (showBell)
+        {
+            @* Thanh đầu trang mảnh, chuông ở bên phải — chỗ người dùng quen tìm thông báo, và
+               tách khỏi menu tài khoản để không lẫn "việc cần xem" với "cài đặt của tôi". *@
+            <header class="topbar">
+                <details class="bell dropdown">
+                    <summary title="Thông báo" aria-label="Thông báo">
+                        🔔 @if (unread > 0) { <span class="badge-dot">@unread</span> }
+                    </summary>
+                    <div class="menu menu-down bell-list">
+                        <div class="bell-head">Thông báo</div>
+                        @if (items.Count == 0)
+                        {
+                            <div class="bell-empty">Chưa có thông báo.</div>
+                        }
+                        @foreach (var n in items)
+                        {
+                            @* Chỉ gửi id. Đường dẫn chuyển tới được đọc từ CSDL ở phía server —
+                               trước đây nó là một ô ẩn trong form, tức là do client quyết định. *@
+                            <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
+                                <AntiforgeryField />
+                                <button type="submit">
+                                    <b>@n.Title</b>
+                                    <span>@n.Message</span>
+                                    <i>@Ui.ShortDateTimeText(n.CreatedAt)</i>
+                                </button>
+                            </form>
+                        }
+                    </div>
+                </details>
+            </header>
+        }
+        <div class="page">
+            @Body
+        </div>
     </main>
 </div>
 
@@ -94,5 +119,17 @@
 
         items = Notifs.GetForUser(uid, 8);
         unread = Notifs.CountUnread(uid);
+    }
+
+    /// <summary>Hai chữ cái đầu cho ô avatar: "Phạm Thị Lan" → "PL" (chữ đầu của họ và của tên).</summary>
+    private static string Initials(string? fullName)
+    {
+        var parts = (fullName ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "?",
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => (parts[0][..1] + parts[^1][..1]).ToUpperInvariant()
+        };
     }
 }

@@ -144,7 +144,7 @@ public class CvStorageTests : IDisposable
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var svc = new ProfileService(t.Db, t.CvStorage);
 
-        var (ok, err) = await svc.SaveCvAsync(sv.Id, Pdf("noi dung cv"), "cv.pdf", "application/pdf");
+        var (ok, err) = await svc.SaveCvAsync(sv.Id, Pdf("noi dung cv"), "cv.pdf", "application/pdf", aiConsentGiven: true);
 
         Assert.True(ok, err);
         var p = t.NewContext().CandidateProfiles.Single(x => x.UserId == sv.Id);
@@ -187,7 +187,7 @@ public class CvStorageTests : IDisposable
         using var t = new TestDb();
         var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        await new ProfileService(t.Db, t.CvStorage).SaveCvAsync(sv.Id, Pdf("cv"), "cv.pdf", "application/pdf");
+        await new ProfileService(t.Db, t.CvStorage).SaveCvAsync(sv.Id, Pdf("cv"), "cv.pdf", "application/pdf", aiConsentGiven: true);
         var job = t.AddJob(m.Id);
         var svc = new ApplicationService(t.Db, new NotificationService(t.Db), t.CvStorage);
 

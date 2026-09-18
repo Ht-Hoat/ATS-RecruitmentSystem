@@ -167,7 +167,15 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    if (db.Database.GetMigrations().Any()) db.Database.Migrate();
+    // CSDL tạo từ bản trước khi có migration (EnsureCreated) phải được nối vào InitialCreate
+    // trước, nếu không Migrate() sẽ chạy lại CREATE TABLE và ứng dụng dừng ngay khi khởi động.
+    if (LegacySchemaBridge.ApplyIfNeeded(db))
+        app.Logger.LogWarning(
+            "Đã nối CSDL tạo bằng EnsureCreated() vào lịch sử migration ({Migration}). " +
+            "Các migration còn lại sẽ chạy ngay sau đây.", LegacySchemaBridge.InitialMigrationId);
+    // Migration chứa T-SQL (backfill ở AddCompany), nên chỉ chạy trên SQL Server. Provider
+    // khác — hiện chỉ có SQLite của test tích hợp — dựng schema thẳng từ model.
+    if (db.Database.IsSqlServer() && db.Database.GetMigrations().Any()) db.Database.Migrate();
     else db.Database.EnsureCreated();
 
     // Dữ liệu mẫu chứa 6 tài khoản dùng chung mật khẩu "123456", trong đó có một Admin.
@@ -437,13 +445,15 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
 //
 // Có SMTP thì mật khẩu tạm đi thẳng vào hộp thư người dùng và KHÔNG bao giờ xuất hiện trên
 // màn hình hay trong thanh địa chỉ. Chưa cấu hình SMTP (hoặc lần gửi vừa rồi hỏng) thì mới
-// lùi về cách cũ — hiện một lần cho Admin đọc lại cho người dùng.
+// lùi về hiện một lần cho Admin đọc lại cho người dùng — qua cookie mã hóa dùng một lần
+// (TempPasswordHandoff), KHÔNG qua thanh địa chỉ.
 //
 // Email này gửi TRỰC TIẾP chứ không qua hàng đợi EmailOutbox như ba email trạng thái: xếp
 // hàng nghĩa là mật khẩu nằm ở dạng rõ trong một cột CSDL cho tới khi gửi xong, trong khi
 // Admin lại đang đứng chờ ngay đó để biết kết quả. Gửi thẳng vừa không lưu lại gì, vừa trả
 // lời được ngay là đã tới hay chưa.
-app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IUserService svc, IEmailSender email) =>
+app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IUserService svc, IEmailSender email,
+    Microsoft.AspNetCore.DataProtection.IDataProtectionProvider dp) =>
 {
     if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error))
         return Results.Redirect("/users?err=" + Enc(error));
@@ -478,11 +488,56 @@ app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IU
             // Gửi hỏng KHÔNG được làm hỏng việc đặt lại mật khẩu — mật khẩu đã đổi rồi. Lùi
             // về hiện trên màn hình, nếu không thì tài khoản đó không ai vào được nữa.
             SafeError(ctx, ex, $"gửi mật khẩu tạm cho tài khoản #{id}");
-            return Results.Redirect("/users?tempPw=" + Enc(tempPassword) + "&mailfailed=1");
+            TempPasswordHandoff.Store(ctx, dp, CurrentUserId(ctx), tempPassword);
+            return Results.Redirect("/users?tempPw=1&mailfailed=1");
         }
     }
 
-    return Results.Redirect("/users?tempPw=" + Enc(tempPassword));
+    TempPasswordHandoff.Store(ctx, dp, CurrentUserId(ctx), tempPassword);
+    return Results.Redirect("/users?tempPw=1");
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+// ============================ COMPANIES (P1-1) ============================
+// Hai endpoint này từng bị xóa nhầm khi sửa khối reset-password ở P1-3, làm trang /companies
+// gửi form vào một đường không tồn tại — và Mentor mới không bao giờ đăng được tin vì không
+// ai gán được công ty cho họ. Test PageFormsHaveEndpointsTests giữ để chuyện đó không lặp lại.
+app.MapPost("/companies/save", async (HttpContext ctx, ICompanyService svc) =>
+{
+    var f = await ctx.Request.ReadFormAsync();
+    var id = int.TryParse(f["id"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
+    try
+    {
+        var c = svc.Save(id, new Company
+        {
+            Name = f["name"].ToString(),
+            Website = f["website"].ToString(),
+            Address = f["address"].ToString(),
+            Description = f["description"].ToString()
+        }, CurrentUserId(ctx));
+        return Results.Redirect("/companies?msg=" + Enc($"Đã lưu công ty '{c.Name}'."));
+    }
+    // Luật do CompanyService phát biểu — câu chữ viết sẵn cho người dùng đọc.
+    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
+    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, "lưu công ty"))); }
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+app.MapPost("/companies/assign/{userId:int}", async (int userId, HttpContext ctx, ICompanyService svc) =>
+{
+    var f = await ctx.Request.ReadFormAsync();
+    // Ô trống nghĩa là GỠ khỏi công ty, khác hẳn với "gửi lên một id không đọc được".
+    var raw = f["companyId"].ToString();
+    int? companyId = string.IsNullOrWhiteSpace(raw)
+        ? null
+        : int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cid) ? cid : -1;
+    if (companyId == -1) return Results.Redirect("/companies?err=" + Enc("Công ty không hợp lệ."));
+
+    try
+    {
+        svc.AssignToUser(userId, companyId, CurrentUserId(ctx));
+        return Results.Redirect("/companies?msg=" + Enc("Đã cập nhật công ty của tài khoản."));
+    }
+    catch (ArgumentException ex) { return Results.Redirect("/companies?err=" + Enc(ex.Message)); }
+    catch (Exception ex) { return Results.Redirect("/companies?err=" + Enc(SafeError(ctx, ex, $"gán công ty cho tài khoản #{userId}"))); }
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 // ============================ JOBS (ATS-04, 05, 06) ============================
@@ -514,8 +569,9 @@ app.MapPost("/jobs/create", async (HttpContext ctx, IJobService svc) =>
     try { svc.Create(ReadJobForm(f, CurrentUserId(ctx))); return Results.LocalRedirect("/jobs"); }
     // Luật nghiệp vụ do JobService.Validate phát biểu — hiện nguyên văn cho người đăng tin.
     catch (ArgumentException ex) { return Results.Redirect("/jobs/new?error=" + Enc(ex.Message)); }
+    catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
     catch (Exception ex) { return Results.Redirect("/jobs/new?error=" + Enc(SafeError(ctx, ex, "tạo tin tuyển dụng"))); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 app.MapPost("/jobs/{id:int}/update", async (int id, HttpContext ctx, IJobService svc) =>
 {
@@ -527,7 +583,7 @@ app.MapPost("/jobs/{id:int}/update", async (int id, HttpContext ctx, IJobService
     catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
     { return Results.Redirect($"/jobs/edit/{id}?error=" + Enc(ex.Message)); }
     catch (Exception ex) { return Results.Redirect($"/jobs/edit/{id}?error=" + Enc(SafeError(ctx, ex, $"sửa tin #{id}"))); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ATS-06: đóng/mở lại tin — nay truyền người thực hiện xuống service để kiểm tra quyền
 // sở hữu. Trước đây hai endpoint này chỉ chặn theo vai trò, nên bất kỳ Mentor nào cũng
@@ -537,14 +593,14 @@ app.MapPost("/jobs/{id:int}/close", (int id, HttpContext ctx, IJobService svc) =
     try { svc.Close(id, CurrentUserId(ctx)); return Results.LocalRedirect("/jobs"); }
     catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
     catch (InvalidOperationException ex) { return Results.Redirect("/jobs?err=" + Enc(ex.Message)); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 app.MapPost("/jobs/{id:int}/reopen", (int id, HttpContext ctx, IJobService svc) =>
 {
     try { svc.Reopen(id, CurrentUserId(ctx)); return Results.LocalRedirect("/jobs"); }
     catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
     catch (InvalidOperationException ex) { return Results.Redirect("/jobs?err=" + Enc(ex.Message)); }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ============================ PROFILE (ATS-08, ATS-09) ============================
 app.MapPost("/profile/save", async (HttpContext ctx, IProfileService svc) =>
@@ -594,7 +650,8 @@ app.MapPost("/profile/cv", async (HttpContext ctx, IProfileService svc) =>
     using var ms = new MemoryStream(capacity: (int)file.Length);
     await file.CopyToAsync(ms);
     // P2-3: ô tích đồng ý. Thuộc tính required trên thẻ input chỉ ràng buộc trình duyệt;
-    // luật thật nằm ở ProfileService, nên một request tự tạo không lách qua được.
+    // luật thật nằm ở ProfileService.SaveCvAsync (từ chối khi chưa đồng ý), nên một request
+    // tự tạo không lách qua được.
     var consent = f["aiConsent"].ToString() == "1";
     var (ok, err) = await svc.SaveCvAsync(uid, ms.ToArray(), file.FileName, file.ContentType, consent, ctx.RequestAborted);
     return ok ? Results.LocalRedirect("/profile?cvsaved=1")
@@ -712,15 +769,12 @@ app.MapGet("/jobs/{id:int}/applicants/export", (int id, HttpContext ctx, IJobSer
     // Content-Disposition.
     var fileName = $"ung-vien-tin-{id}-{VietnamDateHelper.Today():yyyyMMdd}.csv";
     return Results.File(CsvExport.Applicants(items), "text/csv; charset=utf-8", fileName);
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
-app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext ctx, IJobService jobs, IApplicationService svc) =>
+app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
-    // Quyền kiểm theo TIN, một lần. UpdateStatus bên trong không nhận actor để kiểm quyền
-    // sở hữu đơn, nên nếu bỏ bước này thì bất kỳ Mentor nào cũng đổi được đơn của tin khác
-    // chỉ bằng cách gửi id đơn tùy ý.
-    if (!jobs.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
-
+    // Quyền theo tin và việc bỏ các đơn không thuộc tin này đều do BulkUpdateStatus kiểm —
+    // endpoint chỉ đọc form, để luật nằm ở chỗ test được.
     var f = await ctx.Request.ReadFormAsync();
     var status = f["status"].ToString();
     var ids = f["applicationId"]
@@ -731,19 +785,12 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
     if (ids.Count == 0)
         return Results.Redirect($"/jobs/{id}/applicants?err=" + Enc("Chưa chọn đơn nào."));
 
-    // Chỉ xử lý những đơn THỰC SỰ thuộc tin này. Danh sách id đến từ form, và form là thứ
-    // người gửi request sửa được — thiếu bước lọc này thì quyền kiểm ở trên thành vô nghĩa.
-    var owned = svc.GetByJob(id, "date", null).Select(a => a.Id).ToHashSet();
-    var foreignCount = ids.Count(x => !owned.Contains(x));
-    ids = ids.Where(owned.Contains).ToList();
+    BulkStatusResult result;
+    try { result = svc.BulkUpdateStatus(id, ids, status, CurrentUserId(ctx)); }
+    catch (UnauthorizedAccessException) { return Results.LocalRedirect("/denied"); }
 
-    var result = svc.BulkUpdateStatus(ids, status, CurrentUserId(ctx));
-    var message = foreignCount == 0
-        ? result.Message
-        : $"{result.Message} ({foreignCount} đơn không thuộc tin này đã bị bỏ qua.)";
-
-    return Results.Redirect($"/jobs/{id}/applicants?" + (result.Updated > 0 ? "msg=" : "err=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+    return Results.Redirect($"/jobs/{id}/applicants?" + (result.Updated > 0 ? "msg=" : "err=") + Enc(result.Message));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ============================ MENTOR: CV + AI + STATUS (ATS-12→17) ============================
 app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplicationService svc) =>
@@ -760,7 +807,8 @@ app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplica
 // ATS-13/14: AI đánh giá độ phù hợp + gợi ý lộ trình
 app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai, IAiInputBuilder build) =>
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
+    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
 
     var a = svc.GetById(id);
     if (a?.CandidateProfile is null || a.Job is null)
@@ -787,14 +835,15 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
     {
         return Results.Redirect($"/applications/{id}?aierror=" + Enc(SafeError(ctx, ex, $"chấm điểm đơn #{id}")));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // N1.C: sinh bộ câu hỏi phỏng vấn từ CV đã nộp + JD. Kết quả được LƯU, vì trang render
 // tĩnh: sinh xong rồi redirect thì không còn gì để hiển thị, và mỗi lần mở lại trang sẽ
 // tốn thêm một lượt gọi Gemini.
 app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai, IAiInputBuilder build) =>
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
+    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
 
     var a = svc.GetById(id);
     if (a?.CandidateProfile is null || a.Job is null)
@@ -818,12 +867,13 @@ app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ct
     {
         return Results.Redirect($"/applications/{id}?qerror=" + Enc(SafeError(ctx, ex, $"sinh câu hỏi cho đơn #{id}")));
     }
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ATS-16: Mentor điều chỉnh điểm (lý do bắt buộc)
 app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
+    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
 
     var f = await ctx.Request.ReadFormAsync();
     var note = f["hrNote"].ToString().Trim();
@@ -832,27 +882,29 @@ app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, I
     var a = svc.GetDetail(id);
     if (a is null) return Results.LocalRedirect("/jobs");
 
-    if (agree)
+    if (agree && a.AiScore is null)
+        return Results.Redirect($"/applications/{id}?hrerror=" + Enc("Chưa có đánh giá AI để đồng ý."));
+
+    // Khoảng điểm và độ dài lý do do SaveHrScore phát biểu; ở đây chỉ đọc form. Chữ không
+    // đọc được thành số thì đẩy thành -1 để service trả đúng câu "0 đến 100".
+    var hr = agree ? a.AiScore!.Value
+        : int.TryParse(f["hrScore"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : -1;
+    try
     {
-        if (a.AiScore is null)
-            return Results.Redirect($"/applications/{id}?hrerror=" + Enc("Chưa có đánh giá AI để đồng ý."));
-        svc.SaveHrScore(id, a.AiScore.Value, "Đồng ý với đánh giá AI", CurrentUserId(ctx));
+        svc.SaveHrScore(id, hr, agree ? "Đồng ý với đánh giá AI" : note, CurrentUserId(ctx));
         return Results.Redirect($"/applications/{id}?hrsaved=1");
     }
-
-    if (note.Length < 10)
-        return Results.Redirect($"/applications/{id}?hrerror=" + Enc("Vui lòng nhập lý do điều chỉnh (≥ 10 ký tự)."));
-    if (!int.TryParse(f["hrScore"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hr) || hr is < 0 or > 100)
-        return Results.Redirect($"/applications/{id}?hrerror=" + Enc("Điểm điều chỉnh phải từ 0 đến 100."));
-
-    svc.SaveHrScore(id, hr, note, CurrentUserId(ctx));
-    return Results.Redirect($"/applications/{id}?hrsaved=1");
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+    catch (ArgumentException ex)
+    {
+        return Results.Redirect($"/applications/{id}?hrerror=" + Enc(ex.Message));
+    }
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ATS-17: đổi trạng thái đơn · N1.E: kèm lịch phỏng vấn khi chuyển sang "Phỏng vấn"
 app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
+    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
     var f = await ctx.Request.ReadFormAsync();
     var status = f["status"].ToString();
 
@@ -882,16 +934,17 @@ app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IAp
     // Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
     // ("thời gian phỏng vấn phải ở tương lai") hiện ra trong khung báo thành công màu xanh.
     return Results.Redirect($"/applications/{id}?" + (ok ? "statusmsg=" : "statuserr=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // N1.B: ghi chú nội bộ về ứng viên — chỉ Mentor chủ tin và Admin, không bao giờ hiện cho SV.
 app.MapPost("/applications/{id:int}/internal-note", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
-    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.LocalRedirect("/denied");
+    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
+    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
     var f = await ctx.Request.ReadFormAsync();
     svc.SaveInternalNote(id, f["internalNote"].ToString(), CurrentUserId(ctx));
     return Results.Redirect($"/applications/{id}?notesaved=1");
-}).RequireAuthorization(p => p.RequireRole(Roles.Admin, Roles.Mentor));
+}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ============================ NOTIFICATIONS (NTF-01) ============================
 app.MapPost("/notifications/{id:int}/read", (int id, HttpContext ctx, INotificationService svc) =>

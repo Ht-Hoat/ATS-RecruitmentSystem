@@ -1,5 +1,6 @@
 @page "/jobs/new"
-@attribute [Authorize(Roles = Roles.AdminOrMentor)]
+@* Chỉ Mentor đăng/sửa tin — Admin chỉ xem danh sách. *@
+@attribute [Authorize(Roles = Roles.Mentor)]
 @inject ICompanyService Companies
 
 @* Tạo tin việc IT *@

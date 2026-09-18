@@ -43,6 +43,19 @@ public sealed class TestDb : IDisposable
     }
 
     /// <summary>
+    /// Context mới, ghi lại MỌI câu SQL đã chạy vào <paramref name="sql"/> — để test khẳng định
+    /// một đường đi không đọc/ghi cột byte[] CV, thay vì tin vào lời chú thích trong code.
+    /// </summary>
+    public AppDbContext NewContext(List<string> sql)
+    {
+        var opts = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(_conn)
+            .LogTo(sql.Add, new[] { Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.CommandExecuted })
+            .Options;
+        return new AppDbContext(opts);
+    }
+
+    /// <summary>
     /// P1-1: công ty mặc định cho những test không quan tâm tới công ty.
     ///
     /// Jobs.CompanyId là NOT NULL kèm khóa ngoại, nên mọi tin đều phải thuộc về một công ty

@@ -60,7 +60,7 @@
 
     <div class="form">
         <h2 class="form-h">4 · CV của tôi</h2>
-        @if (p.HasCv)
+        @if (hasCv)
         {
             <div class="cv-current">
                 <div class="cv-icon">@(p.CvFileName?.EndsWith(".pdf") == true ? "📄" : "📝")</div>
@@ -136,40 +136,6 @@
     </div>
 </div>
 
-<!-- N2.H: Mẫu CV IT & Mẹo viết CV -->
-<div class="panel" style="margin-top:20px">
-    <div class="page-head" style="margin-bottom:10px">
-        <h2>5 · Mẫu CV IT & Mẹo viết CV</h2>
-        <a class="btn-sm" href="/cv-templates">Xem tất cả mẫu CV</a>
-    </div>
-    <p class="sub">Tham khảo mẫu CV chuẩn ngành và các mẹo giúp CV của bạn thu hút nhà tuyển dụng:</p>
-    <div class="grid3" style="margin-top:12px">
-        <div class="cv-tpl">
-            <div class="cv-tpl-thumb">🧑‍💻</div>
-            <b>Simple Clean</b>
-            <span class="sub">Software Engineer</span>
-            <a class="btn-sm" href="https://flowcv.com" target="_blank" rel="noopener">Tạo mẫu này</a>
-        </div>
-        <div class="cv-tpl">
-            <div class="cv-tpl-thumb">🛠️</div>
-            <b>Modern Tech</b>
-            <span class="sub">Full Stack Developer</span>
-            <a class="btn-sm" href="https://www.canva.com/resumes/templates/" target="_blank" rel="noopener">Tạo mẫu này</a>
-        </div>
-        <div class="cv-tpl">
-            <div class="cv-tpl-thumb">🎓</div>
-            <b>Fresher Friendly</b>
-            <span class="sub">Sinh viên mới tốt nghiệp</span>
-            <a class="btn-sm" href="https://novoresume.com" target="_blank" rel="noopener">Tạo mẫu này</a>
-        </div>
-    </div>
-    <ul class="feat" style="margin-top:14px">
-        <li>✅ Luôn đặt link GitHub/Portfolio/LinkedIn ở phần đầu hồ sơ IT để nhà tuyển dụng xem code.</li>
-        <li>✅ Dùng động từ hành động: Built, Deployed, Optimized, Automated... thay vì chỉ liệt kê chung chung.</li>
-        <li>✅ Nêu rõ Tech Stack trong từng dự án: ví dụ "C#, ASP.NET Core, React, SQL Server, Docker".</li>
-    </ul>
-</div>
-
 <script>
     function renderChips() {
         var v = document.getElementById('tagInput').value || '';
@@ -192,6 +158,9 @@
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
 
     private CandidateProfile p = new();
+    // Tính trong SQL (GetForEdit) chứ không qua p.HasCv: p là bản chiếu KHÔNG có cột CvData,
+    // nên p.HasCv sẽ nói sai "chưa có CV" với hồ sơ cũ chưa di trú sang blob storage.
+    private bool hasCv;
 
     protected override async Task OnInitializedAsync()
     {
@@ -200,7 +169,9 @@
         var uid = CurrentUser.Id(user);
         if (uid > 0)
         {
-            p = Profiles.GetByUserId(uid) ?? new CandidateProfile
+            var found = Profiles.GetForEdit(uid);
+            hasCv = found?.HasCv ?? false;
+            p = found?.Profile ?? new CandidateProfile
             {
                 FullName = user.Identity?.Name ?? "",
                 Email = user.FindFirstValue(ClaimTypes.Email) ?? ""

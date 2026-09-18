@@ -61,8 +61,10 @@ public interface IJobService
     void Update(int id, Job input, int actorUserId);        // ATS-05
     void Close(int id, int actorUserId);                    // ATS-06
     void Reopen(int id, int actorUserId);
-    /// <summary>Actor có quyền sửa/đóng/mở lại tin này không (Admin hoặc người tạo tin).</summary>
+    /// <summary>Actor có quyền sửa/đóng/mở lại tin và xử lý ứng viên của nó không — chỉ Mentor tạo tin.</summary>
     bool CanModify(int jobId, int actorUserId);
+    /// <summary>Actor có được XEM tin và ứng viên của nó không — Mentor tạo tin, hoặc Admin (chỉ xem).</summary>
+    bool CanView(int jobId, int actorUserId);
     // ATS-07 + N2.C: lọc theo Category + TechStack + Level + Lương + Hình thức + Địa điểm
     List<Job> Filter(string? category, string? techStack, string? level, string sort,
         decimal? minSalary = null, string? employmentType = null, string? location = null);
@@ -108,9 +110,21 @@ public static class AiConsentGate
     public static bool Allows(CandidateProfile? profile) => profile?.HasAiConsent == true;
 }
 
+/// <summary>Trạng thái hồ sơ cho các trang chỉ cần hỏi "có hồ sơ/CV/đồng ý chưa" — không có byte[].</summary>
+public record ProfileCvStatus(bool HasCv, bool HasAiConsent);
+
+/// <summary>Hồ sơ để hiện lên form sửa: đủ mọi trường trừ nội dung CV. HasCv tính sẵn trong SQL.</summary>
+public record ProfileForEdit(CandidateProfile Profile, bool HasCv);
+
 public interface IProfileService
 {
+    /// <summary>
+    /// Entity ĐẦY ĐỦ, kể cả cột CvData cũ (tới 5MB với hồ sơ chưa di trú — hàm di trú cố ý giữ
+    /// lại cột đó). Chỉ dùng cho đường cần nội dung CV; trang hiển thị dùng GetCvStatus/GetForEdit.
+    /// </summary>
     CandidateProfile? GetByUserId(int userId);
+    ProfileCvStatus? GetCvStatus(int userId);
+    ProfileForEdit? GetForEdit(int userId);
     CandidateProfile Save(int userId, CandidateProfile input);            // ATS-08
     /// <summary>
     /// ATS-09 + SEC-01 + P2-2: lưu CV. Nội dung đi ra blob storage, CSDL chỉ giữ khóa.
@@ -148,7 +162,7 @@ public interface IApplicationService
     /// P2-1: đổi trạng thái NHIỀU đơn một lượt. Mỗi đơn vẫn đi qua đúng UpdateStatus để giữ
     /// nguyên luồng hợp lệ (P1-4), lịch sử, thông báo và hàng đợi email (P1-3).
     /// </summary>
-    BulkStatusResult BulkUpdateStatus(IReadOnlyCollection<int> appIds, string newStatus, int actorUserId);
+    BulkStatusResult BulkUpdateStatus(int jobId, IReadOnlyCollection<int> appIds, string newStatus, int actorUserId);
     List<MyApplicationItem> GetByCandidate(int userId);
     /// <summary>Bản đầy đủ, có kèm byte[] CV — chỉ dùng cho tải CV và chấm AI.</summary>
     Application? GetById(int id);
@@ -161,6 +175,11 @@ public interface IApplicationService
     Task<(byte[] Data, string FileName, string ContentType)?> ReadCvAsync(int appId, CancellationToken ct = default);
     /// <summary>Bản chiếu để hiển thị: mọi trường trang chi tiết cần, KHÔNG kèm byte[] CV.</summary>
     ApplicationDetail? GetDetail(int id);
+    /// <summary>
+    /// Trang của SINH VIÊN: chỉ trả về khi đơn thuộc chính người hỏi (null nếu không), và chỉ
+    /// mang những trường được phép hiện cho ứng viên — không HrNote, không người chấm.
+    /// </summary>
+    CandidateApplicationView? GetForCandidate(int appId, int candidateUserId);
     /// <summary>Đếm theo đúng những tin đang hiển thị, thay vì gộp cả bảng Applications.</summary>
     Dictionary<int, int> CountForJobs(IReadOnlyCollection<int> jobIds);
     int CountAll();
@@ -184,7 +203,14 @@ public interface IApplicationService
     /// vẫn hiện "✔ Đã ứng tuyển" và sinh viên không hiểu vì sao không ứng tuyển lại được.
     /// </summary>
     Dictionary<int, string> AppliedJobStatus(int candidateUserId);
+    /// <summary>XEM đơn: Mentor chủ tin, hoặc Admin (chỉ xem).</summary>
     bool CanAccess(int appId, int actorUserId, bool isAdmin);
+    /// <summary>
+    /// THAO TÁC trên đơn (chấm AI, chốt điểm, đổi trạng thái, ghi chú, sinh câu hỏi): chỉ
+    /// Mentor chủ tin. Admin giám sát chứ không tuyển dụng thay — kể cả trên tin do chính
+    /// mình tạo từ trước.
+    /// </summary>
+    bool CanModify(int appId, int actorUserId);
     void SaveAiEvaluation(int appId, AiEvaluation eval);                  // ATS-13/14
     void SaveHrScore(int appId, int hrScore, string note, int actorUserId); // ATS-16
     bool UpdateStatus(int appId, string newStatus, int actorUserId, out string message); // ATS-17
@@ -411,13 +437,20 @@ public record InterviewSchedule(DateTime At, string? Link, string? Note);
 /// P2-1: kết quả một lượt đổi trạng thái hàng loạt. Giữ cả phần THẤT BẠI kèm lý do: báo mỗi
 /// con số thành công thì người dùng không biết mấy đơn kia đi đâu, và sẽ bấm lại lần nữa.
 /// </summary>
-public record BulkStatusResult(int Updated, IReadOnlyList<string> Failures)
+public record BulkStatusResult(int Updated, IReadOnlyList<string> Failures, int ForeignSkipped = 0)
 {
     public int FailedCount => Failures.Count;
 
-    public string Message => FailedCount == 0
-        ? $"Đã cập nhật {Updated} đơn."
-        : $"Đã cập nhật {Updated} đơn, {FailedCount} đơn không hợp lệ: {string.Join("; ", Failures)}";
+    public string Message
+    {
+        get
+        {
+            var main = FailedCount == 0
+                ? $"Đã cập nhật {Updated} đơn."
+                : $"Đã cập nhật {Updated} đơn, {FailedCount} đơn không hợp lệ: {string.Join("; ", Failures)}";
+            return ForeignSkipped == 0 ? main : $"{main} ({ForeignSkipped} đơn không thuộc tin này đã bị bỏ qua.)";
+        }
+    }
 }
 
 /// <summary>N1.B: ghi chú nội bộ kèm người ghi và thời điểm. Chỉ trả về cho Mentor/Admin.</summary>
@@ -430,15 +463,36 @@ public record AiResult(int? Score, string? Strengths, string? Missing, string? R
     public bool IsOffline => Source == EvaluationSource.Offline;
 }
 
-/// <summary>Toàn bộ dữ liệu trang chi tiết đơn cần — không có byte[] nào.</summary>
+/// <summary>
+/// Dữ liệu trang chi tiết đơn của SINH VIÊN — tách hẳn khỏi ApplicationDetail (bản của nhà
+/// tuyển dụng). Dùng chung một record thì HrNote (lý do chốt điểm) và người chấm đã nằm sẵn
+/// trong đối tượng mà trang sinh viên cầm; chỉ cần một dòng @app.HrNote là lộ. Trường nào
+/// không có ở đây thì trang sinh viên không có cách nào hiện ra.
+/// </summary>
+public record CandidateApplicationView(
+    int Id, string JobTitle, string JobCategory, string JobLevel, string JobTechStack,
+    string Status, DateTime AppliedAt,
+    int? AiScore, string? AiStrengths, string? AiMissing, string? AiRoadmap, string? AiSource,
+    string? CandidateFeedback,
+    DateTime? InterviewAt, string? InterviewLink, string? InterviewNote)
+{
+    public bool HasAiEvaluation => AiScore.HasValue;
+    public AiResult Ai => new(AiScore, AiStrengths, AiMissing, AiRoadmap, AiSource);
+    public bool HasInterview => InterviewAt.HasValue;
+}
+
+/// <summary>
+/// Toàn bộ dữ liệu trang chi tiết đơn của NHÀ TUYỂN DỤNG cần — không có byte[] nào.
+/// Có HrNote, nên KHÔNG dùng cho trang của sinh viên (xem CandidateApplicationView).
+/// </summary>
 public record ApplicationDetail(
     int Id, int JobId, string JobTitle, string JobCategory, string JobLevel, string JobTechStack,
     int JobCreatedById, string Status, DateTime AppliedAt,
     string CvFileNameSnapshot, bool HasCv,
     int? AiScore, string? AiStrengths, string? AiMissing, string? AiRoadmap, string? AiSource,
     int? HrScore, string? HrNote, int? HrScoreByUserId, DateTime? HrAdjustedAt,
-    // P1-4: trường ghi chú DUY NHẤT được phép có mặt ở đây. HrNote là lý do chốt điểm mà
-    // trang sinh viên không đọc; InternalNote thì hỏi riêng qua GetInternalNote.
+    // P1-4: phản hồi gửi ứng viên. HrNote là lý do chốt điểm — record này chỉ dành cho nhà
+    // tuyển dụng nên được phép mang; InternalNote thì hỏi riêng qua GetInternalNote.
     string? CandidateFeedback,
     int CandidateUserId, string FullName, string Email, string Phone, DateTime? DateOfBirth,
     string Address, string Education, string Experience, string Skills,
@@ -814,6 +868,42 @@ public class AuditService(AppDbContext db) : IAuditService
 }
 
 // =====================================================================
+//  Quyền trên tin tuyển dụng — phát biểu đúng MỘT lần.
+//
+//  THAO TÁC (tạo/sửa/đóng/mở tin, xử lý ứng viên): chỉ Mentor, và chỉ trên tin của chính mình.
+//  XEM: Mentor chủ tin, hoặc Admin. Admin giám sát hệ thống chứ không làm công việc tuyển
+//  dụng — mọi quyết định về ứng viên phải mang tên một nhà tuyển dụng cụ thể.
+//
+//  Vai trò đọc từ CSDL chứ không từ cookie, nên hạ vai trò có hiệu lực ngay.
+//  JobService và ApplicationService cùng gọi vào đây (ApplicationService không nhận
+//  IJobService — đổi constructor sẽ kéo theo mọi chỗ dựng nó).
+// =====================================================================
+internal static class JobOwnership
+{
+    public static bool CanModify(AppDbContext db, int jobId, int actorUserId)
+    {
+        var ownerId = OwnerOf(db, jobId);
+        return ownerId is not null && ownerId == actorUserId && RoleOf(db, actorUserId) == Roles.MentorId;
+    }
+
+    public static bool CanView(AppDbContext db, int jobId, int actorUserId)
+    {
+        var ownerId = OwnerOf(db, jobId);
+        if (ownerId is null) return false;
+        var role = RoleOf(db, actorUserId);
+        return role == Roles.AdminId || (role == Roles.MentorId && ownerId == actorUserId);
+    }
+
+    public static bool IsMentor(AppDbContext db, int userId) => RoleOf(db, userId) == Roles.MentorId;
+
+    private static int? OwnerOf(AppDbContext db, int jobId) =>
+        db.Jobs.Where(j => j.Id == jobId).Select(j => (int?)j.CreatedById).FirstOrDefault();
+
+    private static int? RoleOf(AppDbContext db, int userId) =>
+        db.Users.Where(u => u.Id == userId).Select(u => (int?)u.RoleId).FirstOrDefault();
+}
+
+// =====================================================================
 //  JobService (ATS-04, ATS-05, ATS-06, ATS-07)
 // =====================================================================
 public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvider? clock = null) : IJobService
@@ -862,6 +952,11 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
         // Endpoint dựng Job từ form, nên nếu tin cậy job.CompanyId thì một request tự tạo
         // kèm companyId=7 sẽ đăng được tin đứng tên công ty khác — và trên màn hình sinh
         // viên nó trông y hệt một tin thật của công ty đó.
+        // Chỉ Mentor đăng tin. Admin giám sát, không tuyển dụng — chặn ở đây chứ không chỉ
+        // ẩn nút, vì một request tự tạo không đi qua nút nào cả.
+        if (!JobOwnership.IsMentor(db, job.CreatedById))
+            throw new UnauthorizedAccessException("Chỉ Mentor mới đăng được tin tuyển dụng.");
+
         job.CompanyId = RequireCompanyOf(job.CreatedById);
 
         Validate(job);
@@ -935,12 +1030,9 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
         return companyId.Value;
     }
 
-    public bool CanModify(int jobId, int actorUserId)
-    {
-        var ownerId = db.Jobs.Where(j => j.Id == jobId).Select(j => (int?)j.CreatedById).FirstOrDefault();
-        if (ownerId is null) return false;
-        return ownerId == actorUserId || IsAdmin(actorUserId);
-    }
+    public bool CanModify(int jobId, int actorUserId) => JobOwnership.CanModify(db, jobId, actorUserId);
+
+    public bool CanView(int jobId, int actorUserId) => JobOwnership.CanView(db, jobId, actorUserId);
 
     /// <summary>
     /// Một chỗ duy nhất phát biểu luật "Admin hoặc người tạo tin". Trước đây luật này được
@@ -949,13 +1041,10 @@ public class JobService(AppDbContext db, IAuditService? audit = null, TimeProvid
     private Job RequireOwnership(int id, int actorUserId)
     {
         var j = db.Jobs.Find(id) ?? throw new InvalidOperationException("Không tìm thấy tin.");
-        if (j.CreatedById != actorUserId && !IsAdmin(actorUserId))
+        if (!JobOwnership.CanModify(db, id, actorUserId))
             throw new UnauthorizedAccessException("Bạn không có quyền thao tác trên tin này.");
         return j;
     }
-
-    private bool IsAdmin(int userId) =>
-        db.Users.Where(u => u.Id == userId).Select(u => (int?)u.RoleId).FirstOrDefault() == Roles.AdminId;
 
     /// <summary>ATS-04.3: luật nghiệp vụ dùng chung cho cả tạo mới và cập nhật.</summary>
     private static void Validate(Job job)
@@ -1130,6 +1219,34 @@ public class ProfileService(AppDbContext db, ICvStorage cvStorage, TimeProvider?
     public CandidateProfile? GetByUserId(int userId) =>
         db.CandidateProfiles.FirstOrDefault(p => p.UserId == userId);
 
+    // Hai bản chiếu cho trang hiển thị. So cột blob với null dịch thành IS NOT NULL, nên nội
+    // dung CV không đi qua đường truyền — trong khi GetByUserId kéo nguyên cột CvData về chỉ
+    // để trả lời một câu có/không, ở MỖI lần sinh viên mở /positions.
+    public ProfileCvStatus? GetCvStatus(int userId) =>
+        db.CandidateProfiles.AsNoTracking()
+            .Where(p => p.UserId == userId)
+            .Select(p => new ProfileCvStatus(p.CvStorageKey != null || p.CvData != null, p.AiConsentAt != null))
+            .FirstOrDefault();
+
+    public ProfileForEdit? GetForEdit(int userId) =>
+        db.CandidateProfiles.AsNoTracking()
+            .Where(p => p.UserId == userId)
+            .Select(p => new ProfileForEdit(
+                new CandidateProfile
+                {
+                    Id = p.Id, UserId = p.UserId, FullName = p.FullName, Email = p.Email, Phone = p.Phone,
+                    DateOfBirth = p.DateOfBirth, Address = p.Address, Education = p.Education,
+                    Experience = p.Experience, Skills = p.Skills, GithubUrl = p.GithubUrl,
+                    LinkedInUrl = p.LinkedInUrl, PortfolioUrl = p.PortfolioUrl, TechSkillTags = p.TechSkillTags,
+                    YearsOfExperience = p.YearsOfExperience, CvFileName = p.CvFileName,
+                    CvContentType = p.CvContentType, CvUploadedAt = p.CvUploadedAt,
+                    AiConsentAt = p.AiConsentAt, AiConsentVersion = p.AiConsentVersion,
+                    CvStorageKey = p.CvStorageKey, CreatedAt = p.CreatedAt, UpdatedAt = p.UpdatedAt
+                    // CvData cố ý bỏ trống — xem HasCv bên dưới.
+                },
+                p.CvStorageKey != null || p.CvData != null))
+            .FirstOrDefault();
+
     public CandidateProfile Save(int userId, CandidateProfile input)
     {
         // Ràng buộc khai báo trên entity (bắt buộc, độ dài, định dạng email/điện thoại)
@@ -1183,6 +1300,13 @@ public class ProfileService(AppDbContext db, ICvStorage cvStorage, TimeProvider?
         if (!safe) return (false, err);
 
         var p = db.CandidateProfiles.FirstOrDefault(x => x.UserId == userId);
+
+        // P2-3: bắt buộc đồng ý mới lưu được CV — luật đặt Ở ĐÂY, không chỉ ở thuộc tính
+        // required của ô tích (một request tự tạo bỏ qua được thẻ HTML). Khớp đúng với form:
+        // ô tích chỉ hiện khi hồ sơ CHƯA đồng ý, nên hồ sơ đã đồng ý tải CV mới không cần tích lại.
+        if (!aiConsentGiven && p?.HasAiConsent != true)
+            return (false, "Vui lòng tích ô đồng ý xử lý dữ liệu trước khi tải CV lên.");
+
         if (p is null)
         {
             p = new CandidateProfile { UserId = userId };
@@ -1450,9 +1574,23 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
     //  (P1-4), dòng lịch sử, thông báo và hàng đợi email (P1-3) đều nằm trong đó. Một đường
     //  ghi tắt "cho nhanh" sẽ bỏ qua cả bốn thứ mà không ai nhận ra cho tới khi ứng viên
     //  hỏi vì sao mình không nhận được email.
+    //
+    //  Quyền và phạm vi kiểm Ở ĐÂY, không chỉ ở endpoint: danh sách id đến từ form, tức là
+    //  thứ người gửi request sửa được. UpdateStatus bên dưới không kiểm quyền sở hữu đơn,
+    //  nên thiếu hai bước này thì bất kỳ Mentor nào cũng đổi được đơn của tin khác.
     // =====================================================================
-    public BulkStatusResult BulkUpdateStatus(IReadOnlyCollection<int> appIds, string newStatus, int actorUserId)
+    public BulkStatusResult BulkUpdateStatus(int jobId, IReadOnlyCollection<int> appIds, string newStatus, int actorUserId)
     {
+        if (!JobOwnership.CanModify(db, jobId, actorUserId))
+            throw new UnauthorizedAccessException("Bạn không có quyền thao tác trên tin này.");
+
+        var requested = appIds.Distinct().ToList();
+        var owned = db.Applications.AsNoTracking()
+                                   .Where(a => a.JobId == jobId && requested.Contains(a.Id))
+                                   .Select(a => a.Id)
+                                   .ToHashSet();
+        var foreign = requested.Count(id => !owned.Contains(id));
+
         // Mỗi buổi phỏng vấn cần một giờ hẹn riêng, nên không có cách nào đặt lịch cho 20
         // đơn cùng lúc mà không bịa ra một giờ chung — chặn kèm lời giải thích.
         if (newStatus == ApplicationStatus.Interview)
@@ -1460,17 +1598,18 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
             {
                 "Không chuyển hàng loạt sang \"Phỏng vấn\" được vì mỗi đơn cần một lịch hẹn riêng — " +
                 "hãy mở từng đơn và đặt lịch."
-            });
+            }, foreign);
 
         var updated = 0;
         var failures = new List<string>();
-        foreach (var id in appIds.Distinct())
+        foreach (var id in requested.Where(owned.Contains))
         {
-            if (UpdateStatus(id, newStatus, actorUserId, out var message)) updated++;
+            // Quyền đã kiểm một lần theo tin ở đầu hàm, và mọi id ở đây đều thuộc tin đó.
+            if (UpdateStatusCore(id, newStatus, null, null, actorUserId, out var message)) updated++;
             else failures.Add($"#{id}: {message}");
         }
 
-        return new BulkStatusResult(updated, failures);
+        return new BulkStatusResult(updated, failures, foreign);
     }
 
     public List<MyApplicationItem> GetByCandidate(int userId) =>
@@ -1506,6 +1645,19 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                 a.CandidateProfile.PortfolioUrl, a.CandidateProfile.TechSkillTags,
                 a.InterviewAt, a.InterviewLink, a.InterviewNote,
                 a.CandidateProfile.YearsOfExperience))
+            .FirstOrDefault();
+
+    // Quyền sở hữu nằm ngay trong WHERE: đơn của người khác và đơn không tồn tại cùng ra null,
+    // nên trang không thể vô tình hiện dữ liệu trước khi kịp kiểm chủ đơn.
+    public CandidateApplicationView? GetForCandidate(int appId, int candidateUserId) =>
+        db.Applications.AsNoTracking()
+            .Where(a => a.Id == appId && a.CandidateProfile!.UserId == candidateUserId)
+            .Select(a => new CandidateApplicationView(
+                a.Id, a.Job!.Title, a.Job.Category, a.Job.Level, a.Job.TechStack,
+                a.Status, a.AppliedAt,
+                a.AiScore, a.AiStrengths, a.AiMissing, a.AiRoadmap, a.AiSource,
+                a.CandidateFeedback,
+                a.InterviewAt, a.InterviewLink, a.InterviewNote))
             .FirstOrDefault();
 
     public Dictionary<int, int> CountForJobs(IReadOnlyCollection<int> jobIds)
@@ -1664,6 +1816,12 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                        .ToDictionary(x => x.JobId, x => x.Status);
 
     // #5: Mentor chỉ được xem/thao tác đơn thuộc tin do mình tạo; Admin xem tất cả
+    public bool CanModify(int appId, int actorUserId)
+    {
+        var jobId = db.Applications.Where(a => a.Id == appId).Select(a => (int?)a.JobId).FirstOrDefault();
+        return jobId is not null && JobOwnership.CanModify(db, jobId.Value, actorUserId);
+    }
+
     public bool CanAccess(int appId, int actorUserId, bool isAdmin)
     {
         if (isAdmin) return true;
@@ -1691,20 +1849,42 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
     }
 
     // ATS-16: Mentor điều chỉnh điểm (không đụng tới AiScore)
+    internal const int HrNoteMinLength = 10;
+    internal const int HrNoteMaxLength = 500;   // khớp [MaxLength(500)] của Application.HrNote
+
     public void SaveHrScore(int appId, int hrScore, string note, int actorUserId = 0)
     {
+        // Luật phát biểu Ở ĐÂY chứ không chỉ ở endpoint hay ở min/max/minlength/maxlength của
+        // thẻ input. Thiếu bước kiểm độ dài, một request tự tạo với lý do 600 ký tự đi thẳng
+        // xuống SQL Server và nổ thành "String or binary data would be truncated" — lỗi 500.
+        // Điểm ngoài khoảng bị TỪ CHỐI chứ không lặng lẽ kẹp về 0-100: 150 là lỗi nhập liệu,
+        // không phải ý định chấm 100.
+        if (hrScore is < 0 or > 100)
+            throw new ArgumentException("Điểm điều chỉnh phải từ 0 đến 100.");
+        var text = (note ?? "").Trim();
+        if (text.Length < HrNoteMinLength)
+            throw new ArgumentException($"Vui lòng nhập lý do điều chỉnh (≥ {HrNoteMinLength} ký tự).");
+        if (text.Length > HrNoteMaxLength)
+            throw new ArgumentException($"Lý do điều chỉnh tối đa {HrNoteMaxLength} ký tự.");
+
+        // actorUserId = 0 là đường hệ thống (seed, job nền) — không có người để kiểm quyền.
+        if (actorUserId > 0 && !CanModify(appId, actorUserId))
+            throw new UnauthorizedAccessException("Chỉ Mentor tạo tin mới chốt điểm được cho đơn này.");
+
         var a = db.Applications.Find(appId);
         if (a is null) return;
-        a.HrScore = Math.Clamp(hrScore, 0, 100);
-        a.HrNote = note;
+        a.HrScore = hrScore;
+        a.HrNote = text;
         a.HrAdjustedAt = UtcNow;
         // P1-5: ghi đè bằng người chấm MỚI NHẤT — "% chốt bởi ai" phải khớp với con số đang
         // hiển thị, chứ không phải với người đầu tiên từng chấm.
         a.HrScoreByUserId = actorUserId > 0 ? actorUserId : null;
         db.SaveChanges();
 
+        // Chỉ ghi con số, KHÔNG ghi lý do: HrNote là nhận định của Mentor về ứng viên, cùng loại
+        // với InternalNote — mà nội dung InternalNote cũng đã được giữ ngoài nhật ký hệ thống.
         audit?.Record(actorUserId, "Score Applicant", "Applications",
-            $"Chốt {a.HrScore}% cho đơn #{appId}: {note}");
+            $"Chốt {a.HrScore}% cho đơn #{appId}.");
     }
 
     // ATS-17: đổi trạng thái + ghi lịch sử + thông báo cho SV (cùng transaction)
@@ -1720,6 +1900,18 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
     public bool UpdateStatus(int appId, string newStatus, InterviewSchedule? schedule,
         string? candidateFeedback, int actorUserId, out string message)
     {
+        // Quyền kiểm Ở ĐÂY, không chỉ ở endpoint: Admin chỉ xem, và Mentor chỉ xử lý đơn của
+        // tin mình tạo. Đơn không tồn tại cũng rơi vào nhánh này (CanModify trả false).
+        if (!CanModify(appId, actorUserId))
+        { message = "Bạn không có quyền thao tác trên đơn này."; return false; }
+
+        return UpdateStatusCore(appId, newStatus, schedule, candidateFeedback, actorUserId, out message);
+    }
+
+    /// <summary>Thân của UpdateStatus, sau khi quyền đã được kiểm (bởi UpdateStatus, hoặc một lần theo tin ở BulkUpdateStatus).</summary>
+    private bool UpdateStatusCore(int appId, string newStatus, InterviewSchedule? schedule,
+        string? candidateFeedback, int actorUserId, out string message)
+    {
         // P0-4: kiểm bằng MentorSelectable chứ không phải All. "Đã rút" có trong All (để ô
         // lọc và badge hiển thị được) nhưng chỉ chính sinh viên mới đặt được qua Withdraw —
         // nhà tuyển dụng không được rút đơn thay ứng viên.
@@ -1727,10 +1919,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         { message = "Trạng thái không hợp lệ."; return false; }
 
         // P1-3: kèm công ty để email nói được ứng viên đang trao đổi với ai.
-        var a = db.Applications.Include(x => x.Job).ThenInclude(j => j!.Company)
-                               .Include(x => x.CandidateProfile)
-                               .FirstOrDefault(x => x.Id == appId);
+        // Bản chiếu, không phải Include: xem LoadForStatusChange.
+        var a = LoadForStatusChange(appId);
         if (a is null) { message = "Không tìm thấy đơn."; return false; }
+        var changed = new List<string>();
 
         var statusChanged = a.Status != newStatus;
 
@@ -1762,6 +1954,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         }
 
         using var tx = db.Database.BeginTransaction();
+        Application? stub = null;
         try
         {
             var from = a.Status;
@@ -1776,6 +1969,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                     // ChangedAt do AppDbContext đóng dấu tập trung (UTC) — P0-2.
                 });
                 a.Status = newStatus;
+                changed.Add(nameof(Application.Status));
             }
 
             // Chuyển sang trạng thái khác KHÔNG xóa lịch cũ: Mentor và sinh viên vẫn cần
@@ -1787,14 +1981,23 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                 a.InterviewNote = Clip(schedule.Note, 500);
                 // P1-3: mỗi lần đặt hoặc đổi lịch là một phiên bản mới của CÙNG một sự kiện lịch.
                 a.InterviewSequence++;
+                changed.AddRange(new[]
+                {
+                    nameof(Application.InterviewAt), nameof(Application.InterviewLink),
+                    nameof(Application.InterviewNote), nameof(Application.InterviewSequence)
+                });
             }
 
             // P1-4: phản hồi chỉ ghi khi THỰC SỰ từ chối. Ghi vô điều kiện thì một lần chuyển
             // sang "Phỏng vấn" (form luôn gửi mọi ô lên vì trang render tĩnh) sẽ xóa mất phản
             // hồi đã soạn, hoặc tệ hơn là gắn một lời từ chối vào đơn đang được mời phỏng vấn.
             if (newStatus == ApplicationStatus.Rejected)
+            {
                 a.CandidateFeedback = Clip(candidateFeedback, 1000);
+                changed.Add(nameof(Application.CandidateFeedback));
+            }
 
+            stub = WriteBack(a, changed);
             db.SaveChanges();
 
             // NTF-01: báo cho Sinh viên IT. Đường dẫn trỏ thẳng vào ĐƠN cụ thể thay vì danh
@@ -1815,6 +2018,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                 statusChanged ? "Change Status" : "Reschedule Interview", "Applications",
                 statusChanged ? $"Đơn #{appId}: {from} → {newStatus}" : $"Đơn #{appId}: đổi lịch phỏng vấn");
 
+            // Email được Add SAU lần SaveChanges ở trên. Trước đây nó chỉ tới được CSDL nhờ
+            // audit.Record tình cờ gọi SaveChanges hộ — không có audit (hoặc actor = 0, khi đó
+            // Record bỏ qua) là email lặng lẽ biến mất. Lưu tường minh trước khi commit.
+            db.SaveChanges();
             tx.Commit();
             message = statusChanged ? "Đã cập nhật trạng thái." : "Đã cập nhật lịch phỏng vấn.";
             return true;
@@ -1825,6 +2032,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
             message = "Có lỗi khi cập nhật trạng thái.";
             return false;
         }
+        finally
+        {
+            Release(stub);
+        }
     }
 
     // P0-4: sinh viên rút đơn.
@@ -1834,9 +2045,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
     // NGƯỢC chiều — tới nhà tuyển dụng thay vì tới sinh viên.
     public bool Withdraw(int appId, int candidateUserId, out string message)
     {
-        var a = db.Applications.Include(x => x.Job)
-                               .Include(x => x.CandidateProfile)
-                               .FirstOrDefault(x => x.Id == appId);
+        var a = LoadForStatusChange(appId);
 
         // Sai chủ đơn và đơn không tồn tại trả về CÙNG một câu: nếu tách ra, chênh lệch giữa
         // hai thông báo chính là thứ xác nhận đơn nào có thật khi có ai đó dò id.
@@ -1856,6 +2065,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         // báo phải cùng thành hoặc cùng bại. Nếu tách ra, nhà tuyển dụng có thể nhận thông
         // báo "ứng viên đã rút" về một đơn mà trên màn hình vẫn đang chờ xử lý.
         using var tx = db.Database.BeginTransaction();
+        Application? stub = null;
         try
         {
             var from = a.Status;
@@ -1869,6 +2079,7 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
                 ChangedByUserId = candidateUserId
             });
             a.Status = ApplicationStatus.Withdrawn;
+            stub = WriteBack(a, new[] { nameof(Application.Status) });
             db.SaveChanges();
 
             if (a.Job is not null)
@@ -1890,6 +2101,85 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
             message = "Có lỗi khi rút đơn, vui lòng thử lại.";
             return false;
         }
+        finally
+        {
+            Release(stub);
+        }
+    }
+
+    /// <summary>
+    /// Mọi trường mà UpdateStatus, Withdraw, thông báo và email cần — và KHÔNG gì hơn.
+    ///
+    /// Include(Job/CandidateProfile) trên entity Application sẽ nạp luôn CvDataSnapshot của
+    /// đơn và CvData của hồ sơ: với dữ liệu tạo trước P2-2 (hàm di trú cố ý giữ lại hai cột
+    /// đó) là tới 10MB mỗi đơn chỉ để đổi một cột chữ, nhân lên với mỗi đơn trong một lần
+    /// đổi hàng loạt. Bản chiếu này không bao giờ chạm tới hai cột byte[].
+    /// </summary>
+    private Application? LoadForStatusChange(int appId) =>
+        db.Applications.AsNoTracking()
+            .Where(x => x.Id == appId)
+            .Select(x => new Application
+            {
+                Id = x.Id,
+                JobId = x.JobId,
+                CandidateProfileId = x.CandidateProfileId,
+                Status = x.Status,
+                AppliedAt = x.AppliedAt,
+                InterviewAt = x.InterviewAt,
+                InterviewLink = x.InterviewLink,
+                InterviewNote = x.InterviewNote,
+                InterviewSequence = x.InterviewSequence,
+                CandidateFeedback = x.CandidateFeedback,
+                Job = new Job
+                {
+                    Id = x.Job!.Id,
+                    Title = x.Job.Title,
+                    CreatedById = x.Job.CreatedById,
+                    Company = x.Job.Company == null ? null : new Company { Id = x.Job.Company.Id, Name = x.Job.Company.Name }
+                },
+                CandidateProfile = x.CandidateProfile == null ? null : new CandidateProfile
+                {
+                    Id = x.CandidateProfile.Id,
+                    UserId = x.CandidateProfile.UserId,
+                    FullName = x.CandidateProfile.FullName,
+                    Email = x.CandidateProfile.Email
+                }
+            })
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Ghi ĐÚNG những cột trong <paramref name="columns"/> từ bản chiếu <paramref name="source"/>
+    /// xuống dòng Application, qua một bản gắn tạm chỉ mang khóa. Cột nào không có tên ở đây
+    /// thì không nằm trong câu UPDATE — kể cả hai cột byte[].
+    ///
+    /// Nếu context đang theo dõi sẵn đơn này (cùng một scope vừa nạp nó) thì ghi thẳng lên
+    /// entity đó, vì gắn thêm một bản thứ hai cùng khóa sẽ ném ngoại lệ.
+    /// Trả về bản gắn tạm (nếu có) để người gọi tháo ra sau khi lưu.
+    /// </summary>
+    private Application? WriteBack(Application source, IEnumerable<string> columns)
+    {
+        var tracked = db.Applications.Local.FirstOrDefault(x => x.Id == source.Id);
+        var row = tracked ?? new Application { Id = source.Id };
+        if (tracked is null) db.Applications.Attach(row);
+
+        var entry = db.Entry(row);
+        foreach (var column in columns.Distinct())
+        {
+            var property = entry.Property(column);
+            property.CurrentValue = typeof(Application).GetProperty(column)!.GetValue(source);
+            property.IsModified = true;
+        }
+        return tracked is null ? row : null;
+    }
+
+    /// <summary>
+    /// Tháo bản gắn tạm khỏi context. Để nó lại thì một lần Find(id) sau đó trong cùng scope
+    /// trả về một Application gần như rỗng; còn nếu lần lưu vừa rồi hỏng, lần SaveChanges kế
+    /// tiếp (ví dụ đơn sau trong cùng lượt hàng loạt) sẽ ghi lại nó thêm lần nữa.
+    /// </summary>
+    private void Release(Application? stub)
+    {
+        if (stub is not null) db.Entry(stub).State = EntityState.Detached;
     }
 
     private static string NotificationTitle(string status) =>
@@ -2014,6 +2304,9 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
 
     public void SaveInternalNote(int appId, string? note, int actorUserId)
     {
+        if (!CanModify(appId, actorUserId))
+            throw new UnauthorizedAccessException("Chỉ Mentor tạo tin mới ghi chú được cho đơn này.");
+
         var a = db.Applications.Find(appId);
         if (a is null) return;
 
@@ -2044,21 +2337,13 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         // trên container UTC thì "24 giờ qua" thực chất là "từ 17h hôm kia" theo giờ VN.
         var cutoff = UtcNow.AddHours(-withinHours);
 
-        var q = db.Applications.Where(a => a.AppliedAt >= cutoff);
-        if (!isAdmin)
-            q = q.Where(a => a.Job!.CreatedById == actorUserId);
-
-        return q.Count();
+        return ScopedApplications(isAdmin ? null : actorUserId).Count(a => a.AppliedAt >= cutoff);
     }
 
     // N1.G: Thống kê số hồ sơ chưa review (Status == ApplicationStatus.Submitted)
     public int CountUnreviewed(int actorUserId, bool isAdmin)
     {
-        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
-        if (!isAdmin)
-            q = q.Where(a => a.Job!.CreatedById == actorUserId);
-
-        return q.Count();
+        return ScopedApplications(isAdmin ? null : actorUserId).Count(a => a.Status == ApplicationStatus.Submitted);
     }
 
     // N1.G: Lấy danh sách top hồ sơ chưa review mới nhất kèm Job context
@@ -2067,9 +2352,10 @@ public class ApplicationService(AppDbContext db, INotificationService notify, IC
         if (take <= 0) return new List<MentorApplicantItem>();
         take = Math.Min(take, 50);
 
-        var q = db.Applications.Where(a => a.Status == ApplicationStatus.Submitted);
-        if (!isAdmin)
-            q = q.Where(a => a.Job!.CreatedById == actorUserId);
+        // Ranh giới "chỉ tin của tôi" đi qua ScopedApplications như mọi thống kê khác, thay
+        // vì gõ lại vị ngữ CreatedById ở đây.
+        var q = ScopedApplications(isAdmin ? null : actorUserId)
+            .Where(a => a.Status == ApplicationStatus.Submitted);
 
         return q.OrderByDescending(a => a.AppliedAt)
                 .Take(take)

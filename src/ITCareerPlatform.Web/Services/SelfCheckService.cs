@@ -1,3 +1,4 @@
+using System.Data;
 using ITCareerPlatform.Data;
 using ITCareerPlatform.Models;
 using Microsoft.EntityFrameworkCore;
@@ -32,7 +33,7 @@ public class SelfCheckService(
 {
     public SelfCheck? GetLatest(int userId, int jobId) =>
         db.SelfChecks.AsNoTracking()
-          .Where(x => x.UserId == userId && x.JobId == jobId)
+          .Where(x => x.UserId == userId && x.JobId == jobId && x.Source != SelfCheck.PendingSource)
           .OrderByDescending(x => x.Id)
           .FirstOrDefault();
 
@@ -66,40 +67,86 @@ public class SelfCheckService(
         var job = jobs.GetVisibleForCandidate(jobId);
         if (job is null) return (false, "Tin tuyển dụng này đã đóng hoặc đã hết hạn nộp hồ sơ.");
 
-        var used = CountToday(userId);
-        if (used >= SelfCheck.DailyLimit)
-            return (false,
-                $"Bạn đã dùng hết {SelfCheck.DailyLimit} lượt tự kiểm tra của hôm nay. " +
-                $"Hạn mức được cấp lại vào 00:00 ngày mai (giờ Việt Nam) — {HoursUntilMidnight()} nữa.");
+        // Giữ chỗ TRƯỚC khi gọi AI. Bản cũ đếm rồi mới gọi AI rồi mới ghi, nên năm request
+        // gửi song song lúc còn 1 lượt đều thấy "còn lượt" và cả năm cùng gọi Gemini.
+        var (reserved, used) = TryReserve(userId, jobId);
+        if (reserved is null)
+            return used >= SelfCheck.DailyLimit
+                ? (false,
+                   $"Bạn đã dùng hết {SelfCheck.DailyLimit} lượt tự kiểm tra của hôm nay. " +
+                   $"Hạn mức được cấp lại vào 00:00 ngày mai (giờ Việt Nam) — {HoursUntilMidnight()} nữa.")
+                : (false, "Đang có một lượt tự kiểm tra khác của bạn chạy cùng lúc. Vui lòng thử lại sau ít giây.");
 
-        // Không bọc trong transaction: chỉ có đúng một lần ghi, và lần gọi mô hình nằm NGOÀI
-        // mọi giao dịch CSDL — giữ transaction mở suốt một lần gọi mạng 30 giây là cách chắc
-        // chắn nhất để khóa bảng dưới tải thật.
-        var eval = await ai.EvaluateAsync(await inputBuilder.ForSelfCheckAsync(profile, job, ct), ct);
-
-        db.SelfChecks.Add(new SelfCheck
+        // Lần gọi mô hình nằm NGOÀI mọi giao dịch CSDL — giữ transaction mở suốt một lần gọi
+        // mạng 30 giây là cách chắc chắn nhất để khóa bảng dưới tải thật.
+        AiEvaluation eval;
+        try
         {
-            UserId = userId,
-            JobId = jobId,
-            Score = Math.Clamp(eval.MatchPercent, 0, 100),
-            // Cắt đúng giới hạn cột: ba trường này đến từ một mô hình ngoài và không có gì
-            // buộc nó trả về dưới 1000 ký tự. Trên SQL Server, vượt cột là một lần ghi HỎNG.
-            Strengths = Clip(eval.Strengths, 1000),
-            Missing = Clip(eval.Missing, 1000),
-            Roadmap = Clip(eval.Roadmap, 1000),
-            Source = Clip(eval.Source, 20),
-            // CreatedAt đặt TỪ ĐỒNG HỒ CỦA SERVICE, không để AppDbContext đóng dấu.
-            //
-            // Hai giá trị này phải đến từ cùng một nguồn: hạn mức trong ngày được tính bằng
-            // COUNT trên chính cột này, nên nếu mốc ghi đi theo giờ máy chủ còn mốc đếm đi
-            // theo TimeProvider thì luật "5 lượt mỗi ngày" không kiểm được và không test được.
-            // Đóng dấu tập trung chỉ điền khi giá trị còn default, nên gán ở đây là hợp lệ.
-            CreatedAt = VietnamDateHelper.UtcNow(clock)
-        });
+            eval = await ai.EvaluateAsync(await inputBuilder.ForSelfCheckAsync(profile, job, ct), ct);
+        }
+        catch
+        {
+            // Gọi hỏng (hoặc người dùng bỏ trang) thì trả lại lượt: sinh viên không nhận được
+            // kết quả nào thì không được tính là đã dùng.
+            db.SelfChecks.Remove(reserved);
+            db.SaveChanges();
+            throw;
+        }
+
+        reserved.Score = Math.Clamp(eval.MatchPercent, 0, 100);
+        // Cắt đúng giới hạn cột: ba trường này đến từ một mô hình ngoài và không có gì
+        // buộc nó trả về dưới 1000 ký tự. Trên SQL Server, vượt cột là một lần ghi HỎNG.
+        reserved.Strengths = Clip(eval.Strengths, 1000);
+        reserved.Missing = Clip(eval.Missing, 1000);
+        reserved.Roadmap = Clip(eval.Roadmap, 1000);
+        reserved.Source = Clip(eval.Source, 20);
         db.SaveChanges();
 
         var left = SelfCheck.DailyLimit - used - 1;
         return (true, $"Đã chạy đánh giá độ phù hợp. Bạn còn {left} lượt trong hôm nay.");
+    }
+
+    /// <summary>
+    /// Đếm và giữ chỗ trong CÙNG một giao dịch Serializable, nên hai request không thể cùng
+    /// thấy "còn lượt". Trên SQL Server, hai giao dịch chen nhau sẽ có một bên bị chọn làm nạn
+    /// nhân deadlock — bên đó nhận (null, used &lt; limit) và được mời thử lại, KHÔNG vượt hạn mức.
+    /// Trả về (dòng đã giữ chỗ hoặc null, số lượt đã dùng trước lượt này).
+    /// </summary>
+    private (SelfCheck? Reserved, int Used) TryReserve(int userId, int jobId)
+    {
+        var used = 0;
+        try
+        {
+            using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            used = CountToday(userId);
+            if (used >= SelfCheck.DailyLimit) return (null, used);
+
+            var row = new SelfCheck
+            {
+                UserId = userId,
+                JobId = jobId,
+                Source = SelfCheck.PendingSource,
+                // CreatedAt đặt TỪ ĐỒNG HỒ CỦA SERVICE, không để AppDbContext đóng dấu.
+                //
+                // Hai giá trị này phải đến từ cùng một nguồn: hạn mức trong ngày được tính bằng
+                // COUNT trên chính cột này, nên nếu mốc ghi đi theo giờ máy chủ còn mốc đếm đi
+                // theo TimeProvider thì luật "5 lượt mỗi ngày" không kiểm được và không test được.
+                // Đóng dấu tập trung chỉ điền khi giá trị còn default, nên gán ở đây là hợp lệ.
+                CreatedAt = VietnamDateHelper.UtcNow(clock)
+            };
+            db.SelfChecks.Add(row);
+            db.SaveChanges();
+            tx.Commit();
+            return (row, used);
+        }
+        catch (DbUpdateException)
+        {
+            // Thua trong cuộc chen với một request khác. Tháo dòng chưa lưu được ra khỏi
+            // context để lần SaveChanges sau (gỡ lượt, ghi kết quả) không ghi lại nó.
+            foreach (var e in db.ChangeTracker.Entries<SelfCheck>().Where(e => e.State == EntityState.Added).ToList())
+                e.State = EntityState.Detached;
+            return (null, used);
+        }
     }
 
     /// <summary>Nói rõ còn bao lâu nữa mới chạy lại được, thay vì chỉ báo "hết lượt".</summary>

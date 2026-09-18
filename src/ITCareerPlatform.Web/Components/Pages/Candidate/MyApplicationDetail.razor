@@ -4,7 +4,7 @@
 
 @* Sinh viên xem chi tiết đơn của MÌNH + đánh giá độ phù hợp & lộ trình (ATS-14) *@
 
-@if (app is null || !isOwner)
+@if (app is null)
 {
     <div class="page-head">
         <h1 class="page-title">Không tìm thấy đơn</h1>
@@ -43,7 +43,7 @@ else
 
     @* P1-4: phản hồi của nhà tuyển dụng. Đây là trường DUY NHẤT trong nhóm ghi chú được
        hiện cho ứng viên — HrNote (lý do chốt điểm) và InternalNote (nhận định riêng của
-       Mentor) vẫn nằm ngoài record này. *@
+       Mentor) không có trong CandidateApplicationView nên trang này không đọc được chúng. *@
     @if (!string.IsNullOrWhiteSpace(app.CandidateFeedback))
     {
         <div class="panel" style="margin-top:16px;border-left:4px solid #6366f1">
@@ -93,16 +93,14 @@ else
 @code {
     [Parameter] public int AppId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-    private ApplicationDetail? app;
-    private bool isOwner;
+    private CandidateApplicationView? app;
 
     protected override async Task OnInitializedAsync()
     {
-        // Bản chiếu, không kèm byte[] CV — trang này không hiển thị nội dung CV.
-        app = Applications.GetDetail(AppId);
-        if (app is null || AuthState is null) return;
-
+        if (AuthState is null) return;
         var uid = CurrentUser.Id((await AuthState).User);
-        isOwner = uid > 0 && app.CandidateUserId == uid;
+        // Bản chiếu riêng cho ứng viên, lọc chủ đơn ngay trong SQL: đơn của người khác trả
+        // null giống hệt đơn không tồn tại, và không có byte[] CV nào đi kèm.
+        app = uid > 0 ? Applications.GetForCandidate(AppId, uid) : null;
     }
 }

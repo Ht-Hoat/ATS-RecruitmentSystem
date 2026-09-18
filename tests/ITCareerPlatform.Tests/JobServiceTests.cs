@@ -139,8 +139,9 @@ public class JobServiceTests
             svc.Update(job.Id, new Job { Title = "Hack" }, other.Id));
     }
 
+    /// <summary>Admin chỉ xem: không sửa được tin của Mentor, dù gọi thẳng vào service.</summary>
     [Fact]
-    public void Update_ByAdmin_Succeeds()
+    public void Update_ByAdmin_IsDenied_AndChangesNothing()
     {
         using var t = new TestDb();
         var owner = t.AddMentor("Owner", "o@itcp.vn");
@@ -148,9 +149,10 @@ public class JobServiceTests
         var job = t.AddJob(owner.Id);
         var svc = new JobService(t.Db);
 
-        svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = VietnamDateHelper.Today().AddDays(3) }, admin.Id);
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = VietnamDateHelper.Today().AddDays(3) }, admin.Id));
 
-        Assert.Equal("Đã sửa", t.NewContext().Jobs.Find(job.Id)!.Title);
+        Assert.Equal("Backend .NET", t.NewContext().Jobs.Find(job.Id)!.Title);
     }
 
     // =====================================================================

@@ -5,11 +5,12 @@
 
 <div class="page-head">
     <h1 class="page-title">Tin tuyển dụng IT</h1>
-    <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a>
+    @* Chỉ Mentor đăng tin — Admin giám sát, không tuyển dụng (JobService.Create cũng chặn). *@
+    @if (!isAdmin) { <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a> }
 </div>
 <p class="sub">
     @(isAdmin
-        ? "Toàn bộ tin IT trong hệ thống — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất."
+        ? "Toàn bộ tin IT trong hệ thống (chỉ xem) — việc đăng, sửa, đóng tin và xử lý ứng viên do Mentor đăng tin thực hiện."
         : "Tin tuyển dụng do bạn đăng — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.")
 </p>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
@@ -21,8 +22,8 @@
     <tbody>
         @foreach (var j in jobs)
         {
-            @* P1-5: danh sách chỉ còn tin mình có quyền thao tác, nên không còn nhánh
-               "tin của người khác". Admin vẫn thấy tất cả và vẫn thao tác được tất cả. *@
+            @* P1-5: Mentor chỉ thấy tin của mình nên thao tác được mọi dòng. Admin thấy tất
+               cả nhưng CHỈ XEM — nút thao tác bị ẩn, và endpoint/service cũng chặn. *@
             <tr>
                 <td>@j.Id</td>
                 <td>@j.Title</td>
@@ -41,7 +42,11 @@
                 </td>
                 <td class="nowrap">
                     <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                    @if (j.Status == JobStatus.Open)
+                    @if (isAdmin)
+                    {
+                        @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
+                    }
+                    else if (j.Status == JobStatus.Open)
                     {
                         <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
                         <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">

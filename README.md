@@ -77,7 +77,7 @@ AI đóng vai **cố vấn hướng nghiệp**: với mỗi đơn, trả về **
 - Mật khẩu băm **BCrypt**. API key để trong `appsettings.Development.json` (đã `.gitignore`).
 - CV bị **quét** trước khi lưu: chặn tệp thực thi (MZ/ELF) và chữ ký thử virus EICAR.
 - Phân quyền endpoint bằng `RequireAuthorization(RequireRole(...))` + `[Authorize]` trên trang.
-- **Mentor chỉ xem/thao tác ứng viên của tin do chính mình tạo** (`CanAccess`); Admin xem tất cả.
+- **Mentor chỉ xem/thao tác ứng viên của tin do chính mình tạo.** Admin **chỉ xem** phần tuyển dụng (mọi tin, ứng viên, thống kê) để giám sát; đăng/sửa/đóng tin, chấm AI, chốt điểm, đổi trạng thái, ghi chú, xuất CSV đều chỉ Mentor tạo tin làm được — kiểm ở tầng service (`CanView` / `CanModify`), không chỉ ẩn nút.
 
 ## 🩹 Các điểm nghẽn đã xử lý (bản review)
 - **Hiệu năng:** danh sách ứng viên/đơn dùng **projection DTO** (`ApplicantListItem`, `MyApplicationItem`) nên KHÔNG kéo `byte[]` CV về khi chỉ hiển thị bảng; số ứng viên đếm 1 lần bằng `CountAllByJob()` (bỏ N+1).

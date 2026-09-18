@@ -165,7 +165,8 @@ else if (!hasCv)
         var uid = CurrentUser.Id((await AuthState).User);
         if (uid == 0) return;
 
-        var p = Profiles.GetByUserId(uid);
+        // Bản chiếu, không kéo cột CvData — trang chỉ cần biết có/không.
+        var p = Profiles.GetCvStatus(uid);
         hasProfile = p != null;
         hasCv = p?.HasCv ?? false;
         // P0-4: Ánh xạ JobId -> Status để phân biệt đã ứng tuyển vs đã rút đơn

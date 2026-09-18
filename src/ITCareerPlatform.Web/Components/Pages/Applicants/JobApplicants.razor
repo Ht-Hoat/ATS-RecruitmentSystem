@@ -23,6 +23,10 @@ else
     </div>
     @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
     @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+    @if (!canModify)
+    {
+        <div class="warn-note">👁 Chế độ chỉ xem — xử lý ứng viên của tin này do Mentor đăng tin thực hiện.</div>
+    }
 
     <p class="sub">
         <span class="@Ui.CategoryClass(job.Category)">@job.Category</span>
@@ -125,15 +129,18 @@ else
             <span class="score score-mid">⚡ @ScoreBand.Mid Trung bình</span>
             <span class="score score-low">⚠️ @ScoreBand.Low Ít phù hợp</span>
         </div>
-        @* P2-1: xuất ĐÚNG tập đang lọc — link mang theo nguyên query string hiện tại. *@
-        <a class="btn-sm" href="@ExportUrl" title="Không xuất CV, ghi chú nội bộ hay câu hỏi phỏng vấn">⬇ Xuất CSV</a>
+        @* P2-1: xuất ĐÚNG tập đang lọc — link mang theo nguyên query string hiện tại.
+           Chỉ Mentor chủ tin: endpoint xuất cũng chỉ nhận Mentor chủ tin. *@
+        @if (canModify)
+        {
+            <a class="btn-sm" href="@ExportUrl" title="Không xuất CV, ghi chú nội bộ hay câu hỏi phỏng vấn">⬇ Xuất CSV</a>
+        }
     </div>
 
-    @* P2-1: cả bảng nằm trong MỘT form POST. Trang render tĩnh nên không có cách nào gom
-       lựa chọn bằng JavaScript rồi gửi đi — checkbox phải là thành phần thật của form. *@
-    <form method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
-          onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
-          <AntiforgeryField />
+    @* P2-1: checkbox của từng dòng thuộc form "bulk-form" bên dưới bảng qua thuộc tính HTML
+       form="..." — trang render tĩnh nên không gom lựa chọn bằng JavaScript được, checkbox
+       phải là thành phần thật của form. Cách này để bảng không phải nằm trong form, và người
+       chỉ xem (Admin) nhận được bảng thuần, không có form POST nào. *@
     <table class="tbl">
         <thead>
             <tr><th></th><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
@@ -147,13 +154,17 @@ else
                 <tr class="@(a.Status == ApplicationStatus.Withdrawn ? "row-withdrawn" : Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
                     <td>
                         @* Đơn ở trạng thái kết thúc (P1-4) không đổi tiếp được, nên không cho chọn. *@
-                        @if (ApplicationStatusFlow.IsTerminal(a.Status))
+                        @if (!canModify)
+                        {
+                            @* Chỉ xem: không có ô chọn. *@
+                        }
+                        else if (ApplicationStatusFlow.IsTerminal(a.Status))
                         {
                             <span class="sub" title="Đơn đã chốt">—</span>
                         }
                         else
                         {
-                            <input type="checkbox" name="applicationId" value="@a.Id" />
+                            <input type="checkbox" name="applicationId" value="@a.Id" form="bulk-form" />
                         }
                     </td>
                     <td>@idx</td>
@@ -207,8 +218,11 @@ else
         </tbody>
     </table>
 
-    @if (apps.Count > 0)
+    @if (canModify && apps.Count > 0)
     {
+        <form id="bulk-form" method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
+              onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
+        <AntiforgeryField />
         <div class="toolbar" style="margin-top:12px">
             <label style="margin-right:8px">Đổi trạng thái các đơn đã chọn:</label>
             @* Dropdown chỉ liệt kê trạng thái ĐÍCH hợp lệ chung; từng đơn vẫn được
@@ -225,8 +239,8 @@ else
                 Không chuyển hàng loạt sang "@ApplicationStatus.Interview" — mỗi đơn cần một lịch hẹn riêng.
             </span>
         </div>
+        </form>
     }
-    </form>
 
     @* P2-1: phân trang. Cùng khuôn với trang Nhật ký hệ thống: số trang kẹp hai đầu ở
        service, nên ?p=9999 cho ra trang cuối chứ không phải một bảng rỗng không lối về. *@
@@ -268,7 +282,8 @@ else
     private IReadOnlyList<string> jobTech = Array.Empty<string>();
     private HashSet<string> selectedTech = new();
     private int totalCount;
-    private bool canAccess;
+    private bool canAccess;   // xem: Mentor chủ tin hoặc Admin
+    private bool canModify;   // thao tác: chỉ Mentor chủ tin
     private ApplicantPage pager = new(Array.Empty<ApplicantListItem>(), 0, 1, PageSize);
 
     private const int PageSize = 20;
@@ -285,9 +300,12 @@ else
         job = Jobs.GetById(JobId);
         if (job is null || AuthState is null) return;
 
-        // #5: luật "Admin hoặc chủ tin" hỏi qua service, không viết lại tại chỗ.
-        canAccess = Jobs.CanModify(JobId, CurrentUser.Id((await AuthState).User));
+        // #5: hai luật hỏi qua service, không viết lại tại chỗ. XEM: chủ tin hoặc Admin;
+        // THAO TÁC: chỉ Mentor chủ tin — Admin giám sát chứ không xử lý ứng viên.
+        var uid = CurrentUser.Id((await AuthState).User);
+        canAccess = Jobs.CanView(JobId, uid);
         if (!canAccess) return;
+        canModify = Jobs.CanModify(JobId, uid);
 
         // Ô tick công nghệ dựng từ chính Tech Stack của tin này, nên Mentor chỉ lọc được
         // theo thứ mà vị trí thực sự yêu cầu.

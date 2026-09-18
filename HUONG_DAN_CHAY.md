@@ -98,17 +98,17 @@ Không bật vẫn chạy được: hệ thống **tự chấm điểm bằng th
 
 ## 🗃️ Về Migration EF Core
 
-Mặc định app tự tạo CSDL bằng `EnsureCreated()` khi chưa có migration.
-Nếu muốn dùng migration chuẩn (khuyến nghị cho môi trường thật):
+Dự án đã có sẵn migration (thư mục `Migrations/`). Mỗi lần khởi động, app tự chạy
+`Migrate()` — CSDL mới được tạo từ đầu, CSDL cũ được nâng lên bản mới nhất. Không cần chạy
+`dotnet ef database update` bằng tay.
 
-```bash
-cd src/ITCareerPlatform.Web
-dotnet tool install --global dotnet-ef      # nếu chưa có
-dotnet ef migrations add InitialCreate
-dotnet ef database update
-```
-
-Khi đã có migration, app sẽ tự `Migrate()` thay vì `EnsureCreated()` (xem `Program.cs`).
+**Nâng cấp CSDL tạo từ bản cũ (trước khi có migration, dùng `EnsureCreated()`):** app tự nhận
+ra CSDL loại này (có bảng `Users` nhưng chưa có `__EFMigrationsHistory`) và chạy
+`Data/LegacySchemaBridge.cs` trước `Migrate()`: thêm cột `Users.SecurityStamp`,
+`Applications.AiSource`, thu cột `Status` về độ dài cố định để đánh index, rồi ghi
+`InitialCreate` vào lịch sử migration. Mọi bước nằm trong MỘT giao dịch — hỏng thì CSDL giữ
+nguyên. Log khởi động có dòng "Đã nối CSDL tạo bằng EnsureCreated()..." khi việc này xảy ra.
+Nên sao lưu CSDL trước lần khởi động đầu tiên sau khi nâng cấp.
 
 ---
 

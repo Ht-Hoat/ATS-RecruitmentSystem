@@ -1,6 +1,8 @@
 @page "/users"
 @attribute [Authorize(Roles = Roles.Admin)]
 @inject IUserService Users
+@inject IHttpContextAccessor Http
+@inject Microsoft.AspNetCore.DataProtection.IDataProtectionProvider DataProtection
 
 <div class="page-head">
     <h1 class="page-title">Quản lý tài khoản</h1>
@@ -25,6 +27,14 @@
                 ? "Không gửi được email (xem log máy chủ), nên mật khẩu tạm hiện ở đây thay thế."
                 : "Hệ thống chưa cấu hình SMTP nên chưa gửi được email. Cấu hình Smtp:Host và Smtp:From để mật khẩu tạm đi thẳng vào hộp thư người dùng.")
         </p>
+    </div>
+}
+else if (TempPwFlag == "1")
+{
+    @* Cookie đã được đọc (tải lại trang) hoặc đã hết hạn — mật khẩu chỉ hiện đúng một lần. *@
+    <div class="alert-err">
+        Mật khẩu tạm chỉ hiện một lần và đã hết hiệu lực hiển thị. Nếu chưa kịp ghi lại, hãy
+        bấm "Đặt lại mật khẩu" thêm một lần nữa.
     </div>
 }
 
@@ -101,8 +111,10 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
     [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
-    [SupplyParameterFromQuery(Name = "tempPw")] public string? TempPw { get; set; }
+    // Chỉ là cờ "vừa reset xong" — mật khẩu KHÔNG bao giờ nằm trên URL (xem TempPasswordHandoff).
+    [SupplyParameterFromQuery(Name = "tempPw")] public string? TempPwFlag { get; set; }
     [SupplyParameterFromQuery(Name = "mailfailed")] public string? MailFailed { get; set; }
+    private string? TempPw;
     private List<User> userList = new();
     private List<Role> roleList = new();
     private int currentUid;
@@ -113,5 +125,8 @@
         // Danh sách vai trò lấy qua service — trang không còn tự inject AppDbContext.
         roleList = Users.GetRoles();
         if (AuthState != null) currentUid = CurrentUser.Id((await AuthState).User);
+
+        if (TempPwFlag == "1" && Http.HttpContext is { } ctx && currentUid > 0)
+            TempPw = TempPasswordHandoff.TakeOnce(ctx, DataProtection, currentUid);
     }
 }

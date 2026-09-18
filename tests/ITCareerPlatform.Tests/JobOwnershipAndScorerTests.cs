@@ -73,23 +73,99 @@ public class JobOwnershipAndScorerTests
         Assert.NotNull(a.HrAdjustedAt);
     }
 
+    // ===== Luật chốt điểm nằm ở service, không chỉ ở thẻ input =====
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    [InlineData(150)]
+    public void SaveHrScore_OutOfRange_IsRejected_AndChangesNothing(int score)
+    {
+        using var t = new TestDb();
+        var (appId, m, _) = SeedScored(t);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            NewSvc(t).SaveHrScore(appId, score, "Lý do đủ dài để hợp lệ.", m.Id));
+
+        Assert.Contains("0 đến 100", ex.Message);
+        Assert.Null(t.NewContext().Applications.Find(appId)!.HrScore);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("ngắn")]
+    [InlineData("         x         ")]   // khoảng trắng không được tính là lý do
+    public void SaveHrScore_ReasonTooShort_IsRejected(string note)
+    {
+        using var t = new TestDb();
+        var (appId, m, _) = SeedScored(t);
+
+        Assert.Throws<ArgumentException>(() => NewSvc(t).SaveHrScore(appId, 70, note, m.Id));
+        Assert.Null(t.NewContext().Applications.Find(appId)!.HrScore);
+    }
+
     /// <summary>
-    /// Chấm lại bởi người khác thì tên phải đổi theo. Giữ người chấm ĐẦU TIÊN sẽ làm màn
-    /// hình nói rằng con số hiện tại là của một người chưa từng thấy con số đó.
+    /// maxlength="500" chỉ ràng buộc trình duyệt. Trước bản sửa, 501 ký tự đi thẳng xuống
+    /// CSDL — trên SQL Server đó là lỗi 500 "String or binary data would be truncated".
     /// </summary>
     [Fact]
-    public void SaveHrScore_ByAnotherPerson_OverwritesTheScorer()
+    public void SaveHrScore_ReasonLongerThanColumn_IsRejected_BeforeReachingTheDatabase()
+    {
+        using var t = new TestDb();
+        var (appId, m, _) = SeedScored(t);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            NewSvc(t).SaveHrScore(appId, 70, new string('a', 501), m.Id));
+
+        Assert.Contains("500", ex.Message);
+        Assert.Null(t.NewContext().Applications.Find(appId)!.HrScore);
+    }
+
+    [Fact]
+    public void SaveHrScore_Audit_RecordsTheScore_ButNotTheReason()
+    {
+        using var t = new TestDb();
+        var (appId, m, _) = SeedScored(t);
+        const string reason = "Nhận định riêng: phỏng vấn thử thấy yếu giao tiếp.";
+
+        NewSvc(t).SaveHrScore(appId, 64, reason, m.Id);
+
+        var log = t.NewContext().AuditLogs.Single(x => x.Action == "Score Applicant");
+        Assert.Contains("64%", log.Details);
+        Assert.DoesNotContain("giao tiếp", log.Details);
+    }
+
+    /// <summary>Chấm lại thì mốc thời gian và con số đi theo lần chấm MỚI NHẤT.</summary>
+    [Fact]
+    public void SaveHrScore_Rescore_KeepsTheLatest()
+    {
+        using var t = new TestDb();
+        var (appId, m, _) = SeedScored(t);
+        var svc = NewSvc(t);
+        svc.SaveHrScore(appId, 75, "Lần chấm đầu.", m.Id);
+
+        svc.SaveHrScore(appId, 60, "Xem lại, hạ xuống.", m.Id);
+
+        var a = t.NewContext().Applications.Find(appId)!;
+        Assert.Equal(m.Id, a.HrScoreByUserId);
+        Assert.Equal(60, a.HrScore);
+        Assert.Equal("Xem lại, hạ xuống.", a.HrNote);
+    }
+
+    /// <summary>Admin chỉ xem: không chốt đè lên điểm của Mentor, dù gọi thẳng vào service.</summary>
+    [Fact]
+    public void SaveHrScore_ByAdmin_IsDenied_AndKeepsTheMentorsScore()
     {
         using var t = new TestDb();
         var (appId, m, admin) = SeedScored(t);
         var svc = NewSvc(t);
         svc.SaveHrScore(appId, 75, "Lần chấm đầu.", m.Id);
 
-        svc.SaveHrScore(appId, 60, "Xem lại, hạ xuống.", admin.Id);
+        Assert.Throws<UnauthorizedAccessException>(() => svc.SaveHrScore(appId, 60, "Xem lại, hạ xuống.", admin.Id));
 
         var a = t.NewContext().Applications.Find(appId)!;
-        Assert.Equal(admin.Id, a.HrScoreByUserId);
-        Assert.Equal(60, a.HrScore);
+        Assert.Equal(m.Id, a.HrScoreByUserId);
+        Assert.Equal(75, a.HrScore);
     }
 
     /// <summary>Chưa ai chấm thì trường này là null — giao diện không hiện dòng "chốt bởi".</summary>

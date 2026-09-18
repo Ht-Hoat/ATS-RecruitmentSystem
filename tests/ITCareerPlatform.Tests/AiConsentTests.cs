@@ -37,18 +37,40 @@ public class AiConsentTests
         Assert.Equal(CandidateProfile.CurrentAiConsentVersion, p.AiConsentVersion);
     }
 
+    /// <summary>
+    /// Ô tích trên form có thuộc tính required, nhưng đó chỉ là trình duyệt. Một request tự
+    /// tạo không kèm aiConsent phải bị chặn ở tầng dịch vụ, và không để lại gì trên đĩa/CSDL.
+    /// </summary>
     [Fact]
-    public async Task SaveCv_WithoutConsent_LeavesProfileUnconsented()
+    public async Task SaveCv_WithoutConsent_IsRejected_AndSavesNothing()
     {
         using var t = new TestDb();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
 
-        await new ProfileService(t.Db, t.CvStorage)
+        var (ok, err) = await new ProfileService(t.Db, t.CvStorage)
             .SaveCvAsync(sv.Id, Pdf(), "cv.pdf", "application/pdf", aiConsentGiven: false);
 
-        var p = t.NewContext().CandidateProfiles.Single(x => x.UserId == sv.Id);
-        Assert.False(p.HasAiConsent);
-        Assert.True(p.HasCv);       // CV vẫn lưu được — đồng ý chỉ chi phối việc gọi AI
+        Assert.False(ok);
+        Assert.Contains("đồng ý", err);
+        Assert.Empty(t.NewContext().CandidateProfiles.Where(x => x.UserId == sv.Id));
+        Assert.False(Directory.Exists(t.CvRoot) && Directory.EnumerateFiles(t.CvRoot, "*", SearchOption.AllDirectories).Any());
+    }
+
+    /// <summary>Đã rút đồng ý thì tải CV mới cũng phải tích lại — form khi đó hiện lại ô tích.</summary>
+    [Fact]
+    public async Task SaveCv_AfterWithdrawingConsent_WithoutTicking_IsRejected()
+    {
+        using var t = new TestDb();
+        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
+        var svc = new ProfileService(t.Db, t.CvStorage);
+        await svc.SaveCvAsync(sv.Id, Pdf(), "cv.pdf", "application/pdf", aiConsentGiven: true);
+        svc.WithdrawAiConsent(sv.Id);
+
+        var (ok, _) = await svc.SaveCvAsync(sv.Id, Encoding.UTF8.GetBytes("%PDF-1.4 cv moi"), "cv2.pdf",
+            "application/pdf", aiConsentGiven: false);
+
+        Assert.False(ok);
+        Assert.Equal("cv.pdf", t.NewContext().CandidateProfiles.Single(x => x.UserId == sv.Id).CvFileName);
     }
 
     /// <summary>

@@ -242,7 +242,7 @@ public class ApplicantPagingAndExportTests
         var svc = NewSvc(t);
         var ids = t.NewContext().Applications.Select(a => a.Id).ToList();
 
-        var result = svc.BulkUpdateStatus(ids, ApplicationStatus.Reviewing, m.Id);
+        var result = svc.BulkUpdateStatus(job.Id, ids, ApplicationStatus.Reviewing, m.Id);
 
         Assert.Equal(3, result.Updated);
         Assert.Equal(0, result.FailedCount);
@@ -265,7 +265,7 @@ public class ApplicantPagingAndExportTests
         // Đã trúng tuyển: trạng thái kết thúc, không đổi tiếp được (P1-4).
         var bad = t.AddApplication(job.Id, t.AddStudentWithProfile("c").Id, ApplicationStatus.Accepted);
 
-        var result = NewSvc(t).BulkUpdateStatus(
+        var result = NewSvc(t).BulkUpdateStatus(job.Id,
             new[] { ok1.Id, ok2.Id, bad.Id }, ApplicationStatus.Reviewing, m.Id);
 
         Assert.Equal(2, result.Updated);
@@ -283,7 +283,7 @@ public class ApplicantPagingAndExportTests
         var job = t.AddJob(m.Id);
         var bad = t.AddApplication(job.Id, t.AddStudentWithProfile("c").Id, ApplicationStatus.Rejected);
 
-        var result = NewSvc(t).BulkUpdateStatus(new[] { bad.Id }, ApplicationStatus.Reviewing, m.Id);
+        var result = NewSvc(t).BulkUpdateStatus(job.Id, new[] { bad.Id }, ApplicationStatus.Reviewing, m.Id);
 
         Assert.Contains("không hợp lệ", result.Message);
         Assert.Contains($"#{bad.Id}", result.Message);
@@ -297,7 +297,7 @@ public class ApplicantPagingAndExportTests
         var (job, m) = SeedApplicants(t, 2, ApplicationStatus.Reviewing);
         var ids = t.NewContext().Applications.Select(a => a.Id).ToList();
 
-        var result = NewSvc(t).BulkUpdateStatus(ids, ApplicationStatus.Interview, m.Id);
+        var result = NewSvc(t).BulkUpdateStatus(job.Id, ids, ApplicationStatus.Interview, m.Id);
 
         Assert.Equal(0, result.Updated);
         Assert.Contains("lịch hẹn riêng", result.Failures[0]);
@@ -316,11 +316,64 @@ public class ApplicantPagingAndExportTests
         var (job, m) = SeedApplicants(t, 2);
         var ids = t.NewContext().Applications.Select(a => a.Id).ToList();
 
-        NewSvc(t).BulkUpdateStatus(ids, ApplicationStatus.Reviewing, m.Id);
+        NewSvc(t).BulkUpdateStatus(job.Id, ids, ApplicationStatus.Reviewing, m.Id);
 
         using var v = t.NewContext();
         Assert.Equal(2, v.ApplicationStatusHistories.Count());
         Assert.Equal(2, v.Notifications.Count());
+    }
+
+    /// <summary>
+    /// Id đơn đến từ form — người gửi request sửa được. Gửi kèm id đơn của TIN KHÁC (dù là
+    /// tin của chính mình hay của người khác) thì đơn đó không được đụng tới.
+    /// </summary>
+    [Fact]
+    public void Bulk_IdsFromAnotherJob_AreSkipped_AndReported()
+    {
+        using var t = new TestDb();
+        var (job, m) = SeedApplicants(t, 1);
+        var other = t.AddMentor("Khác", "khac@itcp.vn");
+        var otherJob = t.AddJob(other.Id);
+        var foreign = t.AddApplication(otherJob.Id, t.AddStudentWithProfile("x").Id, ApplicationStatus.Submitted);
+        var mine = t.NewContext().Applications.Single(a => a.JobId == job.Id).Id;
+
+        var result = NewSvc(t).BulkUpdateStatus(job.Id, new[] { mine, foreign.Id }, ApplicationStatus.Reviewing, m.Id);
+
+        Assert.Equal(1, result.Updated);
+        Assert.Equal(1, result.ForeignSkipped);
+        Assert.Contains("không thuộc tin này", result.Message);
+        using var v = t.NewContext();
+        Assert.Equal(ApplicationStatus.Submitted, v.Applications.Find(foreign.Id)!.Status);
+        Assert.Empty(v.ApplicationStatusHistories.Where(h => h.ApplicationId == foreign.Id));
+    }
+
+    [Fact]
+    public void Bulk_OnSomeoneElsesJob_IsDenied_AndChangesNothing()
+    {
+        using var t = new TestDb();
+        var (job, _) = SeedApplicants(t, 2);
+        var intruder = t.AddMentor("Khác", "khac@itcp.vn");
+        var ids = t.NewContext().Applications.Select(a => a.Id).ToList();
+
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            NewSvc(t).BulkUpdateStatus(job.Id, ids, ApplicationStatus.Rejected, intruder.Id));
+
+        Assert.All(t.NewContext().Applications.ToList(),
+            a => Assert.Equal(ApplicationStatus.Submitted, a.Status));
+    }
+
+    /// <summary>Admin chỉ xem: không đổi trạng thái hàng loạt, dù gọi thẳng vào service.</summary>
+    [Fact]
+    public void Bulk_ByAdmin_IsDenied_AndChangesNothing()
+    {
+        using var t = new TestDb();
+        var (job, _) = SeedApplicants(t, 1);
+        var admin = t.AddUser("Quản trị", "admin@itcp.vn", Roles.AdminId);
+        var ids = t.NewContext().Applications.Select(a => a.Id).ToList();
+
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            NewSvc(t).BulkUpdateStatus(job.Id, ids, ApplicationStatus.Reviewing, admin.Id));
+        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Single().Status);
     }
 
     [Fact]
@@ -330,7 +383,7 @@ public class ApplicantPagingAndExportTests
         var (job, m) = SeedApplicants(t, 1);
         var id = t.NewContext().Applications.Single().Id;
 
-        var result = NewSvc(t).BulkUpdateStatus(new[] { id, id, id }, ApplicationStatus.Reviewing, m.Id);
+        var result = NewSvc(t).BulkUpdateStatus(job.Id, new[] { id, id, id }, ApplicationStatus.Reviewing, m.Id);
 
         Assert.Equal(1, result.Updated);
         Assert.Equal(0, result.FailedCount);

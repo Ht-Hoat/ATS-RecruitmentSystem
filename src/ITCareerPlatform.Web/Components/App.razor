@@ -1,10 +1,14 @@
+@inject IWebHostEnvironment Env
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <link rel="stylesheet" href="app.css" />
+    @* ?v= đổi mỗi khi app.css đổi. Link trần "app.css" để trình duyệt dùng lại bản cũ trong
+       bộ nhớ đệm sau khi cập nhật — giao diện mới chỉ hiện đúng sau khi người dùng Ctrl+F5. *@
+    <link rel="stylesheet" href="app.css?v=@CssVersion" />
     <title>IT Career Platform</title>
     <!-- Chart.js self-hosted local (N2.A) -->
     <script src="/lib/chart.umd.min.js"></script>
@@ -47,6 +51,29 @@
                 }
             }, true);
         })();
+
+        // Menu thả xuống (<details class="dropdown">: menu tài khoản, chuông thông báo).
+        // Không có script này menu VẪN mở/đóng được bằng cách bấm lại; script chỉ thêm hành vi
+        // quen thuộc: bấm ra ngoài hoặc nhấn Esc thì đóng, mở menu này thì đóng menu kia.
+        (function () {
+            function closeAll(except) {
+                document.querySelectorAll('details.dropdown[open]').forEach(function (d) {
+                    if (d !== except) d.removeAttribute('open');
+                });
+            }
+            document.addEventListener('click', function (e) {
+                closeAll(e.target.closest('details.dropdown'));
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeAll(null);
+            });
+        })();
     </script>
 </body>
 </html>
+
+@code {
+    /// <summary>Mốc sửa đổi của app.css — đủ để trình duyệt nhận ra bản mới, không cần băm nội dung.</summary>
+    private string CssVersion =>
+        Env.WebRootFileProvider.GetFileInfo("app.css").LastModified.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
