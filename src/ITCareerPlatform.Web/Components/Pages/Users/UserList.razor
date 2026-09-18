@@ -60,7 +60,7 @@ else if (TempPwFlag == "1")
                     else
                     {
                         <form method="post" action="@($"/users/{u.Id}/change-role")" class="inline">
-                            <AntiforgeryField />
+                            <AntiforgeryToken />
                             <select name="roleId">
                                 @foreach (var r in roleList)
                                 {
@@ -79,7 +79,7 @@ else if (TempPwFlag == "1")
                     else
                     {
                         <form method="post" action="@($"/users/{u.Id}/reset-password")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đặt lại mật khẩu cho tài khoản @u.FullName? Mật khẩu tạm thời sẽ được tạo và người dùng phải đổi khi đăng nhập.');">
-                            <AntiforgeryField />
+                            <AntiforgeryToken />
                             <button class="btn-sm warning" type="submit" title="Sinh mật khẩu tạm thời">Đặt lại MK</button>
                         </form>
                     }
@@ -92,7 +92,7 @@ else if (TempPwFlag == "1")
                     else
                     {
                         <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn khóa/mở khóa tài khoản này?');">
-                            <AntiforgeryField />
+                            <AntiforgeryToken />
                             <button class="btn-sm @(u.IsActive ? "danger" : "")" type="submit">@(u.IsActive ? "Khóa" : "Mở khóa")</button>
                         </form>
                     }

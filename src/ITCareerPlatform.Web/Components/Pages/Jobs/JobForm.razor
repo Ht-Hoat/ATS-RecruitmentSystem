@@ -8,7 +8,7 @@
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
 <form method="post" action="/jobs/create" class="form form-wide" data-vi-validate>
-    <AntiforgeryField />
+    <AntiforgeryToken />
     <JobFields Model="model" CompanyName="@companyName" />
     <div class="actions">
         <button class="btn-primary" type="submit">Lưu tin tuyển dụng</button>

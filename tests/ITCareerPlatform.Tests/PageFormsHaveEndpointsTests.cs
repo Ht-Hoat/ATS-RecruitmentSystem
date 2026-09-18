@@ -65,7 +65,7 @@ public class PageFormsHaveEndpointsTests
 
     /// <summary>
     /// Mỗi form POST phải mang token chống giả mạo BÊN TRONG chính nó. Đếm số lượng trong cả
-    /// tệp là không đủ: nút Đăng xuất từng có &lt;AntiforgeryField /&gt; nằm ngay SAU &lt;/form&gt; —
+    /// tệp là không đủ: nút Đăng xuất từng có ô token nằm ngay SAU &lt;/form&gt; —
     /// số lượng vẫn khớp, nhưng form gửi đi không có token và middleware chặn lại, tức là
     /// không đăng xuất được.
     /// </summary>
@@ -81,7 +81,7 @@ public class PageFormsHaveEndpointsTests
                 if (!MethodAttr.IsMatch(tag.Value)) continue;
                 var close = text.IndexOf("</form>", tag.Index, StringComparison.OrdinalIgnoreCase);
                 var body = close < 0 ? "" : text[tag.Index..close];
-                if (!body.Contains("<AntiforgeryField"))
+                if (!body.Contains("<AntiforgeryToken"))
                     missing.Add($"{Path.GetFileName(file)}: {ActionAttr.Match(tag.Value).Groups["v"].Value}");
             }
         }

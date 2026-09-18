@@ -138,6 +138,7 @@ public class ApplicationServiceTests
         using var t = new TestDb();
         var owner = t.AddUser("Owner", "o@itcp.vn", Roles.MentorId);
         var other = t.AddUser("Other", "x@itcp.vn", Roles.MentorId);
+        var admin = t.AddUser("Admin", "a@itcp.vn", Roles.AdminId);
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         t.AddProfile(sv.Id);
         var job = t.AddJob(owner.Id);
@@ -145,9 +146,9 @@ public class ApplicationServiceTests
         svc.Apply(job.Id, sv.Id, out _);
         var appId = t.NewContext().Applications.First().Id;
 
-        Assert.True(svc.CanAccess(appId, owner.Id, isAdmin: false));    // chủ tin → OK
-        Assert.False(svc.CanAccess(appId, other.Id, isAdmin: false));   // mentor khác → chặn
-        Assert.True(svc.CanAccess(appId, other.Id, isAdmin: true));     // admin → OK
+        Assert.True(svc.CanAccess(appId, owner.Id));    // chủ tin → OK
+        Assert.False(svc.CanAccess(appId, other.Id));   // mentor khác → chặn
+        Assert.True(svc.CanAccess(appId, admin.Id));    // admin → OK (vai trò đọc từ CSDL)
     }
 
     // Kịch bản 5: ứng tuyển trùng

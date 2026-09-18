@@ -101,7 +101,7 @@ public class AdminReadOnlyTests
         var (m, admin, _, app) = Seed(t);
         var svc = AppSvc(t);
 
-        Assert.True(svc.CanAccess(app.Id, admin.Id, isAdmin: true));
+        Assert.True(svc.CanAccess(app.Id, admin.Id));
         Assert.False(svc.CanModify(app.Id, admin.Id));
         Assert.True(svc.CanModify(app.Id, m.Id));
     }

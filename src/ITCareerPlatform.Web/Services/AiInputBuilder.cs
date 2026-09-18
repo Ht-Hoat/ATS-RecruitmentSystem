@@ -34,8 +34,8 @@ public class AiInputBuilder(ICvStorage cvStorage) : IAiInputBuilder
         // P2-2: nội dung CV có thể nằm ở blob storage, ở cột byte[] cũ, hoặc chỉ có ở hồ sơ
         // (đơn tạo trước khi có bản chụp). Thử đúng thứ tự đó — bỏ bước storage thì sau khi
         // di trú xong, mọi lần chấm điểm đều chạy trên một CV rỗng mà không có lỗi nào báo.
-        var bytes = await ReadAsync(a.CvStorageKeySnapshot, a.CvDataSnapshot, ct)
-                    ?? await ReadAsync(p.CvStorageKey, p.CvData, ct);
+        var bytes = await cvStorage.ReadOrLegacyAsync(a.CvStorageKeySnapshot, a.CvDataSnapshot, ct)
+                    ?? await cvStorage.ReadOrLegacyAsync(p.CvStorageKey, p.CvData, ct);
 
         var fileName = a.CvStorageKeySnapshot is not null || a.CvDataSnapshot is not null
             ? a.CvFileNameSnapshot
@@ -46,19 +46,8 @@ public class AiInputBuilder(ICvStorage cvStorage) : IAiInputBuilder
 
     public async Task<AiEvaluationInput> ForSelfCheckAsync(CandidateProfile p, Job job, CancellationToken ct = default)
     {
-        var bytes = await ReadAsync(p.CvStorageKey, p.CvData, ct);
+        var bytes = await cvStorage.ReadOrLegacyAsync(p.CvStorageKey, p.CvData, ct);
         return Build(p, job, CvTextExtractor.Extract(bytes, p.CvFileName));
-    }
-
-    /// <summary>Ưu tiên khóa lưu trữ, lùi về cột byte[] khi chưa di trú hoặc khóa đã mất tệp.</summary>
-    private async Task<byte[]?> ReadAsync(string? key, byte[]? legacy, CancellationToken ct)
-    {
-        if (key is not null)
-        {
-            var data = await cvStorage.ReadAsync(key, ct);
-            if (data is not null) return data;
-        }
-        return legacy;
     }
 
     /// <summary>

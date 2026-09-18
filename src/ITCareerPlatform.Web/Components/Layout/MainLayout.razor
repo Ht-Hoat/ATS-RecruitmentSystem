@@ -48,7 +48,7 @@
                         <a href="/change-password">🔑 Đổi mật khẩu</a>
                         <div class="menu-sep"></div>
                         <form method="post" action="/account/logout">
-                            <AntiforgeryField />
+                            <AntiforgeryToken />
                             <button class="menu-danger" type="submit">↩ Đăng xuất</button>
                         </form>
                     </div>
@@ -77,7 +77,7 @@
                             @* Chỉ gửi id. Đường dẫn chuyển tới được đọc từ CSDL ở phía server —
                                trước đây nó là một ô ẩn trong form, tức là do client quyết định. *@
                             <form method="post" action="@($"/notifications/{n.Id}/read")" class="bell-item @(n.IsRead ? "" : "unread")">
-                                <AntiforgeryField />
+                                <AntiforgeryToken />
                                 <button type="submit">
                                     <b>@n.Title</b>
                                     <span>@n.Message</span>
@@ -102,6 +102,7 @@
     private bool showBell;
     private int unread;
     private List<Notification> items = new();
+    private const int BellSize = 8;
 
     // Hai truy vấn thông báo trước đây nằm thẳng trong markup, nên chúng chạy lại mỗi lần
     // render mọi trang sinh viên, kể cả những trang vốn không đọc CSDL.
@@ -116,8 +117,10 @@
         showBell = user.Identity?.IsAuthenticated == true && uid > 0;
         if (!showBell) return;
 
-        items = Notifs.GetForUser(uid, 8);
-        unread = Notifs.CountUnread(uid);
+        items = Notifs.GetForUser(uid, BellSize);
+        // Lấy chưa đủ BellSize nghĩa là đã có TẤT CẢ thông báo trong tay — đếm luôn ở đây thay
+        // vì thêm một câu COUNT. Layout render trên mọi trang, nên một truy vấn là đáng kể.
+        unread = items.Count < BellSize ? items.Count(n => !n.IsRead) : Notifs.CountUnread(uid);
     }
 
     /// <summary>Hai chữ cái đầu cho ô avatar: "Phạm Thị Lan" → "PL" (chữ đầu của họ và của tên).</summary>
