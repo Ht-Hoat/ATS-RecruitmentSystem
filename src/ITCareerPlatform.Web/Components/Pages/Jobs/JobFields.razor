@@ -1,5 +1,19 @@
 @* Các trường nhập của tin việc IT — dùng chung cho Tạo và Sửa *@
 
+@* P1-1: công ty đứng tên tin, hiện CHỈ-ĐỌC. Cố ý không có ô nhập: giá trị thật do
+   JobService lấy từ tài khoản người tạo, nên một ô nhập ở đây sẽ nói dối về việc người
+   dùng chọn được. Dải này chỉ để nhà tuyển dụng biết tin sẽ đứng tên ai trước khi bấm lưu. *@
+<div class="panel" style="background:#f8fafc;padding:10px 14px;margin-bottom:14px;border-left:4px solid #1f4e79">
+    @if (string.IsNullOrWhiteSpace(CompanyName))
+    {
+        <span class="lock">● Tài khoản của bạn chưa được gán vào công ty nào — chưa đăng tin được. Hãy nhờ Quản trị viên gán công ty.</span>
+    }
+    else
+    {
+        <span class="sub">Tin này sẽ đứng tên công ty:</span> <b>@CompanyName</b>
+    }
+</div>
+
 <label>Tiêu đề công việc</label>
 <input name="title" required minlength="5" maxlength="160" value="@Model.Title" placeholder="Lập trình viên Backend .NET" />
 
@@ -62,7 +76,11 @@
 
 @code {
     [Parameter] public Job Model { get; set; } = new();
+    /// <summary>Tên công ty đứng tên tin; rỗng nghĩa là tài khoản chưa được gán công ty.</summary>
+    [Parameter] public string? CompanyName { get; set; }
 
+    @* P0-2: hạn nộp mặc định tính theo lịch VIỆT NAM. DateTime.Today là ngày của máy chủ,
+       nên trên container chạy UTC thì ô này gợi ý sai một ngày suốt khung 00:00-07:00 giờ VN. *@
     private string DeadlineValue => Ui.InputDate(
-        Model.Deadline == default ? DateTime.Today.AddMonths(1) : Model.Deadline);
+        Model.Deadline == default ? VietnamDateHelper.Today().AddMonths(1) : Model.Deadline);
 }

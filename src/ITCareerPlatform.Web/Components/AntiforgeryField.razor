@@ -1,0 +1,32 @@
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@inject IHttpContextAccessor Http
+
+@* P2-3: ô ẩn mang token chống giả mạo yêu cầu (CSRF).
+
+   Vì sao phải có một component riêng: trang render TĨNH nên không có EditForm — thứ vốn tự
+   chèn token. Mọi form POST ở đây là thẻ HTML thuần, và thiếu ô này thì middleware
+   kiểm tra sẽ từ chối yêu cầu, tức là chức năng đó hỏng hoàn toàn. Vì vậy mỗi form POST phải
+   có đúng một thẻ <AntiforgeryField />.
+
+   GetAndStoreTokens vừa sinh token cho form vừa đặt cookie đối chiếu lên response — thiếu
+   một trong hai thì không đối chiếu được. *@
+
+@if (token is not null)
+{
+    <input type="hidden" name="@fieldName" value="@token" />
+}
+
+@code {
+    private string? fieldName;
+    private string? token;
+
+    protected override void OnInitialized()
+    {
+        var ctx = Http.HttpContext;
+        if (ctx is null) return;
+
+        var tokens = Antiforgery.GetAndStoreTokens(ctx);
+        fieldName = tokens.FormFieldName;
+        token = tokens.RequestToken;
+    }
+}

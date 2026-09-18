@@ -66,6 +66,10 @@ namespace ITCareerPlatform.Migrations
                     b.Property<DateTime>("AppliedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("CandidateFeedback")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<int>("CandidateProfileId")
                         .HasColumnType("int");
 
@@ -81,6 +85,10 @@ namespace ITCareerPlatform.Migrations
                         .HasMaxLength(260)
                         .HasColumnType("nvarchar(260)");
 
+                    b.Property<string>("CvStorageKeySnapshot")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<DateTime?>("HrAdjustedAt")
                         .HasColumnType("datetime2");
 
@@ -89,6 +97,9 @@ namespace ITCareerPlatform.Migrations
                         .HasColumnType("nvarchar(500)");
 
                     b.Property<int?>("HrScore")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HrScoreByUserId")
                         .HasColumnType("int");
 
                     b.Property<string>("InternalNote")
@@ -111,6 +122,9 @@ namespace ITCareerPlatform.Migrations
                     b.Property<string>("InterviewNote")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("InterviewSequence")
+                        .HasColumnType("int");
 
                     b.Property<int>("JobId")
                         .HasColumnType("int");
@@ -217,6 +231,13 @@ namespace ITCareerPlatform.Migrations
                         .HasMaxLength(250)
                         .HasColumnType("nvarchar(250)");
 
+                    b.Property<DateTime?>("AiConsentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("AiConsentVersion")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -230,6 +251,10 @@ namespace ITCareerPlatform.Migrations
                     b.Property<string>("CvFileName")
                         .HasMaxLength(260)
                         .HasColumnType("nvarchar(260)");
+
+                    b.Property<string>("CvStorageKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<DateTime?>("CvUploadedAt")
                         .HasColumnType("datetime2");
@@ -304,6 +329,97 @@ namespace ITCareerPlatform.Migrations
                     b.ToTable("CandidateProfiles");
                 });
 
+            modelBuilder.Entity("ITCareerPlatform.Models.Company", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Website")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("Companies");
+                });
+
+            modelBuilder.Entity("ITCareerPlatform.Models.EmailOutbox", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<byte[]>("AttachmentContent")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<string>("AttachmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("ToEmail")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SentAt", "Attempts");
+
+                    b.ToTable("EmailOutbox");
+                });
+
             modelBuilder.Entity("ITCareerPlatform.Models.Job", b =>
                 {
                     b.Property<int>("Id")
@@ -316,6 +432,9 @@ namespace ITCareerPlatform.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("CompanyId")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -378,6 +497,8 @@ namespace ITCareerPlatform.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
 
                     b.HasIndex("CreatedById");
 
@@ -468,6 +589,53 @@ namespace ITCareerPlatform.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ITCareerPlatform.Models.SelfCheck", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("JobId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Missing")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Roadmap")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Strengths")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("UserId", "JobId", "Id");
+
+                    b.ToTable("SelfChecks");
+                });
+
             modelBuilder.Entity("ITCareerPlatform.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -475,6 +643,9 @@ namespace ITCareerPlatform.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -492,6 +663,9 @@ namespace ITCareerPlatform.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("bit");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -507,6 +681,8 @@ namespace ITCareerPlatform.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
 
                     b.HasIndex("Email")
                         .IsUnique();
@@ -570,22 +746,56 @@ namespace ITCareerPlatform.Migrations
 
             modelBuilder.Entity("ITCareerPlatform.Models.Job", b =>
                 {
+                    b.HasOne("ITCareerPlatform.Models.Company", "Company")
+                        .WithMany("Jobs")
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("ITCareerPlatform.Models.User", "CreatedBy")
                         .WithMany("CreatedJobs")
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.Navigation("Company");
+
                     b.Navigation("CreatedBy");
+                });
+
+            modelBuilder.Entity("ITCareerPlatform.Models.SelfCheck", b =>
+                {
+                    b.HasOne("ITCareerPlatform.Models.Job", "Job")
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ITCareerPlatform.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ITCareerPlatform.Models.User", b =>
                 {
+                    b.HasOne("ITCareerPlatform.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ITCareerPlatform.Models.Role", "Role")
                         .WithMany("Users")
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Company");
 
                     b.Navigation("Role");
                 });
@@ -598,6 +808,11 @@ namespace ITCareerPlatform.Migrations
             modelBuilder.Entity("ITCareerPlatform.Models.CandidateProfile", b =>
                 {
                     b.Navigation("Applications");
+                });
+
+            modelBuilder.Entity("ITCareerPlatform.Models.Company", b =>
+                {
+                    b.Navigation("Jobs");
                 });
 
             modelBuilder.Entity("ITCareerPlatform.Models.Job", b =>

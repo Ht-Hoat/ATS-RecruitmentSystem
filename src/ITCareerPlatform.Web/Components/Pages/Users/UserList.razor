@@ -1,16 +1,46 @@
 @page "/users"
 @attribute [Authorize(Roles = Roles.Admin)]
 @inject IUserService Users
+@inject IHttpContextAccessor Http
+@inject Microsoft.AspNetCore.DataProtection.IDataProtectionProvider DataProtection
 
 <div class="page-head">
     <h1 class="page-title">Quản lý tài khoản</h1>
     <a class="btn-primary" href="/users/new">+ Tạo tài khoản</a>
 </div>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+@if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+@if (!string.IsNullOrEmpty(TempPw))
+{
+    <div class="alert-ok" style="border-left: 4px solid #16a34a; background: #f0fdf4; padding: 14px; margin-bottom: 16px; border-radius: 4px;">
+        <h3 style="margin: 0 0 6px 0; color: #166534; font-size: 16px;">🔑 Đặt lại mật khẩu thành công!</h3>
+        <p style="margin: 0; font-size: 15px;">
+            Mật khẩu tạm thời cho tài khoản: <code style="font-size: 18px; font-weight: bold; background: #dcfce7; padding: 2px 10px; border-radius: 4px; color: #15803d; letter-spacing: 1px;">@TempPw</code>
+        </p>
+        <p class="sub" style="margin: 8px 0 0 0; color: #166534;">
+            ⚠️ <b>Lưu ý quan trọng:</b> Hãy sao chép và gửi trực tiếp mật khẩu này cho người dùng. Người dùng sẽ bị buộc phải đổi mật khẩu mới ngay khi đăng nhập.
+        </p>
+        @* P1-3: nói rõ VÌ SAO mật khẩu lại hiện ra đây — nếu không, người vận hành tưởng
+           đây là cách làm bình thường và không bao giờ đi cấu hình SMTP. *@
+        <p class="sub" style="margin: 6px 0 0 0;">
+            @(MailFailed == "1"
+                ? "Không gửi được email (xem log máy chủ), nên mật khẩu tạm hiện ở đây thay thế."
+                : "Hệ thống chưa cấu hình SMTP nên chưa gửi được email. Cấu hình Smtp:Host và Smtp:From để mật khẩu tạm đi thẳng vào hộp thư người dùng.")
+        </p>
+    </div>
+}
+else if (TempPwFlag == "1")
+{
+    @* Cookie đã được đọc (tải lại trang) hoặc đã hết hạn — mật khẩu chỉ hiện đúng một lần. *@
+    <div class="alert-err">
+        Mật khẩu tạm chỉ hiện một lần và đã hết hiệu lực hiển thị. Nếu chưa kịp ghi lại, hãy
+        bấm "Đặt lại mật khẩu" thêm một lần nữa.
+    </div>
+}
 
 <table class="tbl">
     <thead>
-        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Phân quyền</th><th>Khóa</th></tr>
+        <tr><th>ID</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Phân quyền</th><th>Đặt lại MK</th><th>Khóa</th></tr>
     </thead>
     <tbody>
         @foreach (var u in userList)
@@ -30,6 +60,7 @@
                     else
                     {
                         <form method="post" action="@($"/users/{u.Id}/change-role")" class="inline">
+                            <AntiforgeryField />
                             <select name="roleId">
                                 @foreach (var r in roleList)
                                 {
@@ -47,7 +78,21 @@
                     }
                     else
                     {
+                        <form method="post" action="@($"/users/{u.Id}/reset-password")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đặt lại mật khẩu cho tài khoản @u.FullName? Mật khẩu tạm thời sẽ được tạo và người dùng phải đổi khi đăng nhập.');">
+                            <AntiforgeryField />
+                            <button class="btn-sm warning" type="submit" title="Sinh mật khẩu tạm thời">Đặt lại MK</button>
+                        </form>
+                    }
+                </td>
+                <td>
+                    @if (isSelf)
+                    {
+                        <span class="sub">—</span>
+                    }
+                    else
+                    {
                         <form method="post" action="@($"/users/{u.Id}/toggle-lock")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn khóa/mở khóa tài khoản này?');">
+                            <AntiforgeryField />
                             <button class="btn-sm @(u.IsActive ? "danger" : "")" type="submit">@(u.IsActive ? "Khóa" : "Mở khóa")</button>
                         </form>
                     }
@@ -65,6 +110,11 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    // Chỉ là cờ "vừa reset xong" — mật khẩu KHÔNG bao giờ nằm trên URL (xem TempPasswordHandoff).
+    [SupplyParameterFromQuery(Name = "tempPw")] public string? TempPwFlag { get; set; }
+    [SupplyParameterFromQuery(Name = "mailfailed")] public string? MailFailed { get; set; }
+    private string? TempPw;
     private List<User> userList = new();
     private List<Role> roleList = new();
     private int currentUid;
@@ -75,5 +125,8 @@
         // Danh sách vai trò lấy qua service — trang không còn tự inject AppDbContext.
         roleList = Users.GetRoles();
         if (AuthState != null) currentUid = CurrentUser.Id((await AuthState).User);
+
+        if (TempPwFlag == "1" && Http.HttpContext is { } ctx && currentUid > 0)
+            TempPw = TempPasswordHandoff.TakeOnce(ctx, DataProtection, currentUid);
     }
 }

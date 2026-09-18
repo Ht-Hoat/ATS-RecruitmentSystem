@@ -7,7 +7,7 @@ namespace ITCareerPlatform.Tests;
 // N1.F: bộ lọc danh sách ứng viên cho HR.
 public class ApplicantFilterTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     /// <summary>Một tin + n ứng viên, mỗi người một hồ sơ riêng (chỉ số duy nhất theo cặp job/hồ sơ).</summary>
     private static (Job Job, TestDb Db) SeedJob(TestDb t, string techStack = "C#,Docker,React")
@@ -32,7 +32,7 @@ public class ApplicantFilterTests
         var a = new Application
         {
             JobId = job.Id, CandidateProfileId = p.Id, Status = status,
-            AiScore = ai, HrScore = hr, AppliedAt = DateTime.Now,
+            AiScore = ai, HrScore = hr, AppliedAt = DateTime.UtcNow,
             CvFileNameSnapshot = withCv ? "cv.pdf" : "(chưa tải CV)",
             CvDataSnapshot = withCv ? System.Text.Encoding.UTF8.GetBytes("%PDF-1.4") : null
         };

@@ -2,6 +2,7 @@
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
+@inject IUserService Users
 
 @* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp · N1.F: bộ lọc pipeline *@
 
@@ -20,6 +21,13 @@ else
         <h1 class="page-title">Ứng viên — @job.Title</h1>
         <a class="btn" href="/jobs">← Về danh sách tin</a>
     </div>
+    @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
+    @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+    @if (!canModify)
+    {
+        <div class="warn-note">👁 Chế độ chỉ xem — xử lý ứng viên của tin này do Mentor đăng tin thực hiện.</div>
+    }
+
     <p class="sub">
         <span class="@Ui.CategoryClass(job.Category)">@job.Category</span>
         <span class="@Ui.LevelClass(job.Level)">@job.Level</span>
@@ -27,7 +35,7 @@ else
         ·
         @if (filter.IsActive)
         {
-            <text>Đang hiện <b>@apps.Count</b> / @totalCount đơn</text>
+            <text>Đang hiện <b>@pager.Total</b> / @totalCount đơn</text>
         }
         else
         {
@@ -121,17 +129,44 @@ else
             <span class="score score-mid">⚡ @ScoreBand.Mid Trung bình</span>
             <span class="score score-low">⚠️ @ScoreBand.Low Ít phù hợp</span>
         </div>
+        @* P2-1: xuất ĐÚNG tập đang lọc — link mang theo nguyên query string hiện tại.
+           Chỉ Mentor chủ tin: endpoint xuất cũng chỉ nhận Mentor chủ tin. *@
+        @if (canModify)
+        {
+            <a class="btn-sm" href="@ExportUrl" title="Không xuất CV, ghi chú nội bộ hay câu hỏi phỏng vấn">⬇ Xuất CSV</a>
+        }
     </div>
 
+    @* P2-1: checkbox của từng dòng thuộc form "bulk-form" bên dưới bảng qua thuộc tính HTML
+       form="..." — trang render tĩnh nên không gom lựa chọn bằng JavaScript được, checkbox
+       phải là thành phần thật của form. Cách này để bảng không phải nằm trong form, và người
+       chỉ xem (Admin) nhận được bảng thuần, không có form POST nào. *@
     <table class="tbl">
         <thead>
-            <tr><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+            <tr><th></th><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
         </thead>
         <tbody>
-            @{ int idx = 1; }
+            @{ int idx = pager.FirstRowNumber; }
             @foreach (var a in apps)
             {
-                <tr class="@(Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
+                @* P0-4: đơn đã rút vẫn nằm trong bảng (để Mentor biết chuyện gì đã xảy ra với
+                   ứng viên đó) nhưng hiện mờ hẳn, vì nó không còn là việc cần làm. *@
+                <tr class="@(a.Status == ApplicationStatus.Withdrawn ? "row-withdrawn" : Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
+                    <td>
+                        @* Đơn ở trạng thái kết thúc (P1-4) không đổi tiếp được, nên không cho chọn. *@
+                        @if (!canModify)
+                        {
+                            @* Chỉ xem: không có ô chọn. *@
+                        }
+                        else if (ApplicationStatusFlow.IsTerminal(a.Status))
+                        {
+                            <span class="sub" title="Đơn đã chốt">—</span>
+                        }
+                        else
+                        {
+                            <input type="checkbox" name="applicationId" value="@a.Id" form="bulk-form" />
+                        }
+                    </td>
                     <td>@idx</td>
                     <td>@a.FullName</td>
                     <td>@a.Email</td>
@@ -150,7 +185,12 @@ else
                     </td>
                     <td><span class="@Ui.ScoreClass(a.AiScore)">@Ui.ScoreIcon(a.AiScore) @(a.AiScore.HasValue ? a.AiScore + "%" : "Chưa đánh giá")</span></td>
                     <td>
-                        @if (a.HrScore.HasValue) { <span class="@Ui.ScoreClass(a.HrScore)">👤 @a.HrScore%</span> }
+                        @* P1-5: tooltip nói ai đã chốt con số này. *@
+                        @if (a.HrScore.HasValue)
+                        {
+                            <span class="@Ui.ScoreClass(a.HrScore)"
+                                  title="@(a.HrScoreByUserId is int by ? "Chốt bởi " + scorerNames.GetValueOrDefault(by, "#" + by) : "Không rõ người chốt")">👤 @a.HrScore%</span>
+                        }
                         else if (a.AiScore.HasValue) { <span class="sub">(theo AI)</span> }
                         else { <span class="sub">—</span> }
                     </td>
@@ -163,7 +203,7 @@ else
             @if (apps.Count == 0)
             {
                 <tr>
-                    <td colspan="11" class="sub">
+                    <td colspan="12" class="sub">
                         @if (filter.IsActive)
                         {
                             <text>Không có đơn nào khớp bộ lọc. <a href="@($"/jobs/{JobId}/applicants")">Xóa lọc</a> để xem lại toàn bộ @totalCount đơn.</text>
@@ -177,6 +217,47 @@ else
             }
         </tbody>
     </table>
+
+    @if (canModify && apps.Count > 0)
+    {
+        <form id="bulk-form" method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
+              onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
+        <AntiforgeryField />
+        <div class="toolbar" style="margin-top:12px">
+            <label style="margin-right:8px">Đổi trạng thái các đơn đã chọn:</label>
+            @* Dropdown chỉ liệt kê trạng thái ĐÍCH hợp lệ chung; từng đơn vẫn được
+               UpdateStatus kiểm lại theo trạng thái hiện tại của chính nó (P1-4), và đơn nào
+               không hợp lệ sẽ được nêu tên kèm lý do trong câu tổng kết. *@
+            <select name="status">
+                @foreach (var st in BulkTargets)
+                {
+                    <option value="@st">@st</option>
+                }
+            </select>
+            <button class="btn-sm" type="submit">Áp dụng</button>
+            <span class="sub" style="margin-left:10px">
+                Không chuyển hàng loạt sang "@ApplicationStatus.Interview" — mỗi đơn cần một lịch hẹn riêng.
+            </span>
+        </div>
+        </form>
+    }
+
+    @* P2-1: phân trang. Cùng khuôn với trang Nhật ký hệ thống: số trang kẹp hai đầu ở
+       service, nên ?p=9999 cho ra trang cuối chứ không phải một bảng rỗng không lối về. *@
+    @if (pager.TotalPages > 1)
+    {
+        <div class="toolbar" style="margin-top:12px">
+            @if (pager.HasPrev)
+            {
+                <a class="btn-sm" href="@PageUrl(pager.Page - 1)">← Trang trước</a>
+            }
+            <span class="sub" style="margin:0 10px">Trang <b>@pager.Page</b> / @pager.TotalPages · @pager.Total đơn</span>
+            @if (pager.HasNext)
+            {
+                <a class="btn-sm" href="@PageUrl(pager.Page + 1)">Trang sau →</a>
+            }
+        </div>
+    }
 }
 
 @code {
@@ -187,25 +268,44 @@ else
     [SupplyParameterFromQuery(Name = "band")] public string? FBand { get; set; }
     [SupplyParameterFromQuery(Name = "level")] public string? FLevel { get; set; }
     [SupplyParameterFromQuery(Name = "tech")] public string[]? FTech { get; set; }
+    [SupplyParameterFromQuery(Name = "p")] public int? PageNo { get; set; }
+    [SupplyParameterFromQuery(Name = "msg")] public string? Msg { get; set; }
+    [SupplyParameterFromQuery(Name = "err")] public string? Err { get; set; }
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private Job? job;
     private List<ApplicantListItem> apps = new();
+    /// <summary>P1-5: tên người chốt điểm, chỉ hỏi đúng những id xuất hiện trên trang.</summary>
+    private Dictionary<int, string> scorerNames = new();
     private ApplicantFilter filter = new();
     private IReadOnlyList<string> jobTech = Array.Empty<string>();
     private HashSet<string> selectedTech = new();
     private int totalCount;
-    private bool canAccess;
+    private bool canAccess;   // xem: Mentor chủ tin hoặc Admin
+    private bool canModify;   // thao tác: chỉ Mentor chủ tin
+    private ApplicantPage pager = new(Array.Empty<ApplicantListItem>(), 0, 1, PageSize);
+
+    private const int PageSize = 20;
+
+    /// <summary>
+    /// Trạng thái đích cho thao tác hàng loạt: bỏ "Phỏng vấn" (mỗi đơn cần lịch riêng) và
+    /// bỏ "Đã rút" (chỉ chính sinh viên đặt được — P0-4).
+    /// </summary>
+    private static readonly string[] BulkTargets = ApplicationStatus.MentorSelectable
+        .Where(s => s != ApplicationStatus.Interview).ToArray();
 
     protected override async Task OnInitializedAsync()
     {
         job = Jobs.GetById(JobId);
         if (job is null || AuthState is null) return;
 
-        // #5: luật "Admin hoặc chủ tin" hỏi qua service, không viết lại tại chỗ.
-        canAccess = Jobs.CanModify(JobId, CurrentUser.Id((await AuthState).User));
+        // #5: hai luật hỏi qua service, không viết lại tại chỗ. XEM: chủ tin hoặc Admin;
+        // THAO TÁC: chỉ Mentor chủ tin — Admin giám sát chứ không xử lý ứng viên.
+        var uid = CurrentUser.Id((await AuthState).User);
+        canAccess = Jobs.CanView(JobId, uid);
         if (!canAccess) return;
+        canModify = Jobs.CanModify(JobId, uid);
 
         // Ô tick công nghệ dựng từ chính Tech Stack của tin này, nên Mentor chỉ lọc được
         // theo thứ mà vị trí thực sự yêu cầu.
@@ -214,18 +314,49 @@ else
             .Where(t => jobTech.Contains(t, StringComparer.OrdinalIgnoreCase))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        filter = new ApplicantFilter(
-            Status: ApplicationStatus.All.Contains(FStatus) ? FStatus : null,
-            HasCv: FCv switch { "1" => true, "0" => false, _ => null },
-            Band: ScoreBand.All.Contains(FBand) ? FBand : null,
-            Level: CandidateLevel.IsValid(FLevel) ? FLevel : null,
-            RequiredTech: selectedTech.Count > 0 ? selectedTech.ToList() : null);
+        // P2-1: dựng bộ lọc bằng CÙNG một hàm mà endpoint xuất CSV dùng, để tệp tải về
+        // luôn chứa đúng tập đang hiện trên màn hình.
+        filter = ApplicantFilter.FromQuery(FStatus, FCv, FBand, FLevel, FTech, jobTech);
 
-        apps = Applications.GetByJob(JobId, Sort ?? "date", filter);
+        pager = Applications.GetByJobPaged(JobId, Sort ?? "date", filter, PageNo ?? 1, PageSize);
+        apps = pager.Items.ToList();
+
+        // Chỉ hỏi tên của đúng những người đã chốt điểm trong danh sách này (nhiều nhất vài
+        // người), thay vì nạp cả bảng Users — cùng cách mà dòng thời gian đang làm.
+        scorerNames = Users.GetNames(apps.Where(a => a.HrScoreByUserId.HasValue)
+                                         .Select(a => a.HrScoreByUserId!.Value));
 
         // Đếm bằng COUNT(*) để hiện "đang lọc X / Y", không nạp lại danh sách lần thứ hai.
         totalCount = filter.IsActive
             ? Applications.CountForJobs(new[] { JobId }).GetValueOrDefault(JobId)
-            : apps.Count;
+            : pager.Total;
     }
+
+    /// <summary>
+    /// Giữ NGUYÊN mọi tham số lọc khi chuyển trang hoặc xuất CSV. Bỏ sót một tham số nghĩa
+    /// là bấm "Trang sau" sẽ âm thầm xóa bộ lọc — người dùng thấy kết quả khác mà không hiểu.
+    /// </summary>
+    private string BuildQuery(int? overridePage)
+    {
+        var parts = new List<string>();
+        void Add(string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                parts.Add($"{key}={Uri.EscapeDataString(value)}");
+        }
+
+        Add("sort", Sort);
+        Add("status", FStatus);
+        Add("cv", FCv);
+        Add("band", FBand);
+        Add("level", FLevel);
+        foreach (var t in selectedTech) Add("tech", t);
+        if (overridePage is > 1) Add("p", overridePage.Value.ToString());
+
+        return parts.Count == 0 ? "" : "?" + string.Join("&", parts);
+    }
+
+    private string PageUrl(int p) => $"/jobs/{JobId}/applicants{BuildQuery(p)}";
+
+    private string ExportUrl => $"/jobs/{JobId}/applicants/export{BuildQuery(null)}";
 }

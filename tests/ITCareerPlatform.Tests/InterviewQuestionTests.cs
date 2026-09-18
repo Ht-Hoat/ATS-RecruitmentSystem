@@ -7,7 +7,7 @@ namespace ITCareerPlatform.Tests;
 // N1.C: sinh và lưu bộ câu hỏi phỏng vấn.
 public class InterviewQuestionTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     private static AiEvaluationInput Input(string candidateTech, string requiredTech) =>
         new("Kỹ năng: " + candidateTech, "Yêu cầu: " + requiredTech, candidateTech, requiredTech);

@@ -4,7 +4,7 @@
 
 @* Sinh viên xem chi tiết đơn của MÌNH + đánh giá độ phù hợp & lộ trình (ATS-14) *@
 
-@if (app is null || !isOwner)
+@if (app is null)
 {
     <div class="page-head">
         <h1 class="page-title">Không tìm thấy đơn</h1>
@@ -29,7 +29,28 @@ else
             · Trạng thái: <span class="@Ui.StatusClass(app.Status)">@app.Status</span>
         </p>
         <p class="sub">Yêu cầu Tech Stack của vị trí: <b>@app.JobTechStack</b></p>
+
+        @if (app.Status != ApplicationStatus.Accepted && app.Status != ApplicationStatus.Rejected && app.Status != ApplicationStatus.Withdrawn)
+        {
+            <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                <form method="post" action="@($"/applications/{app.Id}/withdraw")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                    <AntiforgeryField />
+                    <button class="btn danger" type="submit">🛑 Rút đơn ứng tuyển</button>
+                </form>
+            </div>
+        }
     </div>
+
+    @* P1-4: phản hồi của nhà tuyển dụng. Đây là trường DUY NHẤT trong nhóm ghi chú được
+       hiện cho ứng viên — HrNote (lý do chốt điểm) và InternalNote (nhận định riêng của
+       Mentor) không có trong CandidateApplicationView nên trang này không đọc được chúng. *@
+    @if (!string.IsNullOrWhiteSpace(app.CandidateFeedback))
+    {
+        <div class="panel" style="margin-top:16px;border-left:4px solid #6366f1">
+            <h2>💬 Phản hồi từ nhà tuyển dụng</h2>
+            <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@app.CandidateFeedback</div>
+        </div>
+    }
 
     @* N1.E: lịch phỏng vấn hiện ngay trên đơn, không có trang "Lịch phỏng vấn" riêng. *@
     @if (app.HasInterview)
@@ -72,16 +93,14 @@ else
 @code {
     [Parameter] public int AppId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-    private ApplicationDetail? app;
-    private bool isOwner;
+    private CandidateApplicationView? app;
 
     protected override async Task OnInitializedAsync()
     {
-        // Bản chiếu, không kèm byte[] CV — trang này không hiển thị nội dung CV.
-        app = Applications.GetDetail(AppId);
-        if (app is null || AuthState is null) return;
-
+        if (AuthState is null) return;
         var uid = CurrentUser.Id((await AuthState).User);
-        isOwner = uid > 0 && app.CandidateUserId == uid;
+        // Bản chiếu riêng cho ứng viên, lọc chủ đơn ngay trong SQL: đơn của người khác trả
+        // null giống hệt đơn không tồn tại, và không có byte[] CV nào đi kèm.
+        app = uid > 0 ? Applications.GetForCandidate(AppId, uid) : null;
     }
 }

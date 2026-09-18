@@ -69,6 +69,45 @@ public class Role
     public ICollection<User> Users { get; set; } = new List<User>();
 }
 
+/// <summary>
+/// P1-1: công ty đứng tên tin tuyển dụng.
+///
+/// Đây là thực thể trung tâm của một hệ thống tuyển dụng mà hệ thống này đang thiếu: trước
+/// bản này Job chỉ có CreatedById trỏ tới một tài khoản Mentor, nên sinh viên đọc
+/// "Backend Developer · Hà Nội · 15-25tr" mà không biết mình đang ứng tuyển cho ai.
+/// </summary>
+public class Company : ITimestamped
+{
+    public int Id { get; set; }
+
+    [Required(ErrorMessage = "Tên công ty không được để trống.")]
+    [MaxLength(160, ErrorMessage = "Tên công ty tối đa 160 ký tự.")]
+    public string Name { get; set; } = "";
+
+    // Website để trống là hợp lệ; có nhập thì phải là https. Luật này được ProfileService
+    // áp cho URL GitHub/LinkedIn theo đúng cách, nên ở đây dùng lại cùng một quy ước.
+    [MaxLength(250, ErrorMessage = "Website tối đa 250 ký tự.")]
+    public string Website { get; set; } = "";
+
+    [MaxLength(2000, ErrorMessage = "Mô tả công ty tối đa 2000 ký tự.")]
+    public string Description { get; set; } = "";
+
+    [MaxLength(250, ErrorMessage = "Địa chỉ tối đa 250 ký tự.")]
+    public string Address { get; set; } = "";
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+
+    public ICollection<Job> Jobs { get; set; } = new List<Job>();
+
+    /// <summary>
+    /// Tên công ty mặc định mà migration gán cho mọi tin và mọi Mentor đang có.
+    /// Không để cột CompanyId nullable chỉ vì dữ liệu cũ: null sẽ lan ra mọi truy vấn hiển
+    /// thị và mọi trang phải tự xử lý trường hợp "chưa có công ty" một lần nữa.
+    /// </summary>
+    public const string PlaceholderName = "Chưa cập nhật";
+}
+
 public class User : ITimestamped
 {
     public int Id { get; set; }
@@ -95,7 +134,18 @@ public class User : ITimestamped
     /// </summary>
     public int SecurityStamp { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    /// <summary>P0-3: Buộc người dùng đổi mật khẩu ở lần đăng nhập tiếp theo khi Admin reset.</summary>
+    public bool MustChangePassword { get; set; }
+
+    /// <summary>
+    /// P1-1: công ty của tài khoản — chỉ có nghĩa với vai trò Mentor/HR. Nullable vì Admin
+    /// và Sinh viên IT không thuộc công ty nào, và một Mentor mới tạo chưa được gán ngay.
+    /// Mentor chưa có công ty thì không đăng tin được (JobService từ chối kèm lý do rõ ràng).
+    /// </summary>
+    public int? CompanyId { get; set; }
+    public Company? Company { get; set; }
+
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public ICollection<Job> CreatedJobs { get; set; } = new List<Job>();
 }
@@ -143,7 +193,16 @@ public class Job : ITimestamped
 
     public int CreatedById { get; set; }
     public User? CreatedBy { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    /// <summary>
+    /// P1-1: công ty đứng tên tin. Giá trị này LUÔN lấy từ công ty của người tạo, không bao
+    /// giờ nhận từ form — form là thứ người gửi request sửa được, và sửa được nghĩa là đăng
+    /// được tin đứng tên công ty khác.
+    /// </summary>
+    public int CompanyId { get; set; }
+    public Company? Company { get; set; }
+
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<Application> Applications { get; set; } = new List<Application>();
@@ -184,7 +243,7 @@ public class AuditLog
     [MaxLength(500)]
     public string Details { get; set; } = "";
 
-    public DateTime Timestamp { get; set; } = DateTime.Now;
+    public DateTime Timestamp { get; set; }
 }
 
 // ===== ATS-08: Hồ sơ Sinh viên IT + ATS-09: CV =====
@@ -236,12 +295,45 @@ public class CandidateProfile : ITimestamped
     [MaxLength(120)] public string? CvContentType { get; set; }
     public DateTime? CvUploadedAt { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    // ===== P2-3: đồng ý xử lý dữ liệu cá nhân bằng AI =====
+    //
+    // Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân đòi sự đồng ý phải được THỂ HIỆN RÕ
+    // và LƯU LẠI được. Trước bản này, việc gửi CV cho Gemini chỉ được nói bằng một dòng chữ
+    // trên giao diện: không có bản ghi nào, không có cách nào từ chối, không có cách nào rút lại.
+
+    /// <summary>Thời điểm đồng ý (UTC). Null nghĩa là CHƯA đồng ý hoặc đã rút lại.</summary>
+    public DateTime? AiConsentAt { get; set; }
+
+    /// <summary>
+    /// Phiên bản điều khoản đã đồng ý. Khi nội dung điều khoản đổi, con số này cho biết
+    /// người dùng đã đồng ý với BẢN NÀO — một chữ "đã đồng ý" trơ trọi không trả lời được
+    /// câu hỏi đó, và đó chính là câu hỏi mà một lần kiểm tra sẽ đặt ra.
+    /// </summary>
+    [MaxLength(20)] public string? AiConsentVersion { get; set; }
+
+    /// <summary>Đã đồng ý và chưa rút lại.</summary>
+    public bool HasAiConsent => AiConsentAt.HasValue;
+
+    /// <summary>Phiên bản điều khoản hiện hành — tăng khi nội dung điều khoản thay đổi.</summary>
+    public const string CurrentAiConsentVersion = "2026-09-v1";
+
+    /// <summary>
+    /// P2-2: khóa của nội dung CV trong ICvStorage. Cột CvData cũ được GIỮ LẠI để đọc dữ
+    /// liệu chưa di trú — xóa nó trong cùng một bản là cách chắc chắn nhất để mất CV của
+    /// những hồ sơ mà lệnh di trú chưa chạy tới.
+    /// </summary>
+    [MaxLength(80)] public string? CvStorageKey { get; set; }
+
+    public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<Application> Applications { get; set; } = new List<Application>();
 
-    public bool HasCv => CvData != null && CvData.Length > 0;
+    /// <summary>
+    /// P2-2: "có CV" đúng khi nội dung nằm ở blob storage HOẶC còn trong cột cũ. Chỉ xét một
+    /// trong hai thì sau khi di trú xong, mọi hồ sơ đột nhiên hiện "chưa có CV".
+    /// </summary>
+    public bool HasCv => CvStorageKey != null || (CvData != null && CvData.Length > 0);
 
     /// <summary>Cấp bậc suy ra từ số năm kinh nghiệm — chỉ để hiển thị, không lưu thành cột.</summary>
     public string Level => CandidateLevel.FromYears(YearsOfExperience);
@@ -303,13 +395,28 @@ public class Application
     [MaxLength(260)] public string CvFileNameSnapshot { get; set; } = "";
     public byte[]? CvDataSnapshot { get; set; }
     [MaxLength(120)] public string? CvContentTypeSnapshot { get; set; }
-    public bool HasCvSnapshot => CvDataSnapshot != null && CvDataSnapshot.Length > 0;
+    /// <summary>P2-2: bản chụp có thể nằm ở blob storage hoặc còn trong cột cũ.</summary>
+    public bool HasCvSnapshot => CvStorageKeySnapshot != null || (CvDataSnapshot != null && CvDataSnapshot.Length > 0);
 
     // Đã nộp | Đang xem xét | Phỏng vấn | Trúng tuyển | Từ chối
     [Required, MaxLength(30)]
     public string Status { get; set; } = ApplicationStatus.Submitted;
 
-    public DateTime AppliedAt { get; set; } = DateTime.Now;
+    public DateTime AppliedAt { get; set; }
+
+    /// <summary>P2-2: khóa của BẢN CHỤP CV lúc nộp. Xem ghi chú ở CandidateProfile.CvStorageKey.</summary>
+    [MaxLength(80)] public string? CvStorageKeySnapshot { get; set; }
+
+    /// <summary>
+    /// P1-4: phản hồi HIỆN CHO ỨNG VIÊN khi bị từ chối.
+    ///
+    /// Khác hẳn HrNote (lý do chốt điểm) và InternalNote (nhận định riêng của Mentor): đây
+    /// là trường DUY NHẤT trong nhóm ghi chú được phép có mặt trong ApplicationDetail —
+    /// record dùng chung với trang /my-applications/{id} của sinh viên. Trước đây sinh viên
+    /// bị từ chối chỉ nhận đúng câu "đã chuyển sang trạng thái: Từ chối".
+    /// </summary>
+    [MaxLength(1000, ErrorMessage = "Phản hồi gửi ứng viên tối đa 1000 ký tự.")]
+    public string? CandidateFeedback { get; set; }
 
     // ===== ATS-13/14: Đánh giá độ phù hợp & Gợi ý lộ trình =====
     public int? AiScore { get; set; }          // % phù hợp (0-100), null nếu chưa đánh giá
@@ -329,6 +436,19 @@ public class Application
     public int? HrScore { get; set; }          // % Mentor điều chỉnh (ATS-16)
     [MaxLength(500)] public string? HrNote { get; set; }
     public DateTime? HrAdjustedAt { get; set; }
+
+    /// <summary>
+    /// P1-3: số lần lịch phỏng vấn đã được đặt/đổi. Đi thẳng vào trường SEQUENCE của tệp
+    /// .ics: cùng UID mà SEQUENCE không tăng thì ứng dụng lịch bỏ qua bản cập nhật và giữ
+    /// nguyên giờ cũ — ứng viên đến vào giờ đã hủy.
+    /// </summary>
+    public int InterviewSequence { get; set; }
+
+    /// <summary>
+    /// P1-5: ai đã chốt điểm. Cả Admin lẫn Mentor đều chấm được, nên nếu không lưu lại thì
+    /// trên màn hình "% chốt" là con số không có chủ — chỉ tra ngược được trong AuditLog.
+    /// </summary>
+    public int? HrScoreByUserId { get; set; }
 
     // ===== N1.B: ghi chú nội bộ của Mentor =====
     // Khác HrNote (lý do điều chỉnh điểm, gắn với ATS-16), đây là ghi chú tự do về ứng viên.
@@ -369,7 +489,7 @@ public static class EvaluationSource
     public const string Offline = "Offline";
 }
 
-/// <summary>5 trạng thái xử lý hồ sơ (ATS-17).</summary>
+/// <summary>Các trạng thái xử lý hồ sơ (ATS-17 + P0-4).</summary>
 public static class ApplicationStatus
 {
     public const string Submitted = "Đã nộp";
@@ -377,8 +497,51 @@ public static class ApplicationStatus
     public const string Interview = "Phỏng vấn";
     public const string Accepted = "Trúng tuyển";
     public const string Rejected = "Từ chối";
+    public const string Withdrawn = "Đã rút";
 
-    public static readonly string[] All = { Submitted, Reviewing, Interview, Accepted, Rejected };
+    /// <summary>Tất cả trạng thái (kể cả Đã rút) — dùng cho ô lọc và hiển thị.</summary>
+    public static readonly string[] All = { Submitted, Reviewing, Interview, Accepted, Rejected, Withdrawn };
+
+    /// <summary>Trạng thái Mentor được phép chọn trong dropdown — loại trừ "Đã rút".</summary>
+    public static readonly string[] MentorSelectable = { Submitted, Reviewing, Interview, Accepted, Rejected };
+}
+
+/// <summary>
+/// P1-4: luồng chuyển trạng thái hợp lệ.
+///
+/// Trước bản này UpdateStatus chỉ kiểm tra trạng thái mới có nằm trong danh sách hay không,
+/// nên đi được "Trúng tuyển" → "Đã nộp" và "Từ chối" → "Phỏng vấn", và MỖI lần đổi lại bắn
+/// một thông báo cho sinh viên. Không có trạng thái nào là kết thúc.
+///
+/// Bảng dưới đây được phát biểu ĐÚNG MỘT LẦN: dropdown của Mentor dựng từ NextStates, còn
+/// UpdateStatus kiểm bằng CanTransition. Nếu tách thành hai bản, người dùng sẽ thấy một lựa
+/// chọn rồi bị từ chối mà không có gì giải thích vì sao lựa chọn đó lại có ở đó.
+/// </summary>
+public static class ApplicationStatusFlow
+{
+    private static readonly Dictionary<string, string[]> Next = new()
+    {
+        [ApplicationStatus.Submitted] = new[] { ApplicationStatus.Reviewing, ApplicationStatus.Rejected },
+        [ApplicationStatus.Reviewing] = new[] { ApplicationStatus.Interview, ApplicationStatus.Rejected },
+        // "Phỏng vấn" → "Phỏng vấn" là hợp lệ và cố ý: đó là thao tác ĐỔI LỊCH hoặc hẹn vòng
+        // tiếp theo. Bỏ nó đi thì Mentor không đổi được giờ hẹn sau khi đã gửi lời mời.
+        [ApplicationStatus.Interview] = new[] { ApplicationStatus.Accepted, ApplicationStatus.Rejected, ApplicationStatus.Interview },
+        // Ba trạng thái kết thúc: đơn đã chốt thì không quay lại pipeline được nữa.
+        [ApplicationStatus.Accepted] = Array.Empty<string>(),
+        [ApplicationStatus.Rejected] = Array.Empty<string>(),
+        [ApplicationStatus.Withdrawn] = Array.Empty<string>()
+    };
+
+    public static bool CanTransition(string? from, string? to) =>
+        from is not null && to is not null &&
+        Next.TryGetValue(from, out var allowed) && allowed.Contains(to);
+
+    /// <summary>Các bước tiếp theo hợp lệ; rỗng nghĩa là đơn đã chốt.</summary>
+    public static IReadOnlyList<string> NextStates(string? from) =>
+        from is not null && Next.TryGetValue(from, out var allowed) ? allowed : Array.Empty<string>();
+
+    /// <summary>Đơn đã chốt — giao diện thay form đổi trạng thái bằng một dòng giải thích.</summary>
+    public static bool IsTerminal(string? status) => NextStates(status).Count == 0;
 }
 
 // ===== ATS-17.2: Lịch sử thay đổi trạng thái đơn =====
@@ -392,7 +555,91 @@ public class ApplicationStatusHistory
     [Required, MaxLength(30)] public string ToStatus { get; set; } = "";
 
     public int ChangedByUserId { get; set; }
-    public DateTime ChangedAt { get; set; } = DateTime.Now;
+    public DateTime ChangedAt { get; set; }
+}
+
+// ===== P1-3: Hàng đợi email =====
+
+/// <summary>
+/// Một email chờ gửi.
+///
+/// Vì sao có bảng này thay vì gửi thẳng trong request đổi trạng thái: SMTP chậm và hay lỗi.
+/// Gửi đồng bộ thì một lần timeout làm nhà tuyển dụng thấy "đổi trạng thái thất bại" trong
+/// khi trạng thái ĐÃ đổi — và không ai biết email có đi hay không.
+///
+/// Bản ghi được thêm TRONG CÙNG transaction với việc đổi trạng thái, nên đã đổi trạng thái
+/// thì chắc chắn có email chờ gửi, và ngược lại giao dịch hỏng thì không sót email nào.
+/// </summary>
+public class EmailOutbox
+{
+    public int Id { get; set; }
+
+    [Required, MaxLength(200)] public string ToEmail { get; set; } = "";
+    [Required, MaxLength(300)] public string Subject { get; set; } = "";
+    [Required, MaxLength(4000)] public string Body { get; set; } = "";
+
+    [MaxLength(200)] public string? AttachmentName { get; set; }
+    /// <summary>Nội dung tệp .ics — vài KB, không phải tệp người dùng tải lên.</summary>
+    public byte[]? AttachmentContent { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    /// <summary>Null nghĩa là chưa gửi được — đó cũng là điều kiện quét của tiến trình nền.</summary>
+    public DateTime? SentAt { get; set; }
+    public int Attempts { get; set; }
+    [MaxLength(500)] public string? LastError { get; set; }
+
+    /// <summary>
+    /// Quá số lần này thì bỏ hẳn. Không có trần, một địa chỉ email sai chính tả sẽ được thử
+    /// lại 30 giây một lần cho tới khi ai đó để ý — tức là mãi mãi.
+    /// </summary>
+    public const int MaxAttempts = 5;
+}
+
+// ===== P1-2: Sinh viên tự kiểm tra độ phù hợp trước khi nộp =====
+
+/// <summary>
+/// Một lần sinh viên tự chạy đánh giá độ phù hợp với một tin bất kỳ.
+///
+/// Bảng RIÊNG, không ghi gì vào Application, vì hai lý do đối xứng nhau: điểm sinh viên tự
+/// chạy không được lẫn vào con số nhà tuyển dụng đọc để sàng lọc, và ngược lại điểm nhà
+/// tuyển dụng chấm không được đè lên kết quả sinh viên đang dùng để cải thiện hồ sơ.
+///
+/// Mỗi lần chạy ghi THÊM một bản ghi, không ghi đè: sinh viên cần thấy mình tiến bộ giữa
+/// hai lần, và đó chính là giá trị hướng nghiệp mà ATS-14 hứa.
+/// </summary>
+public class SelfCheck
+{
+    public int Id { get; set; }
+
+    public int UserId { get; set; }
+    public User? User { get; set; }
+
+    public int JobId { get; set; }
+    public Job? Job { get; set; }
+
+    public int Score { get; set; }
+
+    [MaxLength(1000)] public string? Strengths { get; set; }
+    [MaxLength(1000)] public string? Missing { get; set; }
+    [MaxLength(1000)] public string? Roadmap { get; set; }
+
+    /// <summary>Gemini hay Offline — sinh viên phải biết mình đang đọc kết quả loại nào.</summary>
+    [MaxLength(20)] public string? Source { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Số lượt tối đa mỗi người mỗi ngày. Mỗi lượt là một lần gọi Gemini và quota miễn phí
+    /// có trần; không có hạn mức thì một người bấm liên tục là cả hệ thống mất tính năng này.
+    /// </summary>
+    public const int DailyLimit = 5;
+
+    /// <summary>
+    /// Giá trị Source của một lượt ĐÃ GIỮ CHỖ nhưng chưa có kết quả. Lượt được giữ chỗ (đếm
+    /// vào hạn mức) TRƯỚC khi gọi AI, để năm request song song không cùng lọt qua bước đếm.
+    /// Lượt đang chờ không bao giờ được hiện ra như một kết quả.
+    /// </summary>
+    public const string PendingSource = "Pending";
 }
 
 // ===== NTF-01: Thông báo cho Sinh viên IT =====
@@ -408,7 +655,7 @@ public class Notification
     [MaxLength(250)] public string Link { get; set; } = "/my-applications";
 
     public bool IsRead { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; }
 }
 
 // =====================================================================

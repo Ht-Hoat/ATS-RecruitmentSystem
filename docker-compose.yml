@@ -33,5 +33,22 @@ services:
       # Mật khẩu tối thiểu 8 ký tự, giống mọi tài khoản khác.
       Bootstrap__AdminEmail: "${ADMIN_EMAIL:-}"
       Bootstrap__AdminPassword: "${ADMIN_PASSWORD:-}"
+      # P2-2: nội dung CV nằm trên đĩa chứ không trong CSDL, nên thư mục này PHẢI là volume.
+      # Thiếu volume thì mỗi lần dựng lại container là mất toàn bộ CV — CSDL vẫn còn khóa
+      # nhưng không còn tệp nào để đọc.
+      CvStorage__RootPath: "/app/cv-storage"
+      # Tùy chọn: gửi email thật (mời phỏng vấn kèm .ics, trúng tuyển, từ chối).
+      # Bỏ trống thì hệ thống vẫn chạy, email chỉ được ghi vào log — xem HUONG_DAN_CHAY.md.
+      Smtp__Host: "${SMTP_HOST:-}"
+      Smtp__Port: "${SMTP_PORT:-587}"
+      Smtp__User: "${SMTP_USER:-}"
+      Smtp__Password: "${SMTP_PASSWORD:-}"
+      Smtp__From: "${SMTP_FROM:-}"
+      Smtp__EnableSsl: "${SMTP_ENABLE_SSL:-true}"
+    volumes:
+      - cv-storage:/app/cv-storage
     ports:
       - "8080:8080"
+
+volumes:
+  cv-storage:

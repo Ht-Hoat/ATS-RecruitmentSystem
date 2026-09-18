@@ -11,7 +11,7 @@ namespace ITCareerPlatform.Tests;
 // đúng mà sai phạm vi vẫn là một lỗ rò, và nó không tự lộ ra khi chạy tay với một tài khoản.
 public class MentorStatsTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     /// <summary>Hai Mentor, mỗi người một tin và số đơn khác nhau — không ai thấy số của người kia.</summary>
     [Fact]
@@ -133,16 +133,18 @@ public class MentorStatsTests
         var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
         var job = t.AddJob(m.Id);
 
-        t.AddApplication(job.Id, t.AddStudentWithProfile("1").Id, appliedAt: DateTime.Today);
-        t.AddApplication(job.Id, t.AddStudentWithProfile("2").Id, appliedAt: DateTime.Today.AddDays(-4));
+        // P0-2: AppliedAt lưu UTC, còn biểu đồ gộp theo ngày VIỆT NAM. Gieo đúng mốc UTC
+        // của 00:00 giờ VN để khẳng định phép gộp không đẩy đơn sang cột hôm trước.
+        t.AddApplication(job.Id, t.AddStudentWithProfile("1").Id, appliedAt: TestDb.VietnamDayStartUtc());
+        t.AddApplication(job.Id, t.AddStudentWithProfile("2").Id, appliedAt: TestDb.VietnamDayStartUtc(-4));
 
         var days = NewSvc(t).ApplicationsPerDay(m.Id, days: 7);
 
         Assert.Equal(7, days.Count);                                  // đủ 7 điểm, kể cả ngày trống
-        Assert.Equal(DateTime.Today, days[^1].Day);                   // điểm cuối là hôm nay
+        Assert.Equal(VietnamDateHelper.Today(), days[^1].Day);        // điểm cuối là hôm nay theo giờ VN
         Assert.Equal(1, days[^1].Count);
-        Assert.Equal(1, days.Single(d => d.Day == DateTime.Today.AddDays(-4)).Count);
-        Assert.Equal(0, days.Single(d => d.Day == DateTime.Today.AddDays(-1)).Count);
+        Assert.Equal(1, days.Single(d => d.Day == VietnamDateHelper.Today().AddDays(-4)).Count);
+        Assert.Equal(0, days.Single(d => d.Day == VietnamDateHelper.Today().AddDays(-1)).Count);
         Assert.Equal(2, days.Sum(d => d.Count));
     }
 
@@ -155,8 +157,8 @@ public class MentorStatsTests
         var jobA = t.AddJob(mentorA.Id);
         var jobB = t.AddJob(mentorB.Id, "Tin của B");
 
-        t.AddApplication(jobA.Id, t.AddStudentWithProfile("1").Id, appliedAt: DateTime.Today);
-        t.AddApplication(jobB.Id, t.AddStudentWithProfile("2").Id, appliedAt: DateTime.Today);
+        t.AddApplication(jobA.Id, t.AddStudentWithProfile("1").Id, appliedAt: TestDb.VietnamDayStartUtc());
+        t.AddApplication(jobB.Id, t.AddStudentWithProfile("2").Id, appliedAt: TestDb.VietnamDayStartUtc());
 
         Assert.Equal(1, NewSvc(t).ApplicationsPerDay(mentorA.Id, days: 3).Sum(d => d.Count));
         Assert.Equal(2, NewSvc(t).ApplicationsPerDay(null, days: 3).Sum(d => d.Count));

@@ -5,9 +5,27 @@
 
 <div class="denied">
     <div class="denied-code">⚠️</div>
-    <h1>Đã xảy ra lỗi</h1>
-    <p class="sub">Hệ thống gặp sự cố khi xử lý yêu cầu của bạn. Vui lòng thử lại; nếu vẫn lỗi, hãy liên hệ quản trị viên.</p>
+    @if (Reason == "antiforgery")
+    {
+        @* P2-3: nguyên nhân thường gặp nhất không phải tấn công mà là tab mở quá lâu. Nói
+           đúng việc cần làm ("mở lại trang rồi thao tác lại") thay vì một câu lỗi chung. *@
+        <h1>Phiên làm việc đã hết hạn</h1>
+        <p class="sub">
+            Yêu cầu vừa rồi bị từ chối vì mã bảo vệ của biểu mẫu không còn hợp lệ — thường là do
+            trang đã mở quá lâu, hoặc bạn vừa bấm Quay lại. Hãy mở lại trang và thao tác lại;
+            dữ liệu của bạn KHÔNG bị thay đổi.
+        </p>
+    }
+    else
+    {
+        <h1>Đã xảy ra lỗi</h1>
+        <p class="sub">Hệ thống gặp sự cố khi xử lý yêu cầu của bạn. Vui lòng thử lại; nếu vẫn lỗi, hãy liên hệ quản trị viên.</p>
+    }
     <div class="actions">
         <a class="btn-primary" href="/">Về trang chủ</a>
     </div>
 </div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "reason")] public string? Reason { get; set; }
+}

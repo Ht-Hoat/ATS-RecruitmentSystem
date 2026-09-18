@@ -1,12 +1,15 @@
 @page "/jobs/new"
-@attribute [Authorize(Roles = Roles.AdminOrMentor)]
+@* Chỉ Mentor đăng/sửa tin — Admin chỉ xem danh sách. *@
+@attribute [Authorize(Roles = Roles.Mentor)]
+@inject ICompanyService Companies
 
 @* Tạo tin việc IT *@
 <h1 class="page-title">Tạo tin tuyển dụng IT</h1>
 @if (!string.IsNullOrEmpty(Error)) { <div class="alert-err">@Error</div> }
 
 <form method="post" action="/jobs/create" class="form form-wide" data-vi-validate>
-    <JobFields Model="model" />
+    <AntiforgeryField />
+    <JobFields Model="model" CompanyName="@companyName" />
     <div class="actions">
         <button class="btn-primary" type="submit">Lưu tin tuyển dụng</button>
         <a class="btn" href="/jobs">Hủy</a>
@@ -14,6 +17,15 @@
 </form>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
     private Job model = new() { Category = "Backend", Level = "Junior", EmploymentType = "Onsite" };
+    private string? companyName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var uid = CurrentUser.Id((await AuthState).User);
+        companyName = uid > 0 ? Companies.GetByUserId(uid)?.Name : null;
+    }
 }

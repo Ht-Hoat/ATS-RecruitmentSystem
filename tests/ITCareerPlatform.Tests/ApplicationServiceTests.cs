@@ -8,7 +8,7 @@ public class ApplicationServiceTests
 {
     // Trong DI thật, ApplicationService và NotificationService dùng CHUNG 1 DbContext (scoped)
     // → phải truyền cùng t.Db để nằm chung transaction của UpdateStatus.
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
     // ATS-10.2 — Kịch bản 1: tin đã đóng
     [Fact]
@@ -81,7 +81,7 @@ public class ApplicationServiceTests
     // LỖ HỔNG ĐÃ VÁ: CV được đóng băng vào đơn tại thời điểm nộp,
     // SV đổi CV sau đó KHÔNG làm thay đổi CV đã nộp của đơn cũ.
     [Fact]
-    public void Apply_SnapshotsCv_IndependentOfLaterProfileUpdate()
+    public async Task Apply_SnapshotsCv_IndependentOfLaterProfileUpdate()
     {
         using var t = new TestDb();
         var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
@@ -93,15 +93,20 @@ public class ApplicationServiceTests
         Assert.True(svc.Apply(job.Id, sv.Id, out _));
         var appId = t.NewContext().Applications.First().Id;
 
-        // SV cập nhật CV MỚI (đè CvData trong CandidateProfiles)
-        new ProfileService(t.Db).SaveCv(sv.Id,
+        // SV cập nhật CV MỚI (đè CV hiện tại của hồ sơ)
+        await new ProfileService(t.Db, t.CvStorage).SaveCvAsync(sv.Id,
             System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 CV MOI HOAN TOAN"), "cv_moi.pdf", "application/pdf");
 
         using var v = t.NewContext();
         var app = v.Applications.Find(appId)!;
         Assert.True(app.HasCvSnapshot);
         Assert.Equal("cv.pdf", app.CvFileNameSnapshot);                                  // tên CV lúc nộp
-        var snap = System.Text.Encoding.UTF8.GetString(app.CvDataSnapshot!);
+
+        // P2-2: đọc qua service để không phụ thuộc bản chụp nằm ở cột byte[] hay ở blob
+        // storage — điều cần khẳng định là NỘI DUNG lúc nộp, không phải chỗ lưu nó.
+        var snapshot = await svc.ReadCvAsync(appId);
+        Assert.NotNull(snapshot);
+        var snap = System.Text.Encoding.UTF8.GetString(snapshot!.Value.Data);
         Assert.Contains("CV test", snap);                                                // nội dung CV lúc nộp
         Assert.DoesNotContain("MOI HOAN TOAN", snap);                                     // KHÔNG bị thay bằng CV mới
         Assert.Equal("cv_moi.pdf", v.CandidateProfiles.Single(x => x.UserId == sv.Id).CvFileName); // hồ sơ đã đổi
@@ -116,7 +121,7 @@ public class ApplicationServiceTests
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id);
-        job.Deadline = DateTime.Today.AddDays(-1);   // quá hạn hôm qua
+        job.Deadline = VietnamDateHelper.Today().AddDays(-1);   // quá hạn hôm qua (theo lịch VN)
         t.Db.SaveChanges();
         var svc = NewSvc(t);
 
@@ -303,7 +308,7 @@ public class ApplicationServiceTests
 
         // Cập nhật 1 đơn thành quá 24 giờ trước
         var firstApp = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
-        firstApp.AppliedAt = DateTime.Now.AddHours(-25);
+        firstApp.AppliedAt = DateTime.UtcNow.AddHours(-25);
         t.Db.SaveChanges();
 
         var count = svc.CountRecentApplicants(m.Id, isAdmin: false, withinHours: 24);
@@ -446,8 +451,8 @@ public class ApplicationServiceTests
         // Giả lập thời gian nộp khác nhau
         var app1 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv1.Id);
         var app2 = t.Db.Applications.First(a => a.CandidateProfile!.UserId == sv2.Id);
-        app1.AppliedAt = DateTime.Now.AddDays(-2);
-        app2.AppliedAt = DateTime.Now.AddMinutes(-5);
+        app1.AppliedAt = DateTime.UtcNow.AddDays(-2);
+        app2.AppliedAt = DateTime.UtcNow.AddMinutes(-5);
         t.Db.SaveChanges();
 
         var top = svc.TopUnreviewed(m.Id, isAdmin: false, take: 2);

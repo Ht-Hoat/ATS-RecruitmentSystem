@@ -5,9 +5,14 @@
 
 <div class="page-head">
     <h1 class="page-title">Tin tuyển dụng IT</h1>
-    <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a>
+    @* Chỉ Mentor đăng tin — Admin giám sát, không tuyển dụng (JobService.Create cũng chặn). *@
+    @if (!isAdmin) { <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a> }
 </div>
-<p class="sub">Danh sách tin IT — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.</p>
+<p class="sub">
+    @(isAdmin
+        ? "Toàn bộ tin IT trong hệ thống (chỉ xem) — việc đăng, sửa, đóng tin và xử lý ứng viên do Mentor đăng tin thực hiện."
+        : "Tin tuyển dụng do bạn đăng — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.")
+</p>
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
 
 <table class="tbl">
@@ -17,7 +22,8 @@
     <tbody>
         @foreach (var j in jobs)
         {
-            var mine = isAdmin || j.CreatedById == uid;
+            @* P1-5: Mentor chỉ thấy tin của mình nên thao tác được mọi dòng. Admin thấy tất
+               cả nhưng CHỈ XEM — nút thao tác bị ẩn, và endpoint/service cũng chặn. *@
             <tr>
                 <td>@j.Id</td>
                 <td>@j.Title</td>
@@ -36,17 +42,15 @@
                 </td>
                 <td class="nowrap">
                     <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                    @if (!mine)
+                    @if (isAdmin)
                     {
-                        @* Tin của Mentor khác: chỉ xem. Trước đây nút Đóng/Mở lại hiện cho mọi
-                           Mentor và endpoint cũng không kiểm tra quyền sở hữu, nên một cú bấm
-                           là đóng được tin tuyển dụng của người khác. *@
-                        <span class="sub">— (tin của người khác)</span>
+                        @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
                     }
                     else if (j.Status == JobStatus.Open)
                     {
                         <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
                         <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
+                            <AntiforgeryField />
                             <button class="btn-sm danger" type="submit">Đóng</button>
                         </form>
                     }
@@ -54,6 +58,7 @@
                     {
                         <span class="btn-sm ghost disabled" title="Mở lại tin trước khi sửa">Sửa</span>
                         <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline">
+                            <AntiforgeryField />
                             <button class="btn-sm" type="submit">Mở lại</button>
                         </form>
                     }
@@ -75,13 +80,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        jobs = Jobs.GetAll();
-        // Đếm theo đúng những tin đang hiển thị thay vì gộp cả bảng Applications.
-        counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
-
         if (AuthState is null) return;
         var user = (await AuthState).User;
         uid = CurrentUser.Id(user);
         isAdmin = CurrentUser.IsAdmin(user);
+
+        // P1-5: Mentor chỉ thấy tin của chính mình. Bản cũ gọi GetAll() cho mọi vai trò, nên
+        // một Mentor đọc được toàn bộ tin của đối thủ KÈM số ứng viên từng tin — vừa lộ
+        // thông tin cạnh tranh, vừa hiện sẵn nút "Ứng viên" dẫn tới một trang báo không có
+        // quyền. Kiểm tra quyền ở service vẫn là lớp bảo vệ thật; thay đổi này chỉ để giao
+        // diện thôi mời người dùng bấm vào thứ họ không được phép.
+        jobs = isAdmin ? Jobs.GetAll() : Jobs.GetByOwner(uid);
+        // Đếm theo đúng những tin đang hiển thị thay vì gộp cả bảng Applications.
+        counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
     }
 }

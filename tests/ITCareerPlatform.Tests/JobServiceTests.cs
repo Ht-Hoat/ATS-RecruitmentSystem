@@ -11,14 +11,14 @@ public class JobServiceTests
     public void Create_InvalidEmploymentType_Throws()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var svc = new JobService(t.Db);
 
         var job = new Job
         {
             Title = "Backend .NET", Category = "Backend", Level = "Junior",
             EmploymentType = "TuChoiVe",          // không thuộc Job.EmploymentTypes
-            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+            CreatedById = m.Id, Deadline = VietnamDateHelper.Today().AddDays(10)
         };
 
         var ex = Assert.Throws<ArgumentException>(() => svc.Create(job));
@@ -29,13 +29,13 @@ public class JobServiceTests
     public void Create_DefaultEmploymentType_IsAccepted()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var svc = new JobService(t.Db);
 
         var job = svc.Create(new Job
         {
             Title = "Backend .NET", Category = "Backend", Level = "Junior",
-            CreatedById = m.Id, Deadline = DateTime.Today.AddDays(10)
+            CreatedById = m.Id, Deadline = VietnamDateHelper.Today().AddDays(10)
         });
 
         Assert.Equal("Onsite", job.EmploymentType);
@@ -45,10 +45,10 @@ public class JobServiceTests
     public void Create_SetsStatusOpen()
     {
         using var t = new TestDb();
-        var mentor = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var mentor = t.AddMentor();
         var svc = new JobService(t.Db);
 
-        var job = svc.Create(new Job { Title = "Backend .NET", CreatedById = mentor.Id, Deadline = DateTime.Today.AddDays(5), Category = "Backend", Level = "Junior", TechStack = "C#,.NET" });
+        var job = svc.Create(new Job { Title = "Backend .NET", CreatedById = mentor.Id, Deadline = VietnamDateHelper.Today().AddDays(5), Category = "Backend", Level = "Junior", TechStack = "C#,.NET" });
 
         Assert.Equal("Open", job.Status);
         Assert.True(job.Id > 0);
@@ -58,7 +58,7 @@ public class JobServiceTests
     public void Create_SalaryMaxLessThanMin_Throws()
     {
         using var t = new TestDb();
-        var mentor = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var mentor = t.AddMentor();
         var svc = new JobService(t.Db);
 
         Assert.Throws<ArgumentException>(() =>
@@ -70,7 +70,7 @@ public class JobServiceTests
     public void Filter_ByCategory_ReturnsOnlyMatching()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "BE", "Backend", "C#,.NET");
         t.AddJob(m.Id, "FE", "Frontend", "React,JS");
         var svc = new JobService(t.Db);
@@ -86,7 +86,7 @@ public class JobServiceTests
     public void Filter_ByTechStack_CaseInsensitive()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "BE", "Backend", "C#,.NET,SQL Server");
         t.AddJob(m.Id, "FE", "Frontend", "React,TypeScript");
         var svc = new JobService(t.Db);
@@ -101,7 +101,7 @@ public class JobServiceTests
     public void Filter_OnlyOpenJobs()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "Open1", status: "Open");
         t.AddJob(m.Id, "Closed1", status: "Closed");
         var svc = new JobService(t.Db);
@@ -117,7 +117,7 @@ public class JobServiceTests
     public void Update_ClosedJob_Throws()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var job = t.AddJob(m.Id, status: "Closed");
         var svc = new JobService(t.Db);
 
@@ -130,8 +130,8 @@ public class JobServiceTests
     public void Update_NotOwnerNotAdmin_Throws()
     {
         using var t = new TestDb();
-        var owner = t.AddUser("Owner", "o@itcp.vn", Roles.MentorId);
-        var other = t.AddUser("Other", "x@itcp.vn", Roles.MentorId);
+        var owner = t.AddMentor("Owner", "o@itcp.vn");
+        var other = t.AddMentor("Other", "x@itcp.vn");
         var job = t.AddJob(owner.Id);
         var svc = new JobService(t.Db);
 
@@ -139,18 +139,20 @@ public class JobServiceTests
             svc.Update(job.Id, new Job { Title = "Hack" }, other.Id));
     }
 
+    /// <summary>Admin chỉ xem: không sửa được tin của Mentor, dù gọi thẳng vào service.</summary>
     [Fact]
-    public void Update_ByAdmin_Succeeds()
+    public void Update_ByAdmin_IsDenied_AndChangesNothing()
     {
         using var t = new TestDb();
-        var owner = t.AddUser("Owner", "o@itcp.vn", Roles.MentorId);
+        var owner = t.AddMentor("Owner", "o@itcp.vn");
         var admin = t.AddUser("Admin", "a@itcp.vn", Roles.AdminId);
         var job = t.AddJob(owner.Id);
         var svc = new JobService(t.Db);
 
-        svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = DateTime.Today.AddDays(3) }, admin.Id);
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            svc.Update(job.Id, new Job { Title = "Đã sửa", Category = "DevOps", Level = "Senior", TechStack = "Docker", Deadline = VietnamDateHelper.Today().AddDays(3) }, admin.Id));
 
-        Assert.Equal("Đã sửa", t.NewContext().Jobs.Find(job.Id)!.Title);
+        Assert.Equal("Backend .NET", t.NewContext().Jobs.Find(job.Id)!.Title);
     }
 
     // =====================================================================
@@ -161,7 +163,7 @@ public class JobServiceTests
     public void Filter_ByEmploymentType_MatchesExact()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "Job Onsite", employmentType: "Onsite");
         t.AddJob(m.Id, "Job Remote", employmentType: "Remote");
         t.AddJob(m.Id, "Job Hybrid", employmentType: "Hybrid");
@@ -180,7 +182,7 @@ public class JobServiceTests
     public void Filter_ByMinSalary_MatchesGreaterOrEqual()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "Job Low", salaryMax: 15);
         t.AddJob(m.Id, "Job Mid", salaryMax: 25);
         t.AddJob(m.Id, "Job High", salaryMax: 40);
@@ -202,7 +204,7 @@ public class JobServiceTests
     public void Filter_ByLocation_CaseInsensitive(string locationKeyword)
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "Job HaNoi", location: "Hà Nội");
         t.AddJob(m.Id, "Job HCM", location: "TP.HCM");
         var svc = new JobService(t.Db);
@@ -221,7 +223,7 @@ public class JobServiceTests
     public void Filter_ByLocation_VaryingDatabaseAndQueryCasing(string dbLocation, string queryLocation)
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         t.AddJob(m.Id, "Job HaNoi", location: dbLocation);
         var svc = new JobService(t.Db);
 
@@ -235,7 +237,7 @@ public class JobServiceTests
     public void Filter_CombinedFilters_MatchesAllCriteria()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         // Tin thỏa mãn toàn bộ tiêu chí
         t.AddJob(m.Id, "Target Job", category: "Backend", techStack: "C#,.NET Core", level: "Junior",
             employmentType: "Remote", location: "Hà Nội", salaryMax: 30);

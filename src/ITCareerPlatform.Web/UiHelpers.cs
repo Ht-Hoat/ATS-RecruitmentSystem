@@ -83,7 +83,7 @@ public static class Ui
         _ => "⚠️"
     };
 
-    // ATS-17: màu badge trạng thái đơn
+    // ATS-17 + P0-4: màu badge trạng thái đơn
     public static string StatusClass(string? status) => status switch
     {
         ApplicationStatus.Submitted => "st st-submitted",
@@ -91,6 +91,7 @@ public static class Ui
         ApplicationStatus.Interview => "st st-interview",
         ApplicationStatus.Accepted => "st st-accepted",
         ApplicationStatus.Rejected => "st st-rejected",
+        ApplicationStatus.Withdrawn => "st st-withdrawn",
         _ => "st"
     };
 
@@ -101,6 +102,7 @@ public static class Ui
         ApplicationStatus.Interview => "#f97316",
         ApplicationStatus.Accepted => "#22c55e",
         ApplicationStatus.Rejected => "#ef4444",
+        ApplicationStatus.Withdrawn => "#64748b",
         _ => CategoryInfo.FallbackColor
     };
 
@@ -108,33 +110,83 @@ public static class Ui
         status == JobStatus.Closed ? "Đã đóng" : "Đang mở";
 
     // ---------------------------------------------------------------
-    //  Định dạng thời gian — một chỗ duy nhất thay cho 16 chuỗi format
-    //  gõ tay rải khắp 9 trang (vốn đã lệch nhau).
+    //  P0-2: Múi giờ Việt Nam và định dạng thời gian.
+    //  Dữ liệu lưu CSDL luôn ở UTC; đây là NƠI DUY NHẤT quy đổi sang giờ VN
+    //  trước khi format hoặc đưa vào ô input.
+    //  Windows dùng id "SE Asia Standard Time", Linux/Docker dùng "Asia/Ho_Chi_Minh".
     // ---------------------------------------------------------------
+    public static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
+
+    private static TimeZoneInfo ResolveVietnamTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                // Fallback nếu OS không chứa định nghĩa múi giờ
+                return TimeZoneInfo.CreateCustomTimeZone("Asia/Ho_Chi_Minh", TimeSpan.FromHours(7), "ICT", "ICT");
+            }
+        }
+    }
+
+    /// <summary>Quy đổi một mốc thời gian UTC sang giờ Việt Nam (UTC+7).</summary>
+    public static DateTime ToVietnamTime(DateTime utc)
+    {
+        if (utc.Kind == DateTimeKind.Unspecified)
+            utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc.ToUniversalTime(), VietnamTimeZone);
+    }
+
+    /// <summary>
+    /// Chiều ngược lại: một giờ TƯỜNG của Việt Nam (thứ mà &lt;input type="datetime-local"&gt;
+    /// gửi lên, và thứ nhà tuyển dụng nghĩ trong đầu) quy về UTC để lưu xuống CSDL.
+    /// Thiếu bước này, giờ 14:30 do Mentor nhập được lưu thẳng thành 14:30 UTC — tức
+    /// 21:30 giờ Việt Nam — và mọi so sánh "đã qua hay chưa" lệch đúng 7 tiếng.
+    /// </summary>
+    public static DateTime FromVietnamTime(DateTime vietnamWallClock)
+    {
+        var unspecified = DateTime.SpecifyKind(vietnamWallClock, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(unspecified, VietnamTimeZone);
+    }
+
     public const string DateTimePattern = "dd/MM/yyyy HH:mm";
     public const string DatePattern = "dd/MM/yyyy";
     public const string ShortDateTimePattern = "dd/MM HH:mm";
 
     public static string DateTimeText(DateTime? value) =>
-        value?.ToString(DateTimePattern) ?? "";
+        value.HasValue ? ToVietnamTime(value.Value).ToString(DateTimePattern) : "";
 
     public static string DateText(DateTime? value) =>
-        value?.ToString(DatePattern) ?? "";
+        value.HasValue ? ToVietnamTime(value.Value).ToString(DatePattern) : "";
 
     public static string ShortDateTimeText(DateTime? value) =>
-        value?.ToString(ShortDateTimePattern) ?? "";
-
-    /// <summary>Giá trị cho &lt;input type="date"&gt; — luôn theo chuẩn HTML, không theo culture máy chủ.</summary>
-    public static string InputDate(DateTime? value) =>
-        (value ?? DateTime.Today).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        value.HasValue ? ToVietnamTime(value.Value).ToString(ShortDateTimePattern) : "";
 
     /// <summary>
-    /// Giá trị cho &lt;input type="datetime-local"&gt;. Chuẩn HTML là "yyyy-MM-ddTHH:mm";
-    /// định dạng theo culture máy chủ (vi-VN cho ra "20/09/2026 14:30") bị trình duyệt bỏ
-    /// qua lặng lẽ, và ô ngày hiện ra trống trơn dù dữ liệu có thật.
+    /// Giá trị cho &lt;input type="date"&gt; — luôn theo chuẩn HTML (yyyy-MM-dd) theo giờ Việt Nam.
+    /// Hai chỗ gọi hàm này (hạn nộp, ngày sinh) đều là khái niệm NGÀY và luôn được lưu ở
+    /// 00:00, nên phép cộng 7 giờ không bao giờ đẩy sang ngày kế. Nếu sau này có cột ngày
+    /// nào lưu kèm giờ, phải tách riêng một hàm không quy đổi cho nó.
+    /// </summary>
+    public static string InputDate(DateTime? value)
+    {
+        var target = value.HasValue ? ToVietnamTime(value.Value) : ToVietnamTime(DateTime.UtcNow);
+        return target.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Giá trị cho &lt;input type="datetime-local"&gt; (yyyy-MM-ddTHH:mm) quy đổi từ UTC sang giờ VN.
     /// </summary>
     public static string InputDateTimeLocal(DateTime? value) =>
-        value?.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        value.HasValue ? ToVietnamTime(value.Value).ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture) : "";
 
     /// <summary>Giá trị cho &lt;input type="number"&gt;: dấu chấm thập phân, không theo culture máy chủ.</summary>
     public static string InputNumber(decimal value) =>
@@ -164,3 +216,46 @@ public static class CurrentUser
 
     public static bool IsStudent(ClaimsPrincipal? user) => user?.IsInRole(Roles.Student) ?? false;
 }
+
+/// <summary>
+/// P0-2: một chỗ duy nhất phát biểu khái niệm "bây giờ" và "hôm nay theo giờ Việt Nam".
+///
+/// Hai khái niệm này KHÁC NHAU và hay bị lẫn:
+///  · Hạn nộp (Job.Deadline) là một NGÀY trên tờ lịch Việt Nam — so sánh với <see cref="Today"/>.
+///  · Mốc thời gian (AppliedAt, InterviewAt, CreatedAt) là một THỜI ĐIỂM lưu ở UTC — so
+///    sánh với <see cref="UtcNow"/>, hoặc với <see cref="StartOfVietnamDayUtc"/> khi cần
+///    "từ đầu ngày hôm đó theo giờ Việt Nam".
+/// Trộn hai loại vào cùng một phép so sánh chính là lỗi lệch 7 tiếng mà P0-2 đi sửa.
+/// </summary>
+public static class VietnamDateHelper
+{
+    /// <summary>
+    /// Việt Nam giữ UTC+7 cố định từ 1975 và không có giờ mùa hè, nên một con số bù giờ là
+    /// đủ đúng. Hằng này chỉ dùng cho phần GỘP NHÓM chạy trong SQL (DATEADD dịch được,
+    /// TimeZoneInfo thì không); mọi quy đổi ở phía C# vẫn đi qua Ui.ToVietnamTime.
+    /// </summary>
+    public const int OffsetHours = 7;
+
+    /// <summary>Thời điểm hiện tại ở UTC. Mọi service lấy giờ qua đây để test cố định được đồng hồ.</summary>
+    public static DateTime UtcNow(TimeProvider? clock = null) =>
+        (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+
+    /// <summary>Hôm nay trên tờ lịch Việt Nam (00:00, kiểu Unspecified — một NGÀY, không phải thời điểm).</summary>
+    public static DateTime Today(TimeProvider? clock = null) =>
+        Ui.ToVietnamTime(UtcNow(clock)).Date;
+
+    /// <summary>
+    /// Quy một giờ TƯỜNG của Việt Nam về UTC — dùng ở biên nhận dữ liệu, cho giá trị
+    /// &lt;input type="datetime-local"&gt; mà người dùng vừa gõ.
+    /// </summary>
+    public static DateTime ToUtcFromVietnam(DateTime vietnamWallClock) =>
+        Ui.FromVietnamTime(vietnamWallClock);
+
+    /// <summary>
+    /// Mốc UTC ứng với 00:00 giờ Việt Nam của một ngày. Dùng khi cần lọc "các đơn nộp từ
+    /// đầu ngày X" trên một cột lưu UTC — so thẳng cột UTC với một ngày giờ VN thì lệch 7 tiếng.
+    /// </summary>
+    public static DateTime StartOfVietnamDayUtc(DateTime vietnamDate) =>
+        Ui.FromVietnamTime(vietnamDate.Date);
+}
+

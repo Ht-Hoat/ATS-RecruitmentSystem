@@ -9,11 +9,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<Company> Companies => Set<Company>();   // P1-1
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<CandidateProfile> CandidateProfiles => Set<CandidateProfile>();
     public DbSet<Application> Applications => Set<Application>();
     public DbSet<ApplicationStatusHistory> ApplicationStatusHistories => Set<ApplicationStatusHistory>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<SelfCheck> SelfChecks => Set<SelfCheck>();   // P1-2
+    public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();   // P1-3
 
     // -----------------------------------------------------------------
     //  Đóng dấu CreatedAt/UpdatedAt một chỗ duy nhất.
@@ -34,7 +37,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     private void StampTimestamps()
     {
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         foreach (var entry in ChangeTracker.Entries<ITimestamped>())
         {
             if (entry.State == EntityState.Added)
@@ -47,6 +50,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 // CreatedAt là bất biến — chặn mọi lần ghi đè vô tình.
                 entry.Property(e => e.CreatedAt).IsModified = false;
             }
+        }
+
+        // P0-2: Đóng dấu tập trung cho các entity không kế thừa ITimestamped nhưng có mốc thời gian
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State != EntityState.Added) continue;
+
+            if (entry.Entity is AuditLog audit && audit.Timestamp == default)
+                audit.Timestamp = now;
+            else if (entry.Entity is Application app && app.AppliedAt == default)
+                app.AppliedAt = now;
+            else if (entry.Entity is Notification notif && notif.CreatedAt == default)
+                notif.CreatedAt = now;
+            else if (entry.Entity is ApplicationStatusHistory hist && hist.ChangedAt == default)
+                hist.ChangedAt = now;
+            else if (entry.Entity is SelfCheck self && self.CreatedAt == default)
+                self.CreatedAt = now;
+            else if (entry.Entity is EmailOutbox mail && mail.CreatedAt == default)
+                mail.CreatedAt = now;
         }
     }
 
@@ -72,6 +94,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(a => a.User).WithMany()
             .HasForeignKey(a => a.UserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // P1-1: Companies (1) --- (n) Jobs, và (1) --- (n) Users (tài khoản Mentor).
+        // Restrict ở cả hai chiều: xóa một công ty đang có tin hoặc đang có nhân sự phải là
+        // thao tác có ý thức, không được kéo theo cả tin tuyển dụng lẫn tài khoản.
+        b.Entity<Job>()
+            .HasOne(j => j.Company).WithMany(c => c.Jobs)
+            .HasForeignKey(j => j.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<User>()
+            .HasOne(u => u.Company).WithMany()
+            .HasForeignKey(u => u.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Company>().HasIndex(c => c.Name);
+        b.Entity<Job>().HasIndex(j => j.CompanyId);
 
         b.Entity<Job>().Property(j => j.SalaryMin).HasColumnType("decimal(18,2)");
         b.Entity<Job>().Property(j => j.SalaryMax).HasColumnType("decimal(18,2)");
@@ -111,6 +147,26 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(h => h.Application).WithMany(a => a.StatusHistory)
             .HasForeignKey(h => h.ApplicationId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // P1-2: SelfChecks. Cascade theo cả User lẫn Job vì bản ghi này không có ý nghĩa
+        // độc lập — xóa tài khoản hay xóa tin thì kết quả tự kiểm cũng hết chỗ để đọc.
+        b.Entity<SelfCheck>()
+            .HasOne(x => x.User).WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<SelfCheck>()
+            .HasOne(x => x.Job).WithMany()
+            .HasForeignKey(x => x.JobId)
+            .OnDelete(DeleteBehavior.Restrict);
+        // Hai truy vấn duy nhất của bảng này: đếm hạn mức trong ngày của một người, và lấy
+        // bản gần nhất của (người, tin). Index phủ cả hai.
+        b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.CreatedAt });
+        b.Entity<SelfCheck>().HasIndex(x => new { x.UserId, x.JobId, x.Id });
+
+        // P1-3: tiến trình nền chỉ hỏi đúng một câu — "email nào chưa gửi và chưa quá số lần
+        // thử" — nên index phủ đúng hai cột đó. Bảng này chỉ tăng, không có index thì mỗi
+        // lần quét (30 giây một lần) là một lần đọc toàn bảng.
+        b.Entity<EmailOutbox>().HasIndex(x => new { x.SentAt, x.Attempts });
 
         // Notifications: index theo người nhận để truy vấn nhanh
         b.Entity<Notification>().HasIndex(n => new { n.UserId, n.IsRead });

@@ -4,6 +4,10 @@ using ITCareerPlatform.Services;
 namespace ITCareerPlatform.Data;
 
 // Dữ liệu mẫu IT Career Platform (chạy sau khi CSDL được tạo).
+// P0-2: dữ liệu mẫu tuân đúng quy ước thời gian của hệ thống — mốc THỜI ĐIỂM lưu ở UTC,
+// còn hạn nộp là một NGÀY trên tờ lịch Việt Nam. Gieo bằng giờ máy chủ sẽ làm dữ liệu mẫu
+// lệch 7 tiếng so với dữ liệu do chính ứng dụng sinh ra, và mọi màn hình thống kê đọc hai
+// nguồn đó như nhau.
 public static class SeedData
 {
     public static void Initialize(AppDbContext db)
@@ -22,6 +26,31 @@ public static class SeedData
         db.Users.AddRange(admin, mentor, mentor2, locked, lan, khoa);
         db.SaveChanges();
 
+        // ===== P1-1: Công ty =====
+        // Hai công ty khác nhau cho hai Mentor, để demo và test nhìn thấy được ranh giới:
+        // một tin đứng tên ai, và danh sách tin của Mentor này không lẫn sang Mentor kia.
+        var fpt = new Company
+        {
+            Name = "FPT Software", Website = "https://fptsoftware.com",
+            Address = "Tòa FPT, Duy Tân, Cầu Giấy, Hà Nội",
+            Description = "Công ty phần mềm lớn nhất Việt Nam, tuyển thực tập sinh và kỹ sư mới ra trường cho các dự án Nhật - Mỹ - EU."
+        };
+        var vng = new Company
+        {
+            Name = "VNG Corporation", Website = "https://vng.com.vn",
+            Address = "Z06 Đường số 13, Tân Thuận Đông, Quận 7, TP.HCM",
+            Description = "Công ty công nghệ về game, thanh toán và điện toán đám mây; môi trường sản phẩm quy mô hàng chục triệu người dùng."
+        };
+        db.Companies.AddRange(fpt, vng);
+        db.SaveChanges();
+
+        mentor.CompanyId = fpt.Id;
+        mentor2.CompanyId = vng.Id;
+        // Admin cũng đăng được tin (endpoint cho phép Admin, Mentor), nên phải có công ty —
+        // nếu không, tài khoản quản trị mở form đăng tin rồi mới bị từ chối ở bước lưu.
+        admin.CompanyId = fpt.Id;
+        db.SaveChanges();
+
         // ===== Tin việc làm IT (ATS-04: có Category, TechStack, Level) =====
         var jBackend = new Job
         {
@@ -29,9 +58,9 @@ public static class SeedData
             TechStack = "C#, .NET, ASP.NET Core, SQL Server, Docker",
             Description = "Phát triển REST API và hệ thống web bằng ASP.NET Core cho sản phẩm tuyển dụng IT.",
             Requirements = "Thành thạo C#, EF Core, SQL Server; hiểu Docker; 1 năm kinh nghiệm.",
-            Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = DateTime.Today.AddDays(20),
+            Location = "Hà Nội", SalaryMin = 15, SalaryMax = 25, Deadline = VietnamDateHelper.Today().AddDays(20),
             EmploymentType = "Hybrid",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-5)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-5)
         };
         var jFrontend = new Job
         {
@@ -39,9 +68,9 @@ public static class SeedData
             TechStack = "JavaScript, React, TypeScript, HTML, CSS",
             Description = "Xây dựng giao diện người dùng bằng React cho nền tảng IT Career.",
             Requirements = "React, TypeScript, kinh nghiệm 2 năm; hiểu REST API.",
-            Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = DateTime.Today.AddDays(4), // sắp hết hạn
+            Location = "TP.HCM", SalaryMin = 18, SalaryMax = 30, Deadline = VietnamDateHelper.Today().AddDays(4), // sắp hết hạn
             EmploymentType = "Onsite",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-3)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-3)
         };
         var jDevOps = new Job
         {
@@ -49,9 +78,9 @@ public static class SeedData
             TechStack = "Linux, Docker, Kubernetes, CI/CD, Azure",
             Description = "Vận hành hạ tầng, xây dựng pipeline CI/CD.",
             Requirements = "Docker, Kubernetes, GitHub Actions; 3 năm kinh nghiệm.",
-            Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = DateTime.Today.AddDays(25),
+            Location = "Hà Nội", SalaryMin = 30, SalaryMax = 45, Deadline = VietnamDateHelper.Today().AddDays(25),
             EmploymentType = "Remote",
-            Status = JobStatus.Open, CreatedById = mentor2.Id, CreatedAt = DateTime.Now.AddDays(-2)
+            Status = JobStatus.Open, CreatedById = mentor2.Id, CompanyId = vng.Id, CreatedAt = DateTime.UtcNow.AddDays(-2)
         };
         var jDataAi = new Job
         {
@@ -59,9 +88,9 @@ public static class SeedData
             TechStack = "Python, SQL, Machine Learning, LLM API",
             Description = "Xây dựng module sàng lọc CV bằng AI.",
             Requirements = "Python, SQL, hiểu ML cơ bản, LLM API.",
-            Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = DateTime.Today.AddDays(15),
+            Location = "TP.HCM", SalaryMin = 20, SalaryMax = 35, Deadline = VietnamDateHelper.Today().AddDays(15),
             EmploymentType = "Onsite",
-            Status = JobStatus.Open, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-1)
+            Status = JobStatus.Open, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-1)
         };
         var jIntern = new Job
         {
@@ -69,9 +98,9 @@ public static class SeedData
             TechStack = "Manual Testing, SQL, Postman",
             Description = "Kiểm thử chức năng hệ thống.",
             Requirements = "Sinh viên năm cuối CNTT.",
-            Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = DateTime.Today.AddDays(-2),
+            Location = "Hà Nội", SalaryMin = 3, SalaryMax = 5, Deadline = VietnamDateHelper.Today().AddDays(-2),
             EmploymentType = "Onsite",
-            Status = JobStatus.Closed, CreatedById = mentor.Id, CreatedAt = DateTime.Now.AddDays(-10)
+            Status = JobStatus.Closed, CreatedById = mentor.Id, CompanyId = fpt.Id, CreatedAt = DateTime.UtcNow.AddDays(-10)
         };
         db.Jobs.AddRange(jBackend, jFrontend, jDevOps, jDataAi, jIntern);
         db.SaveChanges();
@@ -93,7 +122,10 @@ public static class SeedData
             GithubUrl = "https://github.com/phamthilan", LinkedInUrl = "https://linkedin.com/in/phamthilan",
             PortfolioUrl = "https://phamthilan.dev",
             CvData = SampleCv("Pham Thi Lan"), CvFileName = "CV_PhamThiLan.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.Now
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow,
+            // P2-3: dữ liệu mẫu có sẵn sự đồng ý, nếu không thì mọi nút "Đánh giá bằng AI"
+            // trên bản demo đều bị chặn và người xem tưởng chức năng hỏng.
+            AiConsentAt = DateTime.UtcNow, AiConsentVersion = CandidateProfile.CurrentAiConsentVersion
         };
         var pKhoa = new CandidateProfile
         {
@@ -106,7 +138,10 @@ public static class SeedData
             GithubUrl = "https://github.com/dovankhoa", LinkedInUrl = "https://linkedin.com/in/dovankhoa",
             PortfolioUrl = "https://khoa.dev",
             CvData = SampleCv("Do Van Khoa"), CvFileName = "CV_DoVanKhoa.pdf",
-            CvContentType = "application/pdf", CvUploadedAt = DateTime.Now
+            CvContentType = "application/pdf", CvUploadedAt = DateTime.UtcNow,
+            // P2-3: dữ liệu mẫu có sẵn sự đồng ý, nếu không thì mọi nút "Đánh giá bằng AI"
+            // trên bản demo đều bị chặn và người xem tưởng chức năng hỏng.
+            AiConsentAt = DateTime.UtcNow, AiConsentVersion = CandidateProfile.CurrentAiConsentVersion
         };
         db.CandidateProfiles.AddRange(pLan, pKhoa);
         db.SaveChanges();
@@ -126,9 +161,9 @@ public static class SeedData
             {
                 JobId = job.Id, CandidateProfileId = p.Id,
                 CvFileNameSnapshot = p.CvFileName!, CvDataSnapshot = p.CvData, CvContentTypeSnapshot = p.CvContentType,
-                Status = ApplicationStatus.Submitted, AppliedAt = DateTime.Now.AddDays(-daysAgo),
+                Status = ApplicationStatus.Submitted, AppliedAt = DateTime.UtcNow.AddDays(-daysAgo),
                 AiScore = e.MatchPercent, AiStrengths = e.Strengths, AiMissing = e.Missing,
-                AiRoadmap = e.Roadmap, AiSource = e.Source, AiScoredAt = DateTime.Now
+                AiRoadmap = e.Roadmap, AiSource = e.Source, AiScoredAt = DateTime.UtcNow
             };
         }
         // Lan (Backend stack) ứng tuyển Backend → điểm cao; Khoa (React) ứng tuyển Backend → điểm thấp hơn

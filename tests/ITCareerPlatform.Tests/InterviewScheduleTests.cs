@@ -7,19 +7,28 @@ namespace ITCareerPlatform.Tests;
 // N1.E: lịch phỏng vấn gắn vào trạng thái đơn (Hướng B) · N1.B: ghi chú nội bộ.
 public class InterviewScheduleTests
 {
-    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db));
+    private static ApplicationService NewSvc(TestDb t) => new(t.Db, new NotificationService(t.Db), t.CvStorage);
 
+    // P0-2: InterviewSchedule.At là mốc UTC (endpoint đã quy đổi từ giờ VN trước khi dựng).
+    // Dùng DateTime.Now ở đây thì trên máy UTC+7 một lịch "2 giờ trước" lại rơi vào tương
+    // lai của UTC, và test "từ chối lịch quá khứ" xanh hay đỏ tùy múi giờ của máy chạy.
     private static InterviewSchedule Tomorrow(string? link = "https://meet.google.com/abc-defg-hij") =>
-        new(DateTime.Now.AddDays(1), link, "Vòng 1 — kỹ thuật");
+        new(DateTime.UtcNow.AddDays(1), link, "Vòng 1 — kỹ thuật");
 
-    /// <summary>Dựng một đơn ở trạng thái "Đã nộp" và trả về (id đơn, mentor, sinh viên).</summary>
+    /// <summary>
+    /// Dựng một đơn ở trạng thái "Đang xem xét" và trả về (id đơn, mentor, sinh viên).
+    ///
+    /// P1-4: đây là trạng thái DUY NHẤT chuyển thẳng sang "Phỏng vấn" được. Bộ test này nói
+    /// về lịch phỏng vấn chứ không về luồng trạng thái, nên nó bắt đầu ngay trước bước đó —
+    /// luồng được kiểm riêng trong StatusFlowTests.
+    /// </summary>
     private static (int AppId, User Mentor, User Student) Seed(TestDb t)
     {
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var p = t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id);
-        return (t.AddApplication(job.Id, p.Id).Id, m, sv);
+        return (t.AddApplication(job.Id, p.Id, ApplicationStatus.Reviewing).Id, m, sv);
     }
 
     // ===== Lưu lịch =====
@@ -52,7 +61,7 @@ public class InterviewScheduleTests
 
         Assert.False(ok);
         Assert.Contains("thời gian phỏng vấn", msg);
-        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, t.NewContext().Applications.Find(appId)!.Status);
     }
 
     [Fact]
@@ -60,7 +69,7 @@ public class InterviewScheduleTests
     {
         using var t = new TestDb();
         var (appId, m, _) = Seed(t);
-        var past = new InterviewSchedule(DateTime.Now.AddHours(-2), "https://zoom.us/j/123", "");
+        var past = new InterviewSchedule(DateTime.UtcNow.AddHours(-2), "https://zoom.us/j/123", "");
 
         var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Interview, past, m.Id, out var msg);
 
@@ -87,7 +96,7 @@ public class InterviewScheduleTests
 
         Assert.False(ok);
         Assert.Contains("http", msg);
-        Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(appId)!.Status);
+        Assert.Equal(ApplicationStatus.Reviewing, t.NewContext().Applications.Find(appId)!.Status);
     }
 
     /// <summary>Phỏng vấn trực tiếp thì không có link — chỉ giờ hẹn là bắt buộc.</summary>
@@ -117,7 +126,7 @@ public class InterviewScheduleTests
         var svc = NewSvc(t);
         Assert.True(svc.UpdateStatus(appId, ApplicationStatus.Interview, Tomorrow(), m.Id, out _));
 
-        var newTime = DateTime.Now.AddDays(3);
+        var newTime = DateTime.UtcNow.AddDays(3);
         var ok = svc.UpdateStatus(appId, ApplicationStatus.Interview,
             new InterviewSchedule(newTime, "https://zoom.us/j/999", "Đổi sang thứ Sáu"), m.Id, out var msg);
 
@@ -141,7 +150,7 @@ public class InterviewScheduleTests
         using var t = new TestDb();
         var (appId, m, _) = Seed(t);
 
-        var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Submitted, m.Id, out var msg);
+        var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Reviewing, m.Id, out var msg);
 
         Assert.False(ok);
         Assert.Contains("không thay đổi", msg);
@@ -186,15 +195,15 @@ public class InterviewScheduleTests
     public void Notification_LongContent_IsClipped_NotRejected()
     {
         using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
+        var m = t.AddMentor();
         var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
         var p = t.AddProfile(sv.Id);
         var job = t.AddJob(m.Id, title: new string('T', 160));
-        var appId = t.AddApplication(job.Id, p.Id).Id;
+        var appId = t.AddApplication(job.Id, p.Id, ApplicationStatus.Reviewing).Id;
 
         var longLink = "https://meet.google.com/" + new string('x', 370);
         var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Interview,
-            new InterviewSchedule(DateTime.Now.AddDays(1), longLink, ""), m.Id, out _);
+            new InterviewSchedule(DateTime.UtcNow.AddDays(1), longLink, ""), m.Id, out _);
 
         Assert.True(ok);
         var n = Assert.Single(t.NewContext().Notifications);
@@ -217,7 +226,7 @@ public class InterviewScheduleTests
         Assert.NotNull(note);
         Assert.Equal("Ứng viên mạnh về SQL, cần hỏi kỹ về Docker.", note!.Note);   // đã trim
         Assert.Equal(m.Id, note.ByUserId);
-        Assert.True(note.At <= DateTime.Now);
+        Assert.True(note.At <= DateTime.UtcNow);
     }
 
     [Fact]

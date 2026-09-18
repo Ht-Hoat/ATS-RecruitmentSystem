@@ -1,6 +1,8 @@
 @page "/jobs/edit/{JobId:int}"
-@attribute [Authorize(Roles = Roles.AdminOrMentor)]
+@* Chỉ Mentor đăng/sửa tin — Admin chỉ xem danh sách. *@
+@attribute [Authorize(Roles = Roles.Mentor)]
 @inject IJobService Jobs
+@inject ICompanyService Companies
 
 @* Sửa tin việc IT *@
 
@@ -18,7 +20,8 @@ else
     }
 
     <form method="post" action="@($"/jobs/{model.Id}/update")" class="form form-wide" data-vi-validate>
-        <JobFields Model="model" />
+        <AntiforgeryField />
+        <JobFields Model="model" CompanyName="@companyName" />
         <div class="actions">
             <button class="btn-primary" type="submit" disabled="@(model.Status == JobStatus.Closed)">Lưu thay đổi</button>
             <a class="btn" href="/jobs">Hủy</a>
@@ -30,5 +33,13 @@ else
     [Parameter] public int JobId { get; set; }
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
     private Job? model;
-    protected override void OnInitialized() => model = Jobs.GetById(JobId);
+    private string? companyName;
+
+    protected override void OnInitialized()
+    {
+        model = Jobs.GetById(JobId);
+        // Công ty của TIN, không phải của người đang sửa: Admin sửa tin của Mentor khác thì
+        // dải chỉ-đọc phải nói đúng công ty mà tin đang đứng tên.
+        if (model is not null) companyName = Companies.GetById(model.CompanyId)?.Name;
+    }
 }
