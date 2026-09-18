@@ -31,7 +31,7 @@ dotnet test --filter "FullyQualifiedName~AiServiceTests"
 |----------|-------|-------------------|
 | `UserServiceTests` | ATS-01/02, EXT-01 | Đăng ký tạo SV (RoleId=3), mật khẩu **băm BCrypt** (không plaintext), email trùng, mật khẩu < 8 ký tự, đổi vai trò ghi **AuditLog**, khóa/mở khóa |
 | `JobServiceTests` | ATS-04/05/07 | Tạo tin → Open, lương max<min → lỗi, lọc theo **Category**, tìm **TechStack** không phân biệt hoa thường, chỉ trả tin Open, chặn sửa tin **Closed**, chặn sửa khi **không phải Mentor chủ tin** (kể cả Admin — Admin chỉ xem, xem `AdminReadOnlyTests`) |
-| `ApplicationServiceTests` | ATS-10/15/16/17 | **5 kịch bản Apply** (tin đóng / chưa hồ sơ / chưa CV / trùng / hợp lệ), **đóng băng CV vào đơn** (SV đổi CV sau không ảnh hưởng đơn cũ), đổi trạng thái ghi **lịch sử** + tạo **thông báo** (NTF-01), **HrScore không ghi đè AiScore** + FinalScore ưu tiên HrScore, xếp hạng theo % phù hợp giảm dần |
+| `ApplicationServiceTests` | ATS-10/15/16/17 | **5 kịch bản Apply** (tin đóng / chưa hồ sơ / chưa CV / trùng / hợp lệ), **đóng băng CV vào đơn** (SV đổi CV sau không ảnh hưởng đơn cũ), đổi trạng thái ghi **lịch sử** + tạo **thông báo** (NTF-01), xếp hạng theo % phù hợp giảm dần |
 | `ProfileServiceTests` | ATS-08/09, SEC-01 | Lưu 4 trường IT, URL GitHub sai → lỗi, upload CV hợp lệ → HasCv, **chặn EICAR (mã độc)**, sai định dạng, quá 5MB |
 | `AiServiceTests` | ATS-13/14 (TST-03) | Khớp tech cao → **%≥70**, không khớp → **≤40** kèm lộ trình, **tất định**, % luôn trong [0,100], trả đủ 3 mục Điểm mạnh/Thiếu sót/Lộ trình |
 
@@ -85,7 +85,6 @@ Chạy app theo `HUONG_DAN_CHAY.md`, rồi làm theo các kịch bản dưới. 
 | 7 | Ứng tuyển khi CHƯA có CV | Bị chặn, gợi ý hoàn thiện hồ sơ |
 | 8 | Ứng tuyển 1 tin hợp lệ | "Ứng tuyển thành công"; `/my-applications` có đơn |
 | 9 | Ứng tuyển lại tin đó | Báo "đã ứng tuyển rồi" |
-| 10 | Vào `/toolkit` tick checklist rồi F5 | Trạng thái tick được giữ (localStorage), progress bar đúng |
 
 ### TST-03 — UAT Sprint 3 (Mentor + AI)
 | # | Bước | Kết quả mong đợi |
@@ -93,9 +92,9 @@ Chạy app theo `HUONG_DAN_CHAY.md`, rồi làm theo các kịch bản dưới. 
 | 1 | Mentor mở `/jobs/{id}/applicants` | Thấy danh sách SV đã ứng tuyển, cột điểm AI |
 | 2 | Đổi sắp xếp "Điểm cao nhất" | Danh sách xếp lại theo điểm giảm dần |
 | 3 | Mở 1 ứng viên → "🧭 Đánh giá độ phù hợp & Gợi ý lộ trình" | Hiện **vòng tròn % phù hợp** + ✅ Điểm mạnh + ❌ Thiếu sót + 🚀 Lộ trình; lưu lại sau F5 |
-| 4 | Bấm "Điều chỉnh" bỏ trống lý do | Không cho lưu (yêu cầu ≥10 ký tự) |
-| 5 | Điều chỉnh % = 85 + lý do | HrScore=85%, AiScore **giữ nguyên**, hiển thị cả 2 |
-| 6 | Đổi trạng thái "Đã nộp"→"Phỏng vấn" | Timeline thêm 1 mốc; SV nhận **thông báo 🔔** |
+| 4 | Ở mục "Quyết định tuyển dụng", thẻ "Mời phỏng vấn": nhập giờ + link, bấm "Gửi lời mời phỏng vấn" (ngay từ "Đã nộp") | Timeline thêm 1 mốc; SV nhận **thông báo 🔔** + email kèm `.ics` |
+| 5 | SV mở đơn đó → "🎤 Chuẩn bị phỏng vấn" → "Tạo bộ câu hỏi luyện phỏng vấn" | Hiện 5-7 câu hỏi kèm **gợi ý trả lời**; tạo lại lần 2 trong 24 giờ bị từ chối kèm giờ được tạo lại |
+| 6 | Mentor dùng thẻ "Từ chối" với phản hồi, trên một đơn khác | SV đọc được phản hồi ở trang đơn và trong email |
 | 7 | SV đăng nhập xem chuông thông báo | Thấy thông báo đổi trạng thái, bấm vào → `/my-applications` |
 | 8 | **SV mở `/my-applications` → "Xem"** | SV thấy **đánh giá % phù hợp + lộ trình học** của chính mình (ATS-14) |
 | 9 | `/dashboard` | 4 thẻ số + biểu đồ tròn (Category) + cột (Status) hiển thị đúng |

@@ -146,6 +146,7 @@ builder.Services.AddScoped<IAiService, GeminiAiService>();
 // P1-2: dựng dữ liệu đưa vào AI ở MỘT chỗ, cho cả ba đường (chấm điểm, sinh câu hỏi, tự kiểm tra).
 builder.Services.AddScoped<IAiInputBuilder, AiInputBuilder>();
 builder.Services.AddScoped<ISelfCheckService, SelfCheckService>();
+builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();   // bộ câu hỏi luyện phỏng vấn cho SV
 
 // ---------- Email (P1-3) ----------
 // Chọn bản triển khai NGAY LÚC KHỞI ĐỘNG theo cấu hình, giống cách GeminiAiService xử lý
@@ -736,6 +737,27 @@ app.MapPost("/positions/{id:int}/self-check", async (int id, HttpContext ctx, IS
     }
 }).RequireAuthorization(p => p.RequireRole(Roles.Student));
 
+// Sinh viên được mời phỏng vấn tự tạo bộ câu hỏi luyện tập. Chủ đơn, trạng thái "Phỏng vấn",
+// sự đồng ý xử lý dữ liệu và giới hạn tạo lại đều do InterviewPrepService kiểm.
+app.MapPost("/my-applications/{id:int}/interview-prep", async (int id, HttpContext ctx, IInterviewPrepService svc) =>
+{
+    var uid = CurrentUserId(ctx);
+    if (uid == 0) return Results.LocalRedirect("/login");
+    try
+    {
+        var (ok, message) = await svc.GenerateAsync(id, uid, ctx.RequestAborted);
+        return Results.Redirect($"/my-applications/{id}?" + (ok ? "msg=" : "err=") + Enc(message));
+    }
+    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+    {
+        return Results.Empty;
+    }
+    catch (Exception ex)
+    {
+        return Results.Redirect($"/my-applications/{id}?err=" + Enc(SafeError(ctx, ex, $"tạo câu hỏi luyện phỏng vấn cho đơn #{id}")));
+    }
+}).RequireAuthorization(p => p.RequireRole(Roles.Student));
+
 // P0-4: sinh viên rút đơn. Quyền sở hữu do service kiểm (CandidateProfile.UserId), không
 // kiểm ở đây — nếu viết lại vị ngữ tại chỗ thì hai nơi sẽ trôi khỏi nhau theo thời gian.
 app.MapPost("/applications/{id:int}/withdraw", (int id, HttpContext ctx, IApplicationService svc) =>
@@ -760,7 +782,7 @@ app.MapGet("/jobs/{id:int}/applicants/export", (int id, HttpContext ctx, IJobSer
 
     var q = ctx.Request.Query;
     var filter = ApplicantFilter.FromQuery(
-        q["status"], q["cv"], q["band"], q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
+        q["status"], q["cv"], null, q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
 
     var items = svc.GetByJob(id, q["sort"].ToString() is { Length: > 0 } sort ? sort : "date", filter);
 
@@ -837,69 +859,6 @@ app.MapPost("/applications/{id:int}/ai-evaluate", async (int id, HttpContext ctx
     }
 }).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
-// N1.C: sinh bộ câu hỏi phỏng vấn từ CV đã nộp + JD. Kết quả được LƯU, vì trang render
-// tĩnh: sinh xong rồi redirect thì không còn gì để hiển thị, và mỗi lần mở lại trang sẽ
-// tốn thêm một lượt gọi Gemini.
-app.MapPost("/applications/{id:int}/ai-questions", async (int id, HttpContext ctx, IApplicationService svc, IAiService ai, IAiInputBuilder build) =>
-{
-    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
-    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
-
-    var a = svc.GetById(id);
-    if (a?.CandidateProfile is null || a.Job is null)
-        return Results.Redirect($"/applications/{id}?qerror=" + Enc("Không tìm thấy dữ liệu đơn."));
-
-    // P2-3: bộ câu hỏi cũng soạn từ nội dung CV, nên cùng một luật đồng ý.
-    if (!AiConsentGate.Allows(a.CandidateProfile))
-        return Results.Redirect($"/applications/{id}?qerror=" + Enc(AiConsentGate.BlockedForMentor));
-
-    try
-    {
-        var set = await ai.GenerateQuestionsAsync(await build.ForApplicationAsync(a, a.CandidateProfile, ctx.RequestAborted), ctx.RequestAborted);
-        svc.SaveAiQuestions(id, set);
-        return Results.Redirect($"/applications/{id}?qgenerated=1");
-    }
-    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
-    {
-        return Results.Empty;
-    }
-    catch (Exception ex)
-    {
-        return Results.Redirect($"/applications/{id}?qerror=" + Enc(SafeError(ctx, ex, $"sinh câu hỏi cho đơn #{id}")));
-    }
-}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
-
-// ATS-16: Mentor điều chỉnh điểm (lý do bắt buộc)
-app.MapPost("/applications/{id:int}/hr-score", async (int id, HttpContext ctx, IApplicationService svc) =>
-{
-    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
-    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
-
-    var f = await ctx.Request.ReadFormAsync();
-    var note = f["hrNote"].ToString().Trim();
-    var agree = f["agree"].ToString() == "1";
-
-    var a = svc.GetDetail(id);
-    if (a is null) return Results.LocalRedirect("/jobs");
-
-    if (agree && a.AiScore is null)
-        return Results.Redirect($"/applications/{id}?hrerror=" + Enc("Chưa có đánh giá AI để đồng ý."));
-
-    // Khoảng điểm và độ dài lý do do SaveHrScore phát biểu; ở đây chỉ đọc form. Chữ không
-    // đọc được thành số thì đẩy thành -1 để service trả đúng câu "0 đến 100".
-    var hr = agree ? a.AiScore!.Value
-        : int.TryParse(f["hrScore"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : -1;
-    try
-    {
-        svc.SaveHrScore(id, hr, agree ? "Đồng ý với đánh giá AI" : note, CurrentUserId(ctx));
-        return Results.Redirect($"/applications/{id}?hrsaved=1");
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.Redirect($"/applications/{id}?hrerror=" + Enc(ex.Message));
-    }
-}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
-
 // ATS-17: đổi trạng thái đơn · N1.E: kèm lịch phỏng vấn khi chuyển sang "Phỏng vấn"
 app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
@@ -934,16 +893,6 @@ app.MapPost("/applications/{id:int}/status", async (int id, HttpContext ctx, IAp
     // Thành công và thất bại đi về hai tham số khác nhau: gộp chung thì một lời từ chối
     // ("thời gian phỏng vấn phải ở tương lai") hiện ra trong khung báo thành công màu xanh.
     return Results.Redirect($"/applications/{id}?" + (ok ? "statusmsg=" : "statuserr=") + Enc(message));
-}).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
-
-// N1.B: ghi chú nội bộ về ứng viên — chỉ Mentor chủ tin và Admin, không bao giờ hiện cho SV.
-app.MapPost("/applications/{id:int}/internal-note", async (int id, HttpContext ctx, IApplicationService svc) =>
-{
-    // Quyền THAO TÁC (Mentor chủ tin), không phải quyền XEM — Admin xem được đơn nhưng không xử lý.
-    if (!svc.CanModify(id, CurrentUserId(ctx))) return Results.LocalRedirect("/denied");
-    var f = await ctx.Request.ReadFormAsync();
-    svc.SaveInternalNote(id, f["internalNote"].ToString(), CurrentUserId(ctx));
-    return Results.Redirect($"/applications/{id}?notesaved=1");
 }).RequireAuthorization(p => p.RequireRole(Roles.Mentor));
 
 // ============================ NOTIFICATIONS (NTF-01) ============================

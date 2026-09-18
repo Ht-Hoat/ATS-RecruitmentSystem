@@ -521,7 +521,9 @@ public static class ApplicationStatusFlow
 {
     private static readonly Dictionary<string, string[]> Next = new()
     {
-        [ApplicationStatus.Submitted] = new[] { ApplicationStatus.Reviewing, ApplicationStatus.Rejected },
+        // Mời phỏng vấn được ngay từ "Đã nộp": CV phù hợp thì không bắt nhà tuyển dụng bấm qua
+        // "Đang xem xét" chỉ để mở khóa bước tiếp. "Đang xem xét" vẫn còn cho ai muốn đánh dấu.
+        [ApplicationStatus.Submitted] = new[] { ApplicationStatus.Reviewing, ApplicationStatus.Interview, ApplicationStatus.Rejected },
         [ApplicationStatus.Reviewing] = new[] { ApplicationStatus.Interview, ApplicationStatus.Rejected },
         // "Phỏng vấn" → "Phỏng vấn" là hợp lệ và cố ý: đó là thao tác ĐỔI LỊCH hoặc hẹn vòng
         // tiếp theo. Bỏ nó đi thì Mentor không đổi được giờ hẹn sau khi đã gửi lời mời.

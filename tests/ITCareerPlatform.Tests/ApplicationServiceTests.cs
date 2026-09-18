@@ -194,28 +194,6 @@ public class ApplicationServiceTests
         Assert.Equal(1, v.Notifications.Count(n => n.UserId == sv.Id));   // NTF-01
     }
 
-    // ATS-16.2: HrScore không ghi đè AiScore; FinalScore ưu tiên HrScore
-    [Fact]
-    public void SaveHrScore_KeepsAiScore_FinalScorePrefersHr()
-    {
-        using var t = new TestDb();
-        var m = t.AddUser("M", "m@itcp.vn", Roles.MentorId);
-        var sv = t.AddUser("SV", "sv@itcp.vn", Roles.StudentId);
-        t.AddProfile(sv.Id);
-        var job = t.AddJob(m.Id);
-        var svc = NewSvc(t);
-        svc.Apply(job.Id, sv.Id, out _);
-        var appId = t.NewContext().Applications.First().Id;
-
-        svc.SaveAiEvaluation(appId, new AiEvaluation(60, "điểm mạnh", "thiếu sót", "lộ trình", "raw"));
-        svc.SaveHrScore(appId, 85, "Ứng viên tốt hơn CV thể hiện");
-
-        var a = t.NewContext().Applications.Find(appId)!;
-        Assert.Equal(60, a.AiScore);       // AI giữ nguyên
-        Assert.Equal(85, a.HrScore);
-        Assert.Equal(85, a.FinalScore);    // ưu tiên HrScore
-    }
-
     // ATS-15: xếp hạng theo điểm cuối giảm dần
     [Fact]
     public void GetByJob_SortByScore_OrdersByFinalScoreDesc()

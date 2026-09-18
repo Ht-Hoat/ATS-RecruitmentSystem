@@ -2,7 +2,6 @@
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
-@inject IUserService Users
 
 @* ATS-11: DS ứng viên · ATS-15: xếp hạng + phân màu theo % phù hợp · N1.F: bộ lọc pipeline *@
 
@@ -68,17 +67,6 @@ else
         </div>
 
         <div>
-            <label>% phù hợp</label>
-            <select name="band">
-                <option value="">Tất cả</option>
-                @foreach (var b in ScoreBand.All)
-                {
-                    <option value="@b" selected="@(FBand == b)">@b</option>
-                }
-            </select>
-        </div>
-
-        <div>
             <label>Cấp bậc ứng viên</label>
             <select name="level">
                 <option value="">Tất cả</option>
@@ -123,7 +111,8 @@ else
     </form>
 
     <div class="toolbar">
-        @* Chú giải màu đọc thẳng từ ScoreBand — cùng bộ ngưỡng mà ô lọc "% phù hợp" dùng. *@
+        @* Chú giải màu của cột "% phù hợp (AI)", đọc thẳng từ ScoreBand. Không còn ô lọc theo
+           điểm: điểm AI chỉ để tham khảo và sắp xếp, không phải tiêu chí loại hồ sơ. *@
         <div class="legend">
             <span class="score score-high">⭐ @ScoreBand.High Phù hợp cao</span>
             <span class="score score-mid">⚡ @ScoreBand.Mid Trung bình</span>
@@ -143,7 +132,7 @@ else
        chỉ xem (Admin) nhận được bảng thuần, không có form POST nào. *@
     <table class="tbl">
         <thead>
-            <tr><th></th><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>% chốt</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+            <tr><th></th><th>#</th><th>Họ tên</th><th>Email</th><th>Cấp bậc</th><th>Tech Skills</th><th>CV</th><th>% phù hợp (AI)</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
         </thead>
         <tbody>
             @{ int idx = pager.FirstRowNumber; }
@@ -184,16 +173,6 @@ else
                         else { <span class="lock">● Thiếu</span> }
                     </td>
                     <td><span class="@Ui.ScoreClass(a.AiScore)">@Ui.ScoreIcon(a.AiScore) @(a.AiScore.HasValue ? a.AiScore + "%" : "Chưa đánh giá")</span></td>
-                    <td>
-                        @* P1-5: tooltip nói ai đã chốt con số này. *@
-                        @if (a.HrScore.HasValue)
-                        {
-                            <span class="@Ui.ScoreClass(a.HrScore)"
-                                  title="@(a.HrScoreByUserId is int by ? "Chốt bởi " + scorerNames.GetValueOrDefault(by, "#" + by) : "Không rõ người chốt")">👤 @a.HrScore%</span>
-                        }
-                        else if (a.AiScore.HasValue) { <span class="sub">(theo AI)</span> }
-                        else { <span class="sub">—</span> }
-                    </td>
                     <td>@Ui.DateTimeText(a.AppliedAt)</td>
                     <td><span class="@Ui.StatusClass(a.Status)">@a.Status</span></td>
                     <td><a class="btn-sm" href="@($"/applications/{a.Id}")">Chi tiết</a></td>
@@ -203,7 +182,7 @@ else
             @if (apps.Count == 0)
             {
                 <tr>
-                    <td colspan="12" class="sub">
+                    <td colspan="11" class="sub">
                         @if (filter.IsActive)
                         {
                             <text>Không có đơn nào khớp bộ lọc. <a href="@($"/jobs/{JobId}/applicants")">Xóa lọc</a> để xem lại toàn bộ @totalCount đơn.</text>
@@ -223,8 +202,8 @@ else
         <form id="bulk-form" method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
               onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
         <AntiforgeryField />
-        <div class="toolbar" style="margin-top:12px">
-            <label style="margin-right:8px">Đổi trạng thái các đơn đã chọn:</label>
+        <div class="bulk-bar">
+            <label>Đổi trạng thái các đơn đã chọn:</label>
             @* Dropdown chỉ liệt kê trạng thái ĐÍCH hợp lệ chung; từng đơn vẫn được
                UpdateStatus kiểm lại theo trạng thái hiện tại của chính nó (P1-4), và đơn nào
                không hợp lệ sẽ được nêu tên kèm lý do trong câu tổng kết. *@
@@ -235,8 +214,8 @@ else
                 }
             </select>
             <button class="btn-sm" type="submit">Áp dụng</button>
-            <span class="sub" style="margin-left:10px">
-                Không chuyển hàng loạt sang "@ApplicationStatus.Interview" — mỗi đơn cần một lịch hẹn riêng.
+            <span class="sub">
+                Mời phỏng vấn thì mở từng đơn — mỗi đơn cần một lịch hẹn riêng.
             </span>
         </div>
         </form>
@@ -265,7 +244,6 @@ else
     [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
     [SupplyParameterFromQuery(Name = "status")] public string? FStatus { get; set; }
     [SupplyParameterFromQuery(Name = "cv")] public string? FCv { get; set; }
-    [SupplyParameterFromQuery(Name = "band")] public string? FBand { get; set; }
     [SupplyParameterFromQuery(Name = "level")] public string? FLevel { get; set; }
     [SupplyParameterFromQuery(Name = "tech")] public string[]? FTech { get; set; }
     [SupplyParameterFromQuery(Name = "p")] public int? PageNo { get; set; }
@@ -276,8 +254,6 @@ else
 
     private Job? job;
     private List<ApplicantListItem> apps = new();
-    /// <summary>P1-5: tên người chốt điểm, chỉ hỏi đúng những id xuất hiện trên trang.</summary>
-    private Dictionary<int, string> scorerNames = new();
     private ApplicantFilter filter = new();
     private IReadOnlyList<string> jobTech = Array.Empty<string>();
     private HashSet<string> selectedTech = new();
@@ -292,8 +268,9 @@ else
     /// Trạng thái đích cho thao tác hàng loạt: bỏ "Phỏng vấn" (mỗi đơn cần lịch riêng) và
     /// bỏ "Đã rút" (chỉ chính sinh viên đặt được — P0-4).
     /// </summary>
+    // Bỏ cả "Đã nộp": luồng hợp lệ không cho quay về trạng thái đầu, nên chọn nó chỉ để nhận lỗi.
     private static readonly string[] BulkTargets = ApplicationStatus.MentorSelectable
-        .Where(s => s != ApplicationStatus.Interview).ToArray();
+        .Where(s => s != ApplicationStatus.Interview && s != ApplicationStatus.Submitted).ToArray();
 
     protected override async Task OnInitializedAsync()
     {
@@ -316,15 +293,10 @@ else
 
         // P2-1: dựng bộ lọc bằng CÙNG một hàm mà endpoint xuất CSV dùng, để tệp tải về
         // luôn chứa đúng tập đang hiện trên màn hình.
-        filter = ApplicantFilter.FromQuery(FStatus, FCv, FBand, FLevel, FTech, jobTech);
+        filter = ApplicantFilter.FromQuery(FStatus, FCv, null, FLevel, FTech, jobTech);
 
         pager = Applications.GetByJobPaged(JobId, Sort ?? "date", filter, PageNo ?? 1, PageSize);
         apps = pager.Items.ToList();
-
-        // Chỉ hỏi tên của đúng những người đã chốt điểm trong danh sách này (nhiều nhất vài
-        // người), thay vì nạp cả bảng Users — cùng cách mà dòng thời gian đang làm.
-        scorerNames = Users.GetNames(apps.Where(a => a.HrScoreByUserId.HasValue)
-                                         .Select(a => a.HrScoreByUserId!.Value));
 
         // Đếm bằng COUNT(*) để hiện "đang lọc X / Y", không nạp lại danh sách lần thứ hai.
         totalCount = filter.IsActive
@@ -348,7 +320,6 @@ else
         Add("sort", Sort);
         Add("status", FStatus);
         Add("cv", FCv);
-        Add("band", FBand);
         Add("level", FLevel);
         foreach (var t in selectedTech) Add("tech", t);
         if (overridePage is > 1) Add("p", overridePage.Value.ToString());

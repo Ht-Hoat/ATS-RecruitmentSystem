@@ -3,7 +3,7 @@
 @inject IApplicationService Applications
 
 <h1 class="page-title">Đơn ứng tuyển của tôi</h1>
-<p class="sub">Bạn đã nộp <b>@apps.Count</b> đơn. Bấm "Xem" để đọc <b>đánh giá độ phù hợp & lộ trình gợi ý</b> cho từng vị trí.</p>
+<p class="sub">Bạn đã nộp <b>@apps.Count</b> đơn. Bấm "Chi tiết" để đọc <b>đánh giá độ phù hợp & lộ trình gợi ý</b> cho từng vị trí.</p>
 
 @if (!string.IsNullOrEmpty(Msg)) { <div class="alert-ok">@Msg</div> }
 @if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
@@ -40,14 +40,16 @@
                     }
                 </td>
                 <td>
-                    <a class="btn-sm" href="@($"/my-applications/{a.Id}")">Xem</a>
-                    @if (a.Status != ApplicationStatus.Accepted && a.Status != ApplicationStatus.Rejected && a.Status != ApplicationStatus.Withdrawn)
-                    {
-                        <form method="post" action="@($"/applications/{a.Id}/withdraw")" class="inline" style="margin-left:4px" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
-                            <AntiforgeryField />
-                            <button class="btn-sm ghost" type="submit" title="Rút đơn ứng tuyển">Rút đơn</button>
-                        </form>
-                    }
+                    <div class="row-actions">
+                        <a class="btn-sm" href="@($"/my-applications/{a.Id}")">Chi tiết</a>
+                        @if (a.Status != ApplicationStatus.Accepted && a.Status != ApplicationStatus.Rejected && a.Status != ApplicationStatus.Withdrawn)
+                        {
+                            <form method="post" action="@($"/applications/{a.Id}/withdraw")" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
+                                <AntiforgeryField />
+                                <button class="btn-sm danger-outline" type="submit" title="Rút đơn ứng tuyển">Rút đơn</button>
+                            </form>
+                        }
+                    </div>
                 </td>
             </tr>
         }

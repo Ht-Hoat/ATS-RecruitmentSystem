@@ -34,6 +34,8 @@ public class StatusFlowTests
     [Theory]
     [InlineData(ApplicationStatus.Submitted, ApplicationStatus.Reviewing)]
     [InlineData(ApplicationStatus.Submitted, ApplicationStatus.Rejected)]
+    // CV phù hợp thì mời phỏng vấn ngay, không bắt đi qua "Đang xem xét" cho có.
+    [InlineData(ApplicationStatus.Submitted, ApplicationStatus.Interview)]
     [InlineData(ApplicationStatus.Reviewing, ApplicationStatus.Interview)]
     [InlineData(ApplicationStatus.Reviewing, ApplicationStatus.Rejected)]
     [InlineData(ApplicationStatus.Interview, ApplicationStatus.Accepted)]
@@ -48,7 +50,6 @@ public class StatusFlowTests
     [InlineData(ApplicationStatus.Rejected, ApplicationStatus.Interview)]
     [InlineData(ApplicationStatus.Withdrawn, ApplicationStatus.Reviewing)]
     [InlineData(ApplicationStatus.Submitted, ApplicationStatus.Accepted)]   // không bỏ qua các vòng giữa
-    [InlineData(ApplicationStatus.Submitted, ApplicationStatus.Interview)]
     [InlineData(ApplicationStatus.Interview, ApplicationStatus.Reviewing)]  // không lùi ngược
     public void InvalidTransitions_AreRejected(string from, string to)
     {
@@ -125,6 +126,21 @@ public class StatusFlowTests
     }
 
     /// <summary>Câu từ chối phải nói ra các bước hợp lệ, nếu không Mentor chỉ biết là mình sai.</summary>
+    [Fact]
+    public void InviteStraightFromSubmitted_NotifiesAndEmailsTheStudent()
+    {
+        using var t = new TestDb();
+        var (appId, m, sv) = Seed(t);   // mặc định "Đã nộp"
+
+        var ok = NewSvc(t).UpdateStatus(appId, ApplicationStatus.Interview, Soon(), m.Id, out var msg);
+
+        Assert.True(ok, msg);
+        using var v = t.NewContext();
+        Assert.Equal(ApplicationStatus.Interview, v.Applications.Find(appId)!.Status);
+        Assert.Single(v.Notifications, n => n.UserId == sv.Id);
+        Assert.Contains("phỏng vấn", v.EmailOutbox.Single().Subject, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void UpdateStatus_SkippingStages_ExplainsWhatIsAllowed()
     {

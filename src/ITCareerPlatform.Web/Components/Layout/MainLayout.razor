@@ -21,8 +21,7 @@
                     </AuthorizeView>
 
                     @* "Hồ sơ của tôi" không còn ở đây: nó thuộc về TÀI KHOẢN, nên nằm trong menu tài
-                       khoản ở góc dưới — cùng chỗ với đổi mật khẩu và đăng xuất. Nhóm "Tài nguyên IT"
-                       cũng bỏ khỏi thanh bên; ba trang đó vào từ Trang chủ sinh viên. *@
+                       khoản ở góc dưới — cùng chỗ với đổi mật khẩu và đăng xuất. *@
                     <AuthorizeView Roles="@Roles.Student" Context="c">
                         <a href="/positions">Việc làm IT</a>
                         <a href="/my-applications">Đơn của tôi</a>
@@ -105,7 +104,7 @@
     private List<Notification> items = new();
 
     // Hai truy vấn thông báo trước đây nằm thẳng trong markup, nên chúng chạy lại mỗi lần
-    // render mọi trang sinh viên — kể cả /toolkit và /cv-templates vốn không đọc CSDL.
+    // render mọi trang sinh viên, kể cả những trang vốn không đọc CSDL.
     protected override async Task OnInitializedAsync()
     {
         if (AuthState is null) return;

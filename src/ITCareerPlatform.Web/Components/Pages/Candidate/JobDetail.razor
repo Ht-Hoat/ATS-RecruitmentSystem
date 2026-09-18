@@ -44,7 +44,7 @@ else if (job != null)
             <span class="chip">@job.EmploymentType</span>
         </div>
 
-        <div class="job-meta" style="margin: 16px 0; font-size: 15px; display: flex; flex-wrap: wrap; gap: 16px;">
+        <div class="job-meta" style="margin: 16px 0; font-size: 15px; display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px 24px;">
             <span>📍 <b>Địa điểm:</b> @job.Location</span>
             <span>💰 <b>Mức lương:</b> @Ui.SalaryText(job.SalaryMin, job.SalaryMax)</span>
             <span class="@(daysLeft <= 7 ? "deadline-hot" : "")">
@@ -90,6 +90,20 @@ else if (job != null)
                 </form>
             }
         </div>
+    </div>
+
+    @* JD và yêu cầu đứng NGAY sau phần tóm tắt: đó là lý do sinh viên mở trang này. Trước
+       đây chúng nằm dưới cùng, sau khối công ty và khối tự kiểm tra. *@
+    <div class="panel" style="margin-bottom: 20px;">
+        <h2>📝 Mô tả công việc (JD)</h2>
+        @if (string.IsNullOrWhiteSpace(job.Description)) { <p class="sub">Nhà tuyển dụng chưa nhập mô tả công việc.</p> }
+        else { <div class="jd-text">@job.Description</div> }
+    </div>
+
+    <div class="panel" style="margin-bottom: 20px;">
+        <h2>✅ Yêu cầu ứng viên</h2>
+        @if (string.IsNullOrWhiteSpace(job.Requirements)) { <p class="sub">Nhà tuyển dụng chưa nhập yêu cầu.</p> }
+        else { <div class="jd-text">@job.Requirements</div> }
     </div>
 
     @* P1-1: khối giới thiệu công ty đứng tên tin. Website chỉ nhận https ở CompanyService
@@ -160,15 +174,6 @@ else if (job != null)
         }
     </div>
 
-    <div class="panel" style="margin-bottom: 20px;">
-        <h2>Mô tả công việc (JD)</h2>
-        <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@job.Description</div>
-    </div>
-
-    <div class="panel" style="margin-bottom: 20px;">
-        <h2>Yêu cầu ứng viên</h2>
-        <div style="white-space: pre-wrap; line-height: 1.6; color: #334155;">@job.Requirements</div>
-    </div>
 }
 
 @code {
@@ -208,6 +213,9 @@ else if (job != null)
             return;
         }
 
+        // Hiển thị bản này chứ không phải bản của GetById: chỉ nó kèm Company. Trước đây trang
+        // giữ bản GetById (Find, không Include) nên khối giới thiệu công ty không bao giờ hiện.
+        job = visible;
         status = ViewStatus.Active;
         var counts = Applications.CountForJobs(new[] { JobId });
         applicantCount = counts.GetValueOrDefault(JobId);

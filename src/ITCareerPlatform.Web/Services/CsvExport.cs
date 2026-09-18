@@ -7,7 +7,7 @@ namespace ITCareerPlatform.Services;
 /// <summary>
 /// P2-1: xuất danh sách ứng viên ra CSV để Mentor mở bằng Excel.
 ///
-/// KHÔNG xuất: nội dung CV, ghi chú nội bộ, câu hỏi phỏng vấn. Tệp CSV rời khỏi hệ thống và
+/// KHÔNG xuất: nội dung CV, câu hỏi phỏng vấn. Tệp CSV rời khỏi hệ thống và
 /// thường được gửi qua email hoặc chat — mọi thứ trong đó coi như đã công khai trong nội bộ
 /// công ty. Chỉ những cột đã hiện sẵn trên bảng danh sách mới được đi theo.
 /// </summary>
@@ -16,7 +16,7 @@ public static class CsvExport
     private static readonly string[] Header =
     {
         "STT", "Mã đơn", "Họ tên", "Email", "Cấp bậc", "Số năm KN",
-        "Tech Skills", "Có CV", "% AI", "% chốt", "Ngày nộp", "Trạng thái"
+        "Tech Skills", "Có CV", "% AI", "Ngày nộp", "Trạng thái"
     };
 
     public static byte[] Applicants(IReadOnlyList<ApplicantListItem> items)
@@ -38,7 +38,6 @@ public static class CsvExport
                 Cell(a.TechSkillTags),
                 Cell(a.HasCv ? "Có" : "Thiếu"),
                 Cell(a.AiScore?.ToString(CultureInfo.InvariantCulture) ?? ""),
-                Cell(a.HrScore?.ToString(CultureInfo.InvariantCulture) ?? ""),
                 // Ngày nộp quy sang giờ Việt Nam như mọi chỗ hiển thị khác (P0-2) — người
                 // đọc tệp này là người Việt, không phải máy chủ.
                 Cell(Ui.DateTimeText(a.AppliedAt)),

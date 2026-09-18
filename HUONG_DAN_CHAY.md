@@ -75,7 +75,7 @@ Dừng: `Ctrl + C` rồi `docker compose down` (thêm `-v` nếu muốn xóa d�
 | Vai trò                 | Email          | Dùng để thử                                 |
 | ------------------------ | -------------- | ----------------------------------------------- |
 | **Admin**          | admin@itcp.vn  | Quản lý tài khoản, phân quyền, nhật ký  |
-| **Mentor / HR IT** | mentor@itcp.vn | Tạo tin IT, chấm AI, duyệt điểm, dashboard |
+| **Mentor / HR IT** | mentor@itcp.vn | Tạo tin IT, chấm AI, mời phỏng vấn / từ chối, dashboard |
 | **Sinh viên IT**  | lan@itcp.vn    | Hồ sơ IT, tải CV, lọc & ứng tuyển việc   |
 | Sinh viên IT            | khoa@itcp.vn   | (đã có hồ sơ + CV mẫu)                    |
 
@@ -161,8 +161,7 @@ Admin không tự đặt lại mật khẩu của chính mình được — hãy
 
 Hệ thống gửi email cho **ba sự kiện**: mời phỏng vấn (kèm tệp `.ics` để ứng viên thêm vào
 lịch), trúng tuyển, và từ chối. Email từ chối mang theo phần **Phản hồi gửi ứng viên** nếu
-nhà tuyển dụng có nhập — nhưng **không bao giờ** mang điểm số, lý do chốt điểm hay ghi chú
-nội bộ của Mentor.
+nhà tuyển dụng có nhập — nhưng **không bao giờ** mang điểm số hay nhận xét của AI.
 
 **Không cấu hình gì thì hệ thống vẫn chạy bình thường**: email được xếp vào bảng
 `EmailOutbox` và ghi một dòng cảnh báo trong log (chỉ người nhận + tiêu đề, không có nội
@@ -228,8 +227,8 @@ nào — theo tinh thần Nghị định 13/2023/NĐ-CP về bảo vệ dữ li�
 Chỉ **một** dịch vụ bên ngoài nhận dữ liệu: **Google Gemini**, và chỉ khi có đủ hai điều
 kiện — đã cấu hình `Gemini:ApiKey`, **và** hồ sơ đó đã ghi nhận sự đồng ý.
 
-Ba đường gọi: Mentor chấm độ phù hợp, Mentor sinh câu hỏi phỏng vấn, và sinh viên tự kiểm
-tra. Cả ba đều bị chặn khi chưa có đồng ý, kèm câu giải thích rõ ràng — hệ thống **không**
+Ba đường gọi: Mentor chấm độ phù hợp, sinh viên tự kiểm tra, và sinh viên được mời phỏng vấn
+tạo bộ câu hỏi luyện tập. Cả ba đều bị chặn khi chưa có đồng ý, kèm câu giải thích rõ ràng — hệ thống **không**
 âm thầm rơi về nhánh chấm ngoại tuyến, vì một con số như vậy trông y hệt kết quả thật.
 
 Chưa cấu hình khóa Gemini thì không có dữ liệu nào rời khỏi máy chủ; điểm số do công thức

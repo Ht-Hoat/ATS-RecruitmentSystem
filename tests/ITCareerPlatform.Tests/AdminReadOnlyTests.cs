@@ -6,7 +6,7 @@ namespace ITCareerPlatform.Tests;
 
 /// <summary>
 /// Admin giám sát hệ thống chứ không tuyển dụng: XEM được mọi tin và ứng viên, nhưng mọi
-/// thao tác tuyển dụng (đăng/sửa/đóng tin, chấm, chốt điểm, đổi trạng thái, ghi chú) chỉ
+/// thao tác tuyển dụng (đăng/sửa/đóng tin, chấm AI, mời phỏng vấn, từ chối, nhận) chỉ
 /// Mentor tạo tin làm được. Luật nằm ở tầng service — các test ở đây gọi thẳng vào service,
 /// không đi qua nút bấm nào.
 /// </summary>
@@ -132,16 +132,5 @@ public class AdminReadOnlyTests
 
         Assert.False(AppSvc(t).UpdateStatus(app.Id, ApplicationStatus.Reviewing, other.Id, out _));
         Assert.Equal(ApplicationStatus.Submitted, t.NewContext().Applications.Find(app.Id)!.Status);
-    }
-
-    [Fact]
-    public void Admin_CannotWriteInternalNote()
-    {
-        using var t = new TestDb();
-        var (_, admin, _, app) = Seed(t);
-
-        Assert.Throws<UnauthorizedAccessException>(() =>
-            AppSvc(t).SaveInternalNote(app.Id, "Ghi chú của Admin", admin.Id));
-        Assert.Null(t.NewContext().Applications.Find(app.Id)!.InternalNote);
     }
 }
