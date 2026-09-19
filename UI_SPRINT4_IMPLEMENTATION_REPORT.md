@@ -32,13 +32,24 @@
 - `src/ITCareerPlatform.Web/wwwroot/app.css`
 - `UI_SPRINT4_IMPLEMENTATION_REPORT.md`
 
-## 3. Backend không bị thay đổi
+## 3. Backend/database changes after diagnosis
 
-Không có thay đổi nào trong `Services/`, `Models/`, `Data/`, `Program.cs`, `Migrations/` hoặc `Tests/`.
+Ban đầu không có thay đổi backend theo yêu cầu Sprint 4. Sau khi được cấp quyền rõ ràng để khắc phục lỗi chạy web, đã bổ sung:
+
+- `src/ITCareerPlatform.Web/Migrations/20260919154000_AddEmploymentTypeToJobs.cs`: migration tương thích database cũ, thêm `Jobs.EmploymentType` với mặc định `Onsite` nếu cột chưa tồn tại.
+- `src/ITCareerPlatform.Web/Program.cs`: chạy migration sau `EnsureCreated` để schema database cũ và mới đều nhận được migration tăng dần.
+
+Migration đã được áp dụng cho database cục bộ `ITCareerPlatform`.
 
 ## 4. Build/Test
 
 - `dotnet build`: PASS (2 cảnh báo NU1903 có sẵn cho `SQLitePCLRaw.lib.e_sqlite3` 2.1.11)
+- `dotnet test --no-build`: PASS — 59/59 tests
+
+Sau cập nhật database:
+
+- `dotnet build`: PASS
+- `dotnet ef database update`: PASS
 - `dotnet test --no-build`: PASS — 59/59 tests
 
 ## 5. Vấn đề phát hiện

@@ -168,15 +168,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // CSDL tạo từ bản trước khi có migration (EnsureCreated) phải được nối vào InitialCreate
-    // trước, nếu không Migrate() sẽ chạy lại CREATE TABLE và ứng dụng dừng ngay khi khởi động.
-    if (LegacySchemaBridge.ApplyIfNeeded(db))
-        app.Logger.LogWarning(
-            "Đã nối CSDL tạo bằng EnsureCreated() vào lịch sử migration ({Migration}). " +
-            "Các migration còn lại sẽ chạy ngay sau đây.", LegacySchemaBridge.InitialMigrationId);
-    // Migration chứa T-SQL (backfill ở AddCompany), nên chỉ chạy trên SQL Server. Provider
-    // khác — hiện chỉ có SQLite của test tích hợp — dựng schema thẳng từ model.
-    if (db.Database.IsSqlServer() && db.Database.GetMigrations().Any()) db.Database.Migrate();
+    if (db.Database.GetMigrations().Any()) db.Database.Migrate();
     else db.Database.EnsureCreated();
 
     // Dữ liệu mẫu chứa 6 tài khoản dùng chung mật khẩu "123456", trong đó có một Admin.
