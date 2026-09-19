@@ -17,6 +17,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SelfCheck> SelfChecks => Set<SelfCheck>();   // P1-2
     public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();   // P1-3
+    public DbSet<InterviewQuestionSnapshot> InterviewQuestionSnapshots => Set<InterviewQuestionSnapshot>();   // HIST: lịch sử câu hỏi PV
 
     // -----------------------------------------------------------------
     //  Đóng dấu CreatedAt/UpdatedAt một chỗ duy nhất.

@@ -50,45 +50,6 @@ public sealed class AppFactory : WebApplicationFactory<Program>
         });
     }
 
-    // ===== Helper dùng chung cho các lớp test HTTP =====
-
-    public const string SeedPassword = "123456";
-    private static readonly Regex TokenInput = new(@"name=""__RequestVerificationToken""[^>]*value=""(?<t>[^""]+)""");
-
-    /// <summary>
-    /// Đăng nhập bằng tài khoản mẫu. Mỗi lần tốn một lượt của giới hạn tốc độ (10 lượt/phút/IP),
-    /// tính theo TỪNG app — lớp test nào đăng nhập nhiều thì dùng AppFactory riêng.
-    /// </summary>
-    public async Task<HttpClient> LoginAs(string email)
-    {
-        var client = CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var res = await client.PostAsync("/account/login", new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["email"] = email, ["password"] = SeedPassword
-        }));
-        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
-        Assert.Equal("/", res.Headers.Location?.OriginalString);
-        return client;
-    }
-
-    /// <summary>Token chống giả mạo có trong trang; test đỏ ngay nếu trang không có ô token.</summary>
-    public static string TokenIn(string html)
-    {
-        var m = TokenInput.Match(html);
-        Assert.True(m.Success, "Trang không có ô token chống giả mạo.");
-        return WebUtility.HtmlDecode(m.Groups["t"].Value);
-    }
-
-    public static async Task<string> TokenFrom(HttpClient client, string page) =>
-        TokenIn(await client.GetStringAsync(page));
-
-    public static FormUrlEncodedContent Form(string? token, params (string Key, string Value)[] fields)
-    {
-        var all = fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value)).ToList();
-        if (token is not null) all.Add(new("__RequestVerificationToken", token));
-        return new FormUrlEncodedContent(all);
-    }
-
     public T Query<T>(Func<AppDbContext, T> read)
     {
         using var scope = Services.CreateScope();
@@ -107,11 +68,37 @@ public sealed class AppFactory : WebApplicationFactory<Program>
 
 public class HttpEndpointTests(AppFactory app) : IClassFixture<AppFactory>
 {
-    // Cả lớp dùng chung một app, nên tổng số lần đăng nhập của lớp phải dưới 10 (giới hạn tốc độ).
-    private Task<HttpClient> LoginAs(string email) => app.LoginAs(email);
-    private static Task<string> TokenFrom(HttpClient client, string page) => AppFactory.TokenFrom(client, page);
-    private static FormUrlEncodedContent Form(string? token, params (string Key, string Value)[] fields) =>
-        AppFactory.Form(token, fields);
+    private const string SeedPassword = "123456";
+    private static readonly Regex TokenInput = new(@"name=""__RequestVerificationToken""[^>]*value=""(?<t>[^""]+)""");
+
+    // Mỗi lần đăng nhập tốn một lượt của giới hạn tốc độ (10 lượt/phút/IP) và cả lớp test dùng
+    // chung một app — giữ tổng số lần đăng nhập của lớp dưới mức đó.
+    private async Task<HttpClient> LoginAs(string email)
+    {
+        var client = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var res = await client.PostAsync("/account/login", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["email"] = email, ["password"] = SeedPassword
+        }));
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+        Assert.Equal("/", res.Headers.Location?.OriginalString);
+        return client;
+    }
+
+    private static async Task<string> TokenFrom(HttpClient client, string page)
+    {
+        var html = await client.GetStringAsync(page);
+        var m = TokenInput.Match(html);
+        Assert.True(m.Success, $"Trang {page} không có ô token chống giả mạo.");
+        return WebUtility.HtmlDecode(m.Groups["t"].Value);
+    }
+
+    private static FormUrlEncodedContent Form(string? token, params (string Key, string Value)[] fields)
+    {
+        var all = fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value)).ToList();
+        if (token is not null) all.Add(new("__RequestVerificationToken", token));
+        return new FormUrlEncodedContent(all);
+    }
 
     private int JobId(string title) => app.Query(db => db.Jobs.Single(j => j.Title == title).Id);
 

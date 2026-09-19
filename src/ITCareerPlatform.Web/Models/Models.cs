@@ -138,6 +138,15 @@ public class User : ITimestamped
     public bool MustChangePassword { get; set; }
 
     /// <summary>
+    /// HR-REG: tài khoản HR/Mentor tự đăng ký ngoài đang CHỜ ADMIN DUYỆT.
+    /// true = chưa duyệt; kết hợp IsActive=false nên chưa đăng nhập được. Admin duyệt sẽ
+    /// đặt PendingApproval=false + IsActive=true. Khác "bị khóa" (IsActive=false nhưng
+    /// PendingApproval=false) để trang quản trị phân biệt được hai nhóm.
+    /// Mặc định false: mọi tài khoản cũ và tài khoản do Admin tạo tay đều KHÔNG chờ duyệt.
+    /// </summary>
+    public bool PendingApproval { get; set; }
+
+    /// <summary>
     /// P1-1: công ty của tài khoản — chỉ có nghĩa với vai trò Mentor/HR. Nullable vì Admin
     /// và Sinh viên IT không thuộc công ty nào, và một Mentor mới tạo chưa được gán ngay.
     /// Mentor chưa có công ty thì không đăng tin được (JobService từ chối kèm lý do rõ ràng).
@@ -475,10 +484,31 @@ public class Application
     public int? FinalScore => HrScore ?? AiScore;
     public bool HasAiEvaluation => AiScore.HasValue;
     public bool IsOfflineEvaluation => AiSource == EvaluationSource.Offline;
+    public bool HasInternalNote => !string.IsNullOrWhiteSpace(InternalNote);
     public bool HasAiQuestions => !string.IsNullOrWhiteSpace(AiQuestions);
     public bool HasInterviewSchedule => InterviewAt.HasValue;
 
     public ICollection<ApplicationStatusHistory> StatusHistory { get; set; } = new List<ApplicationStatusHistory>();
+}
+
+// ===== HIST: lịch sử các bộ câu hỏi luyện phỏng vấn đã sinh cho một đơn =====
+// Mỗi lần sinh/sinh-lại bộ câu hỏi (InterviewPrepService) ghi thêm MỘT bản chụp vào đây,
+// để sinh viên xem lại các lần trước thay vì mất khi bấm "tạo lại". Application.AiQuestions
+// vẫn giữ BỘ MỚI NHẤT để đọc nhanh; bảng này chỉ để tra cứu lịch sử, không sắp theo từng câu.
+public class InterviewQuestionSnapshot
+{
+    public int Id { get; set; }
+
+    public int ApplicationId { get; set; }
+    public Application? Application { get; set; }
+
+    /// <summary>Cả bộ câu hỏi ở dạng JSON — cùng định dạng với Application.AiQuestions.</summary>
+    [MaxLength(4000)] public string QuestionsJson { get; set; } = "";
+
+    /// <summary>Gemini hay Offline — để nhãn hiển thị đúng nguồn khi xem lại.</summary>
+    [MaxLength(20)] public string Source { get; set; } = "";
+
+    public DateTime CreatedAt { get; set; }
 }
 
 /// <summary>Nguồn sinh ra điểm phù hợp — quyết định nhãn hiển thị cho Mentor và Sinh viên.</summary>

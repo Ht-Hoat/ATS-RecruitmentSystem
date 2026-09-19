@@ -4,9 +4,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ITCareerPlatform.Services;
 
-/// <summary>Bộ câu hỏi đã tạo (nếu có) và lý do chưa tạo được lúc này (null nếu tạo được).</summary>
-public record InterviewPrepState(InterviewQuestionSet? Questions, string? BlockedReason);
-
 /// <summary>
 /// Bộ câu hỏi LUYỆN PHỎNG VẤN cho sinh viên: khi được mời phỏng vấn, sinh viên tạo một bộ câu
 /// hỏi nhà tuyển dụng nhiều khả năng sẽ hỏi (dựa trên CV đã nộp và JD), kèm gợi ý cách trả lời.
@@ -16,14 +13,11 @@ public record InterviewPrepState(InterviewQuestionSet? Questions, string? Blocke
 /// </summary>
 public interface IInterviewPrepService
 {
-    /// <summary>
-    /// Mọi thứ trang đơn của sinh viên cần, trong MỘT truy vấn. Null nếu đơn không tồn tại hoặc
-    /// không thuộc sinh viên này.
-    /// </summary>
-    InterviewPrepState? GetState(int appId, int candidateUserId);
-
     /// <summary>Bộ câu hỏi đã tạo cho đơn của CHÍNH sinh viên này; null nếu chưa có hoặc không phải chủ đơn.</summary>
     InterviewQuestionSet? Get(int appId, int candidateUserId);
+
+    /// <summary>HIST: lịch sử các bộ câu hỏi đã tạo cho đơn của CHÍNH sinh viên này (mới nhất trước).</summary>
+    IReadOnlyList<InterviewQuestionSet> GetHistory(int appId, int candidateUserId);
 
     /// <summary>Lý do chưa tạo được lúc này (để giao diện giải thích thay vì hiện nút), hoặc null nếu tạo được.</summary>
     string? WhyNot(int appId, int candidateUserId);
@@ -44,39 +38,30 @@ public class InterviewPrepService(
     /// </summary>
     public const int RegenerateCooldownHours = 24;
 
-    // Đơn của người khác và đơn không tồn tại trả về CÙNG một câu — không xác nhận id nào có thật.
-    private const string NotFound = "Không tìm thấy đơn.";
+    public InterviewQuestionSet? Get(int appId, int candidateUserId) =>
+        IsOwner(appId, candidateUserId) ? applications.GetAiQuestions(appId) : null;
 
-    public InterviewPrepState? GetState(int appId, int candidateUserId)
+    // HIST: chỉ chủ đơn mới xem được lịch sử của mình; người khác nhận danh sách rỗng.
+    public IReadOnlyList<InterviewQuestionSet> GetHistory(int appId, int candidateUserId) =>
+        IsOwner(appId, candidateUserId)
+            ? applications.GetAiQuestionHistory(appId)
+            : Array.Empty<InterviewQuestionSet>();
+
+    public string? WhyNot(int appId, int candidateUserId)
     {
         var a = db.Applications.AsNoTracking()
             .Where(x => x.Id == appId && x.CandidateProfile!.UserId == candidateUserId)
-            .Select(x => new
-            {
-                x.Status, Consented = x.CandidateProfile!.AiConsentAt != null,
-                x.AiQuestionsAt, x.AiQuestions, x.AiQuestionsSource
-            })
+            .Select(x => new { x.Status, Consented = x.CandidateProfile!.AiConsentAt != null, x.AiQuestionsAt })
             .FirstOrDefault();
-        if (a is null) return null;
 
-        return new InterviewPrepState(
-            ApplicationService.ParseQuestions(a.AiQuestions, a.AiQuestionsSource),
-            BlockedReason(a.Status, a.Consented, a.AiQuestionsAt));
-    }
-
-    public InterviewQuestionSet? Get(int appId, int candidateUserId) => GetState(appId, candidateUserId)?.Questions;
-
-    public string? WhyNot(int appId, int candidateUserId) =>
-        GetState(appId, candidateUserId) is { } state ? state.BlockedReason : NotFound;
-
-    private string? BlockedReason(string status, bool consented, DateTime? lastGeneratedAt)
-    {
-        if (status != ApplicationStatus.Interview)
+        // Đơn của người khác và đơn không tồn tại trả về CÙNG một câu — không xác nhận id nào có thật.
+        if (a is null) return "Không tìm thấy đơn.";
+        if (a.Status != ApplicationStatus.Interview)
             return "Bộ câu hỏi luyện tập mở khi bạn được mời phỏng vấn.";
         // Bộ câu hỏi soạn từ nội dung CV gửi tới dịch vụ AI — cùng luật đồng ý với chấm điểm.
-        if (!consented) return AiConsentGate.BlockedForStudent;
+        if (!a.Consented) return AiConsentGate.BlockedForStudent;
 
-        if (lastGeneratedAt is DateTime last)
+        if (a.AiQuestionsAt is DateTime last)
         {
             var nextAllowed = last.AddHours(RegenerateCooldownHours);
             if (VietnamDateHelper.UtcNow(clock) < nextAllowed)
@@ -93,12 +78,17 @@ public class InterviewPrepService(
 
         // Bản đầy đủ (kèm CV đã nộp) — AiInputBuilder cần nội dung CV để soạn câu hỏi bám hồ sơ.
         var a = applications.GetById(appId);
-        if (a?.CandidateProfile is null || a.Job is null) return (false, NotFound);
+        if (a?.CandidateProfile is null || a.Job is null) return (false, "Không tìm thấy đơn.");
 
         // Lần gọi mô hình nằm NGOÀI mọi giao dịch CSDL, giống SelfCheckService.
         var set = await ai.GenerateQuestionsAsync(await inputBuilder.ForApplicationAsync(a, a.CandidateProfile, ct), ct);
-        return applications.SaveAiQuestions(appId, set)
-            ? (true, "Đã tạo bộ câu hỏi luyện phỏng vấn.")
-            : (false, "Không tạo được bộ câu hỏi, vui lòng thử lại sau.");
+        applications.SaveAiQuestions(appId, set);
+
+        return applications.GetAiQuestions(appId) is null
+            ? (false, "Không tạo được bộ câu hỏi, vui lòng thử lại sau.")
+            : (true, "Đã tạo bộ câu hỏi luyện phỏng vấn.");
     }
+
+    private bool IsOwner(int appId, int candidateUserId) =>
+        db.Applications.Any(x => x.Id == appId && x.CandidateProfile!.UserId == candidateUserId);
 }

@@ -22,9 +22,7 @@ const string LoginRateLimitPolicy = "login";
 // rẻ hơn một claim trong cookie (claim có thể cũ tới 8 tiếng) và không tốn thêm lần đọc nào.
 const string MustChangePasswordItem = "itcp:mustchangepw";
 
-// P2-3: hai đường POST được miễn kiểm tra chống giả mạo (CSRF): /account/login và
-// /account/register, đánh dấu bằng .DisableAntiforgery() ngay trên endpoint — middleware bên
-// dưới đọc chính metadata đó, nên chỉ có MỘT nơi khai báo miễn trừ.
+// P2-3: hai đường POST được miễn kiểm tra chống giả mạo (CSRF).
 //
 // Lý do miễn trừ: cả hai chạy TRƯỚC khi có phiên, và một lần đối chiếu token hỏng ở đây —
 // cookie token hết hạn vì tab đăng nhập mở quá lâu, hoặc người dùng bấm Quay lại — sẽ chặn
@@ -32,6 +30,7 @@ const string MustChangePasswordItem = "itcp:mustchangepw";
 // theo IP, và một yêu cầu giả mạo tới chúng cũng chỉ làm nạn nhân đăng nhập vào MỘT tài
 // khoản khác chứ không thao tác được gì trên tài khoản của chính họ.
 // MỌI endpoint còn lại đều bị kiểm tra.
+string[] antiforgeryExemptPaths = { "/account/login", "/account/register", "/account/register-hr" };
 
 // ---------- Blazor (server-rendered) + trạng thái đăng nhập ----------
 builder.Services.AddRazorComponents();
@@ -54,7 +53,7 @@ if (!builder.Environment.IsDevelopment() &&
         "ConnectionStrings:DefaultConnection vẫn đang trỏ localhost ở môi trường không phải Development. " +
         "Hãy đặt chuỗi kết nối thật qua biến môi trường ConnectionStrings__DefaultConnection.");
 
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
+builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString).ConfigureWarnings(warnings => warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 // ---------- Xác thực Cookie + phân quyền theo Role ----------
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -160,18 +159,10 @@ if (smtpConfigured)
 else
     builder.Services.AddScoped<IEmailSender, NullEmailSender>();
 
-// Tiến trình nền quét hàng đợi email 30 giây một lần — chỉ khi gửi được. Chưa có SMTP thì nó
-// chỉ quét rồi ghi lại "chưa cấu hình" cho từng dòng mỗi 30 giây mà không gửi được gì; email vẫn
-// nằm trong EmailOutbox và được gửi sau khi cấu hình SMTP rồi khởi động lại.
-if (smtpConfigured)
-    builder.Services.AddHostedService<OutboxSender>();
+// Tiến trình nền quét hàng đợi email 30 giây một lần.
+builder.Services.AddHostedService<OutboxSender>();
 
 var app = builder.Build();
-
-if (!smtpConfigured)
-    app.Logger.LogWarning(
-        "Chưa cấu hình SMTP (Smtp:Host, Smtp:From): email mời phỏng vấn / trúng tuyển / từ chối " +
-        "được xếp vào bảng EmailOutbox và CHƯA gửi đi. Cấu hình SMTP rồi khởi động lại để gửi.");
 
 // ---------- Tạo CSDL + seed khi khởi động ----------
 using (var scope = app.Services.CreateScope())
@@ -271,7 +262,7 @@ app.UseAntiforgery();
 app.Use(async (ctx, next) =>
 {
     if (HttpMethods.IsPost(ctx.Request.Method) &&
-        ctx.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Antiforgery.IAntiforgeryMetadata>() is not { RequiresValidation: false })
+        !antiforgeryExemptPaths.Contains(ctx.Request.Path.Value, StringComparer.OrdinalIgnoreCase))
     {
         var antiforgery = ctx.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
         try
@@ -319,6 +310,7 @@ app.Use(async (ctx, next) =>
 
 // ---------- Helper dùng chung cho các endpoint ----------
 static int CurrentUserId(HttpContext ctx) => CurrentUser.Id(ctx.User);
+static bool IsAdmin(HttpContext ctx) => CurrentUser.IsAdmin(ctx.User);
 static string Enc(string s) => Uri.EscapeDataString(s);
 
 /// Ghi ngoại lệ ngoài dự kiến vào log rồi trả về một câu chung cho người dùng.
@@ -379,6 +371,21 @@ app.MapPost("/account/register", async (HttpContext ctx, IUserService svc) =>
     if (!svc.Register(f["fullName"].ToString(), f["email"].ToString(), f["password"].ToString(), out var error))
         return Results.Redirect("/register?error=" + Enc(error));
     return Results.LocalRedirect("/login?registered=1");
+}).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(LoginRateLimitPolicy);
+
+// HR-REG: HR/Mentor tự đăng ký ngoài. Tài khoản tạo ra CHỜ ADMIN DUYỆT (chưa đăng nhập được).
+// Nền tảng cần HR tự lên tài khoản để tuyển dụng, nhưng phải qua kiểm duyệt để tránh tài
+// khoản giả mạo — nên khác hẳn đường Sinh viên tự đăng ký (kích hoạt ngay).
+app.MapPost("/account/register-hr", async (HttpContext ctx, IUserService svc) =>
+{
+    var f = await ctx.Request.ReadFormAsync();
+    if (f["password"].ToString() != f["confirmPassword"].ToString())
+        return Results.Redirect("/register-hr?error=" + Enc("Mật khẩu xác nhận không khớp."));
+    if (!svc.RegisterHr(f["fullName"].ToString(), f["email"].ToString(), f["password"].ToString(),
+                        f["companyName"].ToString(), out var error))
+        return Results.Redirect("/register-hr?error=" + Enc(error));
+    // Chưa kích hoạt: đưa về trang đăng nhập kèm thông báo đang chờ duyệt.
+    return Results.LocalRedirect("/login?hrpending=1");
 }).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(LoginRateLimitPolicy);
 
 // N1.A: người dùng tự đổi mật khẩu — mọi vai trò, không riêng Admin.
@@ -464,10 +471,13 @@ app.MapPost("/users/{id:int}/change-role", async (int id, HttpContext ctx, IUser
 app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IUserService svc, IEmailSender email,
     Microsoft.AspNetCore.DataProtection.IDataProtectionProvider dp) =>
 {
-    if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error))
+    // RESET+: ô "newPassword" (tùy chọn) cho Admin gõ mật khẩu tay; bỏ trống thì hệ thống tự sinh mạnh.
+    var f = await ctx.Request.ReadFormAsync();
+    var manualPw = f["newPassword"].ToString();
+    if (!svc.ResetPassword(id, CurrentUserId(ctx), out var tempPassword, out var error, manualPassword: manualPw))
         return Results.Redirect("/users?err=" + Enc(error));
 
-    var target = svc.GetById(id);
+    var target = svc.GetAll().FirstOrDefault(u => u.Id == id);
     if (email.IsConfigured && target is not null)
     {
         try
@@ -505,6 +515,50 @@ app.MapPost("/users/{id:int}/reset-password", async (int id, HttpContext ctx, IU
     TempPasswordHandoff.Store(ctx, dp, CurrentUserId(ctx), tempPassword);
     return Results.Redirect("/users?tempPw=1");
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+// HR-REG: Admin duyệt tài khoản HR đang chờ. Gửi email báo cho HR nếu đã cấu hình SMTP.
+app.MapPost("/users/{id:int}/approve", async (int id, HttpContext ctx, IUserService svc, IEmailSender email) =>
+{
+    if (!svc.ApproveUser(id, CurrentUserId(ctx), out var error))
+        return Results.Redirect("/users?err=" + Enc(error));
+
+    var target = svc.GetAll().FirstOrDefault(u => u.Id == id);
+    if (email.IsConfigured && target is not null)
+    {
+        try
+        {
+            await email.SendAsync(new EmailMessage(
+                target.Email,
+                "Tài khoản HR đã được duyệt — IT Career Platform",
+                string.Join(Environment.NewLine, new[]
+                {
+                    $"Xin chào {target.FullName},",
+                    "",
+                    "Tài khoản Nhà tuyển dụng (HR/Mentor) của bạn đã được quản trị viên duyệt.",
+                    "Bạn có thể đăng nhập ngay và bắt đầu đăng tin tuyển dụng.",
+                    "",
+                    "Trân trọng,",
+                    "IT Career Platform"
+                })), ctx.RequestAborted);
+        }
+        catch (Exception ex) { SafeError(ctx, ex, $"gửi email duyệt tài khoản #{id}"); }
+    }
+    return Results.Redirect("/users?msg=" + Enc("Đã duyệt tài khoản HR."));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+// HR-REG: Admin từ chối tài khoản HR đang chờ (xóa hồ sơ).
+app.MapPost("/users/{id:int}/reject", (int id, HttpContext ctx, IUserService svc) =>
+{
+    if (!svc.RejectUser(id, CurrentUserId(ctx), out var error))
+        return Results.Redirect("/users?err=" + Enc(error));
+    return Results.Redirect("/users?msg=" + Enc("Đã từ chối tài khoản HR chờ duyệt."));
+}).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+// RESET+: gợi ý một mật khẩu mạnh cho Admin xem trước khi đặt lại (chưa áp vào tài khoản nào).
+// Trả JSON để giao diện điền sẵn vào ô "mật khẩu tay". Chỉ Admin gọi được, chạy trên HTTPS.
+app.MapGet("/users/suggest-password", (IUserService svc) =>
+    Results.Json(new { password = svc.SuggestStrongPassword() })
+).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
 // ============================ COMPANIES (P1-1) ============================
 // Hai endpoint này từng bị xóa nhầm khi sửa khối reset-password ở P1-3, làm trang /companies
@@ -790,7 +844,7 @@ app.MapGet("/jobs/{id:int}/applicants/export", (int id, HttpContext ctx, IJobSer
 
     var q = ctx.Request.Query;
     var filter = ApplicantFilter.FromQuery(
-        q["status"], q["cv"], q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
+        q["status"], q["cv"], null, q["level"], q["tech"].Where(x => x is not null)!, job.TechStackList);
 
     var items = svc.GetByJob(id, q["sort"].ToString() is { Length: > 0 } sort ? sort : "date", filter);
 
@@ -808,8 +862,8 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
     var f = await ctx.Request.ReadFormAsync();
     var status = f["status"].ToString();
     var ids = f["applicationId"]
-        .Select(v => int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : (int?)null)
-        .OfType<int>()
+        .Where(v => int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        .Select(v => int.Parse(v!, NumberStyles.Integer, CultureInfo.InvariantCulture))
         .ToList();
 
     if (ids.Count == 0)
@@ -826,7 +880,7 @@ app.MapPost("/jobs/{id:int}/applicants/bulk-status", async (int id, HttpContext 
 app.MapGet("/applications/{id:int}/cv", async (int id, HttpContext ctx, IApplicationService svc) =>
 {
     // Quyền sở hữu hỏi qua service — một chỗ duy nhất phát biểu luật, thay vì lặp lại vị ngữ.
-    if (!svc.CanAccess(id, CurrentUserId(ctx))) return Results.Forbid();
+    if (!svc.CanAccess(id, CurrentUserId(ctx), IsAdmin(ctx))) return Results.Forbid();
 
     // P2-2: thứ tự ưu tiên (bản chụp ở storage → bản chụp ở cột cũ → CV hiện tại của hồ sơ)
     // do service phát biểu, không viết lại ở đây.
