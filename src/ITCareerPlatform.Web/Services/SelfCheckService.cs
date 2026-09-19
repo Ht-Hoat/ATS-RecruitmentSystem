@@ -96,10 +96,10 @@ public class SelfCheckService(
         reserved.Score = Math.Clamp(eval.MatchPercent, 0, 100);
         // Cắt đúng giới hạn cột: ba trường này đến từ một mô hình ngoài và không có gì
         // buộc nó trả về dưới 1000 ký tự. Trên SQL Server, vượt cột là một lần ghi HỎNG.
-        reserved.Strengths = TextLimits.Clip(eval.Strengths, 1000);
-        reserved.Missing = TextLimits.Clip(eval.Missing, 1000);
-        reserved.Roadmap = TextLimits.Clip(eval.Roadmap, 1000);
-        reserved.Source = TextLimits.Clip(eval.Source, 20);
+        reserved.Strengths = Clip(eval.Strengths, 1000);
+        reserved.Missing = Clip(eval.Missing, 1000);
+        reserved.Roadmap = Clip(eval.Roadmap, 1000);
+        reserved.Source = Clip(eval.Source, 20);
         db.SaveChanges();
 
         var left = SelfCheck.DailyLimit - used - 1;
@@ -157,5 +157,12 @@ public class SelfCheckService(
         return left.TotalHours >= 1
             ? $"khoảng {(int)left.TotalHours} giờ {left.Minutes} phút"
             : $"khoảng {left.Minutes} phút";
+    }
+
+    private static string? Clip(string? value, int max)
+    {
+        var s = value?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        return s.Length > max ? s[..max] : s;
     }
 }

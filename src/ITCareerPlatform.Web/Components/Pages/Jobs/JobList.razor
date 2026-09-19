@@ -45,19 +45,22 @@
                        "Mở lại" đã nói rõ bước cần làm, và service vẫn chặn sửa tin đã đóng. *@
                     <div class="row-actions">
                         <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                        @* Admin chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
-                        @if (!isAdmin && j.Status == JobStatus.Open)
+                        @if (isAdmin)
+                        {
+                            @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
+                        }
+                        else if (j.Status == JobStatus.Open)
                         {
                             <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
                             <form method="post" action="@($"/jobs/{j.Id}/close")" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
-                                <AntiforgeryToken />
+                                <AntiforgeryField />
                                 <button class="btn-sm danger-outline" type="submit">Đóng tin</button>
                             </form>
                         }
-                        else if (!isAdmin)
+                        else
                         {
                             <form method="post" action="@($"/jobs/{j.Id}/reopen")">
-                                <AntiforgeryToken />
+                                <AntiforgeryField />
                                 <button class="btn-sm success-outline" type="submit" title="Mở lại để nhận hồ sơ và sửa tin">Mở lại</button>
                             </form>
                         }

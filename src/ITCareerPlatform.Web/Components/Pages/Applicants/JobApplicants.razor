@@ -142,13 +142,16 @@ else
                    ứng viên đó) nhưng hiện mờ hẳn, vì nó không còn là việc cần làm. *@
                 <tr class="@(a.Status == ApplicationStatus.Withdrawn ? "row-withdrawn" : Ui.IsTopScore(a.FinalScore) ? "row-top" : "")">
                     <td>
-                        @* Người chỉ xem không có ô chọn; đơn ở trạng thái kết thúc (P1-4) không đổi
-                           tiếp được, nên cũng không cho chọn. *@
-                        @if (canModify && ApplicationStatusFlow.IsTerminal(a.Status))
+                        @* Đơn ở trạng thái kết thúc (P1-4) không đổi tiếp được, nên không cho chọn. *@
+                        @if (!canModify)
+                        {
+                            @* Chỉ xem: không có ô chọn. *@
+                        }
+                        else if (ApplicationStatusFlow.IsTerminal(a.Status))
                         {
                             <span class="sub" title="Đơn đã chốt">—</span>
                         }
-                        else if (canModify)
+                        else
                         {
                             <input type="checkbox" name="applicationId" value="@a.Id" form="bulk-form" />
                         }
@@ -198,7 +201,7 @@ else
     {
         <form id="bulk-form" method="post" action="@($"/jobs/{JobId}/applicants/bulk-status")"
               onsubmit="return confirm('Đổi trạng thái cho các đơn đã chọn?');">
-        <AntiforgeryToken />
+        <AntiforgeryField />
         <div class="bulk-bar">
             <label>Đổi trạng thái các đơn đã chọn:</label>
             @* Dropdown chỉ liệt kê trạng thái ĐÍCH hợp lệ chung; từng đơn vẫn được
@@ -250,7 +253,7 @@ else
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private Job? job;
-    private IReadOnlyList<ApplicantListItem> apps = Array.Empty<ApplicantListItem>();
+    private List<ApplicantListItem> apps = new();
     private ApplicantFilter filter = new();
     private IReadOnlyList<string> jobTech = Array.Empty<string>();
     private HashSet<string> selectedTech = new();
@@ -277,22 +280,23 @@ else
         // #5: hai luật hỏi qua service, không viết lại tại chỗ. XEM: chủ tin hoặc Admin;
         // THAO TÁC: chỉ Mentor chủ tin — Admin giám sát chứ không xử lý ứng viên.
         var uid = CurrentUser.Id((await AuthState).User);
-        var rights = Jobs.GetRights(JobId, uid);
-        canAccess = rights.CanView;
+        canAccess = Jobs.CanView(JobId, uid);
         if (!canAccess) return;
-        canModify = rights.CanModify;
+        canModify = Jobs.CanModify(JobId, uid);
 
         // Ô tick công nghệ dựng từ chính Tech Stack của tin này, nên Mentor chỉ lọc được
         // theo thứ mà vị trí thực sự yêu cầu.
         jobTech = job.TechStackList;
+        selectedTech = (FTech ?? Array.Empty<string>())
+            .Where(t => jobTech.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // P2-1: dựng bộ lọc bằng CÙNG một hàm mà endpoint xuất CSV dùng, để tệp tải về
-        // luôn chứa đúng tập đang hiện trên màn hình. Ô tick đọc lại từ chính bộ lọc đó.
-        filter = ApplicantFilter.FromQuery(FStatus, FCv, FLevel, FTech, jobTech);
-        selectedTech = filter.RequiredTech?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new();
+        // luôn chứa đúng tập đang hiện trên màn hình.
+        filter = ApplicantFilter.FromQuery(FStatus, FCv, null, FLevel, FTech, jobTech);
 
         pager = Applications.GetByJobPaged(JobId, Sort ?? "date", filter, PageNo ?? 1, PageSize);
-        apps = pager.Items;
+        apps = pager.Items.ToList();
 
         // Đếm bằng COUNT(*) để hiện "đang lọc X / Y", không nạp lại danh sách lần thứ hai.
         totalCount = filter.IsActive

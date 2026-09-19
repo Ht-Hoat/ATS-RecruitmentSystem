@@ -20,7 +20,7 @@ else
     }
 
     <form method="post" action="@($"/jobs/{model.Id}/update")" class="form form-wide" data-vi-validate>
-        <AntiforgeryToken />
+        <AntiforgeryField />
         <JobFields Model="model" CompanyName="@companyName" />
         <div class="actions">
             <button class="btn-primary" type="submit" disabled="@(model.Status == JobStatus.Closed)">Lưu thay đổi</button>

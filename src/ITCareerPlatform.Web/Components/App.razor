@@ -73,12 +73,7 @@
 </html>
 
 @code {
-    /// <summary>
-    /// Mốc sửa đổi của app.css — đủ để trình duyệt nhận ra bản mới, không cần băm nội dung.
-    /// Đọc MỘT lần cho cả tiến trình: tệp chỉ đổi khi triển khai lại, nên không cần stat đĩa
-    /// ở mỗi lần render trang.
-    /// </summary>
-    private static string? cssVersion;
-    private string CssVersion => cssVersion ??=
+    /// <summary>Mốc sửa đổi của app.css — đủ để trình duyệt nhận ra bản mới, không cần băm nội dung.</summary>
+    private string CssVersion =>
         Env.WebRootFileProvider.GetFileInfo("app.css").LastModified.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
 }

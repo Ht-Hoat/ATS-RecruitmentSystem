@@ -42,10 +42,10 @@
                 <td>
                     <div class="row-actions">
                         <a class="btn-sm" href="@($"/my-applications/{a.Id}")">Chi tiết</a>
-                        @if (!ApplicationStatusFlow.IsTerminal(a.Status))
+                        @if (a.Status != ApplicationStatus.Accepted && a.Status != ApplicationStatus.Rejected && a.Status != ApplicationStatus.Withdrawn)
                         {
                             <form method="post" action="@($"/applications/{a.Id}/withdraw")" onsubmit="return confirm('Bạn chắc chắn muốn rút đơn ứng tuyển này? Hành động này không thể hoàn tác.');">
-                                <AntiforgeryToken />
+                                <AntiforgeryField />
                                 <button class="btn-sm danger-outline" type="submit" title="Rút đơn ứng tuyển">Rút đơn</button>
                             </form>
                         }

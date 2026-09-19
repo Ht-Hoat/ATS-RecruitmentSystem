@@ -84,7 +84,7 @@ else if (job != null)
             else
             {
                 <form method="post" action="@($"/jobs/{job.Id}/apply")" class="inline" onsubmit="return confirm('Bạn chắc chắn muốn ứng tuyển vị trí này? CV hiện tại sẽ được gắn vào đơn.');">
-                    <AntiforgeryToken />
+                    <AntiforgeryField />
                     <input type="hidden" name="from" value="detail" />
                     <button class="btn-primary" type="submit" style="font-size: 16px; padding: 8px 24px;">Ứng tuyển ngay</button>
                 </form>
@@ -150,7 +150,7 @@ else if (job != null)
             @if (remainingToday > 0)
             {
                 <form method="post" action="@($"/positions/{job.Id}/self-check")" class="inline">
-                    <AntiforgeryToken />
+                    <AntiforgeryField />
                     <button class="btn-primary" type="submit">
                         @(latestSelfCheck is null ? "Chạy đánh giá" : "Chạy lại để xem mình tiến bộ chưa")
                     </button>

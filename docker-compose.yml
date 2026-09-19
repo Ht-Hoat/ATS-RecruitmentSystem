@@ -23,6 +23,7 @@ services:
     environment:
       ConnectionStrings__DefaultConnection: "Server=db;Database=ITCareerPlatform;User Id=sa;Password=Your_password123;TrustServerCertificate=True"
       ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
       # Tùy chọn: bật AI Gemini (miễn phí). Bỏ trống thì dùng chấm điểm offline.
       Gemini__ApiKey: "${GEMINI_API_KEY:-}"
       Gemini__Model: "gemini-1.5-flash"

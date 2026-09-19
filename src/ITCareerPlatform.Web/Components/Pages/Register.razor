@@ -10,7 +10,7 @@
         <h1>Đăng ký — Sinh viên IT</h1>
         @if (!string.IsNullOrEmpty(ErrorMsg)) { <div class="alert-err">@ErrorMsg</div> }
         <form method="post" action="/account/register" data-vi-validate>
-            <AntiforgeryToken />
+            <AntiforgeryField />
             <label>Họ và tên</label>
             <input name="fullName" required minlength="2" placeholder="Nguyễn Văn A" />
             <label>Email</label>

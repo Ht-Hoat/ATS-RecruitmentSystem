@@ -14,7 +14,7 @@
 
 <div class="grid2-wide">
     <form method="post" action="/profile/save" class="form" data-vi-validate>
-        <AntiforgeryToken />
+        <AntiforgeryField />
         <h2 class="form-h">1 · Thông tin cá nhân</h2>
         <label>Họ và tên</label>
         <input name="fullName" required minlength="2" value="@p.FullName" />
@@ -78,7 +78,7 @@
             <p class="sub">Bạn chưa tải CV nào lên.</p>
         }
         <form method="post" action="/profile/cv" enctype="multipart/form-data" data-vi-validate>
-            <AntiforgeryToken />
+            <AntiforgeryField />
             <label>Chọn CV (PDF hoặc DOCX, tối đa 5MB)</label>
             <input name="cv" type="file" accept=".pdf,.docx" required />
 
@@ -115,7 +115,7 @@
                 </p>
                 <form method="post" action="/profile/ai-consent/withdraw" class="inline"
                       onsubmit="return confirm('Rút lại đồng ý? Hệ thống sẽ ngừng gửi CV của bạn tới dịch vụ AI. Các kết quả đã chấm trước đó vẫn được giữ lại.');">
-                    <AntiforgeryToken />
+                    <AntiforgeryField />
                     <button class="btn-sm ghost" type="submit">Rút lại đồng ý</button>
                 </form>
                 <p class="sub" style="margin-top:6px">
