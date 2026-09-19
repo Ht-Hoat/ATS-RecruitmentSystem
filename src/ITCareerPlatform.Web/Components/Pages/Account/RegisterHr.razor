@@ -1,0 +1,18 @@
+@page "/register-hr"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+
+<div class="login-wrap"><div class="login-card">
+    <div class="brand-lg">IT Career<span>PLATFORM</span></div>
+    <h1>Đăng ký — Mentor / HR IT</h1>
+    <div class="alert-err">Chức năng đăng ký HR chưa thể gửi vì backend hiện tại chưa có endpoint <code>POST /account/register-hr</code>.</div>
+    <form data-vi-validate>
+        <label>Họ và tên</label><input name="fullName" required minlength="2" disabled />
+        <label>Email</label><input name="email" type="email" required disabled />
+        <label>Mật khẩu</label><input name="password" type="password" required minlength="8" disabled />
+        <label>Xác nhận mật khẩu</label><input name="confirmPassword" type="password" required minlength="8" disabled />
+        <label>Tên công ty</label><input name="companyName" required disabled />
+        <button class="btn-primary full" type="button" disabled>Đăng ký tài khoản HR</button>
+    </form>
+    <div class="hint">Đã có tài khoản? <a href="/login">Đăng nhập ngay</a></div>
+</div></div>

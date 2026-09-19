@@ -1,0 +1,6 @@
+@page "/users/pending"
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="page-head"><h1 class="page-title">Tài khoản HR chờ duyệt</h1><a class="btn" href="/users">← Quản lý tài khoản</a></div>
+<div class="alert-err">Không thể tải hoặc phê duyệt danh sách: backend hiện tại chưa có dữ liệu pending HR và các endpoint <code>POST /users/{id}/approve</code>, <code>POST /users/{id}/reject</code>.</div>
+<table class="tbl"><thead><tr><th>Họ tên</th><th>Email</th><th>Công ty</th><th>Ngày đăng ký</th><th>Thao tác</th></tr></thead><tbody><tr><td colspan="5" class="sub">Chưa có dữ liệu từ backend.</td></tr></tbody></table>

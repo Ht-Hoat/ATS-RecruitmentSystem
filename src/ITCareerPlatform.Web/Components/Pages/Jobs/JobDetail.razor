@@ -1,0 +1,31 @@
+@page "/jobs/{JobId:int}/detail"
+@attribute [Authorize(Roles = "Admin,Mentor")]
+@inject IJobService Jobs
+
+@if (job is null)
+{
+    <div class="page-head"><h1 class="page-title">Không tìm thấy tin tuyển dụng</h1><a class="btn" href="/jobs">← Về danh sách tin</a></div>
+}
+else
+{
+    <div class="page-head">
+        <h1 class="page-title">JD — @job.Title</h1>
+        <a class="btn" href="/jobs">← Về danh sách tin</a>
+    </div>
+    <div class="panel job-detail">
+        <p><span class="@Ui.CategoryClass(job.Category)">@job.Category</span> <span class="@Ui.LevelClass(job.Level)">@job.Level</span> <span class="chip">@job.EmploymentType</span></p>
+        <div class="job-meta"><span>📍 @job.Location</span><span>💰 @job.SalaryMin–@job.SalaryMax tr</span><span>⏰ Hạn nộp: @job.Deadline.ToString("dd/MM/yyyy")</span><span>📅 Ngày tạo: @job.CreatedAt.ToString("dd/MM/yyyy HH:mm")</span></div>
+        <h2>Mô tả công việc</h2>
+        <p class="job-copy">@job.Description</p>
+        <h2>Yêu cầu</h2>
+        <p class="job-copy">@job.Requirements</p>
+        <h2>Tech Stack</h2>
+        <div>@foreach (var tag in job.TechStack.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { <span class="chip">@tag</span> }</div>
+    </div>
+}
+
+@code {
+    [Parameter] public int JobId { get; set; }
+    private Job? job;
+    protected override void OnInitialized() => job = Jobs.GetById(JobId);
+}

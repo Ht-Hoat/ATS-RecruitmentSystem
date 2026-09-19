@@ -15,18 +15,17 @@
 {
     @* N2.G — Student Dashboard *@
     <div class="cards">
-        <div class="card"><div class="num">@openJobCount</div><div class="lbl">Việc làm IT đang tuyển</div></div>
-        <div class="card"><div class="num">@myApps</div><div class="lbl">Đơn đã nộp</div></div>
         <div class="card">
-            @if (avgAiScore.HasValue)
-            {
-                <div class="num @Ui.ScoreClass(avgAiScore)">@avgAiScore%</div>
-            }
-            else
-            {
-                <div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div>
-            }
-            <div class="lbl">Độ phù hợp AI (trung bình)</div>
+            <div class="num">@Jobs.GetOpen().Count</div>
+            <div class="lbl">Việc làm IT đang tuyển</div>
+        </div>
+        <div class="card">
+            <div class="num">@myApps</div>
+            <div class="lbl">Đơn đã nộp</div>
+        </div>
+        <div class="card">
+            <div class="num sub" style="font-size:1.1rem">Chưa có dữ liệu</div>
+            <div class="lbl">Độ phù hợp AI</div>
         </div>
     </div>
 
@@ -36,7 +35,14 @@
         {
             <table class="tbl">
                 <thead>
-                    <tr><th>Vị trí</th><th>Chuyên ngành</th><th>Cấp bậc</th><th>Địa điểm</th><th>Hạn nộp</th><th></th></tr>
+                    <tr>
+                        <th>Vị trí</th>
+                        <th>Chuyên ngành</th>
+                        <th>Cấp bậc</th>
+                        <th>Địa điểm</th>
+                        <th>Hạn nộp</th>
+                        <th></th>
+                    </tr>
                 </thead>
                 <tbody>
                     @foreach (var j in suggestedJobs)
@@ -65,6 +71,7 @@
             <li><a href="/profile">Hoàn thiện hồ sơ IT & tải CV</a> — GitHub, LinkedIn, Portfolio, Tech Skills</li>
             <li><a href="/positions">Xem & lọc việc làm IT theo Category / Tech Stack / Level</a> rồi ứng tuyển</li>
             <li><a href="/my-applications">Theo dõi trạng thái đơn ứng tuyển</a></li>
+            <li><a href="/toolkit">Roadmap & Checklist kỹ năng IT</a> · <a href="/cv-templates">Mẫu CV IT</a></li>
         </ul>
     </div>
 }
@@ -72,9 +79,18 @@ else if (role == Roles.Mentor)
 {
     @* N2.I — Mentor Command Center *@
     <div class="cards">
-        <div class="card"><div class="num">@totalMentorApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
-        <div class="card" style="border-color:#2563eb"><div class="num" style="color:#2563eb">@recentApps</div><div class="lbl">Hồ sơ mới trong 24h</div></div>
-        <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@unreviewedApps</div><div class="lbl">Hồ sơ chưa xem xét</div></div>
+        <a class="card card-link" href="/jobs">
+            <div class="num">@totalMentorApps</div>
+            <div class="lbl">Tổng đơn ứng tuyển</div>
+        </a>
+        <div class="card" style="border-color:#2563eb">
+            <div class="num" style="color:#2563eb">@recentApps</div>
+            <div class="lbl">Hồ sơ mới trong 24h</div>
+        </div>
+        <div class="card" style="border-color:#ea580c">
+            <div class="num" style="color:#ea580c">@unreviewedApps</div>
+            <div class="lbl">Hồ sơ chưa xem xét</div>
+        </div>
         <div class="card">
             @if (totalMentorApps > 0)
             {
@@ -98,10 +114,21 @@ else if (role == Roles.Mentor)
         {
             <table class="tbl">
                 <thead>
-                    <tr><th>#</th><th>Họ tên</th><th>Email</th><th>Vị trí ứng tuyển</th><th>% phù hợp</th><th>Ngày nộp</th><th>Trạng thái</th><th></th></tr>
+                    <tr>
+                        <th>#</th>
+                        <th>Họ tên</th>
+                        <th>Email</th>
+                        <th>Vị trí ứng tuyển</th>
+                        <th>% phù hợp</th>
+                        <th>Ngày nộp</th>
+                        <th>Trạng thái</th>
+                        <th></th>
+                    </tr>
                 </thead>
                 <tbody>
-                    @{ int idx = 1; }
+                    @{
+                        int idx = 1;
+                    }
                     @foreach (var a in topUnreviewed)
                     {
                         <tr>
@@ -144,7 +171,15 @@ else if (role == Roles.Mentor)
         {
             <table class="tbl">
                 <thead>
-                    <tr><th>Tiêu đề</th><th>Chuyên ngành</th><th>Cấp bậc</th><th>Trạng thái</th><th>Hạn nộp</th><th>Số ứng viên</th><th></th></tr>
+                    <tr>
+                        <th>Tiêu đề</th>
+                        <th>Chuyên ngành</th>
+                        <th>Cấp bậc</th>
+                        <th>Trạng thái</th>
+                        <th>Hạn nộp</th>
+                        <th>Số ứng viên</th>
+                        <th></th>
+                    </tr>
                 </thead>
                 <tbody>
                     @foreach (var j in myJobs)
@@ -170,70 +205,87 @@ else if (role == Roles.Mentor)
 
     <div class="panel" style="margin-top:16px">
         <h2>Công cụ cho Mentor / HR IT</h2>
-        <ul class="feat">
-            <li><a href="/jobs">Quản lý tin tuyển dụng IT</a> — tạo/sửa chuyên ngành, Tech Stack, Level</li>
-            <li>Xem danh sách ứng viên, AI đánh giá độ phù hợp & gợi ý lộ trình và xếp hạng</li>
-            <li>Điều chỉnh điểm (Human-in-the-loop), đổi trạng thái 5 bước</li>
-            <li><a href="/dashboard">Xem Dashboard thống kê & biểu đồ</a></li>
-        </ul>
-    </div>
-}
-else
-{
-    @* N2.J — Admin Overview *@
-    <div class="cards">
-        <div class="card"><div class="num">@totalUsers</div><div class="lbl">Tài khoản</div></div>
-        <div class="card"><div class="num">@openJobCount</div><div class="lbl">Tin đang mở (@totalJobCount tổng)</div></div>
-        <div class="card" style="border-color:#ea580c"><div class="num" style="color:#ea580c">@totalApps</div><div class="lbl">Tổng đơn ứng tuyển</div></div>
-        <div class="card" style="border-color:#7c3aed">
-            <div class="num" style="color:#7c3aed;font-size:1.1rem">
-                Admin: @usersByRole.GetValueOrDefault(Roles.AdminId, 0) · Mentor: @usersByRole.GetValueOrDefault(Roles.MentorId, 0) · SV: @usersByRole.GetValueOrDefault(Roles.StudentId, 0)
+        <div class="action-grid">
+            <a class="action-card" href="/jobs"><b>💼 Quản lý tin</b><span>Tạo, sửa và đóng tin tuyển dụng.</span></a>
+            <a class="action-card" href="/jobs"><b>👥 Ứng viên</b><span>Mở một tin để xem và đánh giá ứng viên.</span></a>
+            <a class="action-card" href="/dashboard"><b>📊 Thống kê</b><span>Xem các số liệu và biểu đồ tuyển
+                dụng.</span></a>
             </div>
-            <div class="lbl">Cơ cấu người dùng</div>
         </div>
-    </div>
+    }
+else
+    {
+        @* N2.J — Admin Overview *@
+        <div class="cards">
+            <div class="card">
+                <div class="num">@allUsers.Count</div>
+                <div class="lbl">Tài khoản</div>
+            </div>
+            <div class="card">
+                <div class="num">@openJobCount</div>
+                <div class="lbl">Tin đang mở (@totalJobCount tổng)</div>
+            </div>
+            <div class="card" style="border-color:#ea580c">
+                <div class="num" style="color:#ea580c">@totalApps</div>
+                <div class="lbl">Tổng đơn ứng tuyển</div>
+            </div>
+            <div class="card" style="border-color:#7c3aed">
+                <div class="num" style="color:#7c3aed;font-size:1.1rem">
+                    Admin: @usersByRole.GetValueOrDefault(Roles.AdminId, 0) · Mentor:
+                    @usersByRole.GetValueOrDefault(Roles.MentorId, 0) · SV: @usersByRole.GetValueOrDefault(Roles.StudentId, 0)
+                </div>
+                <div class="lbl">Cơ cấu người dùng</div>
+            </div>
+        </div>
 
-    <div class="panel" style="margin-top:16px">
-        <div class="page-head" style="margin-bottom:12px">
-            <h2>Nhật ký hoạt động gần đây</h2>
-            <a class="btn-sm" href="/audit">Xem tất cả nhật ký</a>
-        </div>
-        @if (recentAudit.Count > 0)
-        {
-            <table class="tbl">
-                <thead>
-                    <tr><th>Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Bảng dữ liệu</th><th>Chi tiết</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var a in recentAudit)
-                    {
+        <div class="panel" style="margin-top:16px">
+            <div class="page-head" style="margin-bottom:12px">
+                <h2>Nhật ký hoạt động gần đây</h2>
+                <a class="btn-sm" href="/audit">Xem tất cả nhật ký</a>
+            </div>
+            @if (recentAudit.Count > 0)
+            {
+                <table class="tbl">
+                    <thead>
                         <tr>
-                            <td>@Ui.DateTimeText(a.Timestamp)</td>
-                            <td>@a.ActorName</td>
-                            <td><span class="chip">@a.Action</span></td>
-                            <td>@a.TableName</td>
-                            <td>@a.Details</td>
+                            <th>Thời gian</th>
+                            <th>Người thực hiện</th>
+                            <th>Hành động</th>
+                            <th>Bảng dữ liệu</th>
+                            <th>Chi tiết</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
-        }
-        else
-        {
-            <p class="sub">Chưa có bản ghi nhật ký nào.</p>
-        }
-    </div>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in recentAudit)
+                        {
+                            <tr>
+                                <td>@Ui.DateTimeText(a.Timestamp)</td>
+                                <td>@a.ActorName</td>
+                                <td><span class="chip">@a.Action</span></td>
+                                <td>@a.TableName</td>
+                                <td>@a.Details</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="sub">Chưa có bản ghi nhật ký nào.</p>
+            }
+        </div>
 
-    <div class="panel" style="margin-top:16px">
-        <h2>Công cụ quản trị hệ thống</h2>
-        <ul class="feat">
-            <li><a href="/users">Quản lý người dùng</a> — phân quyền, khóa/mở khóa tài khoản</li>
-            <li><a href="/jobs">Quản lý toàn bộ tin tuyển dụng</a></li>
-            <li><a href="/dashboard">Xem Dashboard thống kê & biểu đồ</a></li>
-            <li><a href="/audit">Xem chi tiết nhật ký kiểm toán hệ thống</a></li>
-        </ul>
-    </div>
-}
+        <div class="panel" style="margin-top:16px">
+            <h2>Công cụ quản trị hệ thống</h2>
+            <div class="action-grid">
+                <a class="action-card" href="/users"><b>👤 Người dùng</b><span>Phân quyền, khóa hoặc mở khóa tài
+                    khoản.</span></a>
+                    <a class="action-card" href="/jobs"><b>💼 Tin tuyển dụng</b><span>Quản lý toàn bộ tin đăng.</span></a>
+                    <a class="action-card" href="/dashboard"><b>📊 Thống kê</b><span>Xem số liệu và biểu đồ tuyển dụng.</span></a>
+                    <a class="action-card" href="/audit"><b>📜 Nhật ký hệ thống</b><span>Kiểm tra các hoạt động gần đây.</span></a>
+                </div>
+            </div>
+        }
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }

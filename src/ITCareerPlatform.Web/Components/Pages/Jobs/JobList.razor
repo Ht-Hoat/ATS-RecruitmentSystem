@@ -2,22 +2,39 @@
 @attribute [Authorize(Roles = Roles.AdminOrMentor)]
 @inject IJobService Jobs
 @inject IApplicationService Applications
+@inject IUserService Users
 
 <div class="page-head">
     <h1 class="page-title">Tin tuyển dụng IT</h1>
     @* Chỉ Mentor đăng tin — Admin giám sát, không tuyển dụng (JobService.Create cũng chặn). *@
-    @if (!isAdmin) { <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a> }
+    @if (!isAdmin)
+    {
+        <a class="btn-primary" href="/jobs/new">+ Tạo tin tuyển dụng IT</a>
+    }
 </div>
 <p class="sub">
     @(isAdmin
         ? "Toàn bộ tin IT trong hệ thống (chỉ xem) — việc đăng, sửa, đóng tin và xử lý ứng viên do Mentor đăng tin thực hiện."
         : "Tin tuyển dụng do bạn đăng — có Danh mục, Tech Stack, Cấp bậc; sắp xếp theo ngày tạo mới nhất.")
 </p>
-@if (!string.IsNullOrEmpty(Err)) { <div class="alert-err">@Err</div> }
+@if (!string.IsNullOrEmpty(Err))
+{
+    <div class="alert-err">@Err</div>
+}
 
 <table class="tbl">
     <thead>
-        <tr><th>ID</th><th>Vị trí</th><th>Danh mục</th><th>Tech Stack</th><th>Cấp bậc</th><th>Hạn nộp</th><th>Số SV</th><th>Trạng thái</th><th>Thao tác</th></tr>
+        <tr>
+            <th>Vị trí</th>
+            <th>Danh mục</th>
+            <th>Tech Stack</th>
+            <th>Cấp bậc</th>
+            <th>Ngày tạo</th>
+            <th>Hạn nộp</th>
+            <th>Số SV</th>
+            <th>Trạng thái</th>
+            <th>Thao tác</th>
+        </tr>
     </thead>
     <tbody>
         @foreach (var j in jobs)
@@ -25,50 +42,65 @@
             @* P1-5: Mentor chỉ thấy tin của mình nên thao tác được mọi dòng. Admin thấy tất
                cả nhưng CHỈ XEM — nút thao tác bị ẩn, và endpoint/service cũng chặn. *@
             <tr>
-                <td>@j.Id</td>
-                <td>@j.Title</td>
+                <td>
+                    <b>@j.Title</b>
+                    @if (mentorNames.TryGetValue(j.CreatedById, out var mentorName))
+                    {
+                        <div class="tag-muted">👤 @mentorName · Chỉ xem</div>
+                    }
+                </td>
                 <td><span class="@Ui.CategoryClass(j.Category)">@j.Category</span></td>
                 <td>
-                    @{ var tags = j.TechStackList; }
-                    @foreach (var tg in tags.Take(3)) { <span class="chip">@tg</span> }
-                    @if (tags.Count > 3) { <span class="chip chip-more">+@(tags.Count - 3)</span> }
+                    @{
+                        var tags = j.TechStackList;
+                    }
+                    @foreach (var tg in tags.Take(3))
+                    {
+                        <span class="chip">@tg</span>
+                    }
+                    @if (tags.Count > 3)
+                    {
+                        <span class="chip chip-more">+@(tags.Count - 3)</span>
+                    }
                 </td>
                 <td><span class="@Ui.LevelClass(j.Level)">@j.Level</span></td>
-                <td>@Ui.DateText(j.Deadline)</td>
+                <td>@j.Deadline.ToString("dd/MM/yyyy")</td>
                 <td><a href="@($"/jobs/{j.Id}/applicants")">@counts.GetValueOrDefault(j.Id)</a></td>
-                <td>
-                    @if (j.Status == JobStatus.Open) { <span class="ok">● Đang mở</span> }
-                    else { <span class="lock">● Đã đóng</span> }
+                <td>@if (j.Status == "Open") {
+                    <span class="ok">● Đang mở</span>
+                } else
+                {
+
+                    <span class="lock">● Đã
+                        đóng</span>
+                    }
                 </td>
-                <td>
-                    @* Ba nút cùng một hàng, cùng cỡ. Tin đã đóng không hiện nút "Sửa" mờ nữa — nút
-                       "Mở lại" đã nói rõ bước cần làm, và service vẫn chặn sửa tin đã đóng. *@
-                    <div class="row-actions">
-                        <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
-                        @if (isAdmin)
-                        {
-                            @* Chỉ xem: không có nút Sửa / Đóng / Mở lại. *@
-                        }
-                        else if (j.Status == JobStatus.Open)
-                        {
-                            <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
-                            <form method="post" action="@($"/jobs/{j.Id}/close")" onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
-                                <AntiforgeryField />
-                                <button class="btn-sm danger-outline" type="submit">Đóng tin</button>
-                            </form>
-                        }
-                        else
-                        {
-                            <form method="post" action="@($"/jobs/{j.Id}/reopen")">
-                                <AntiforgeryField />
-                                <button class="btn-sm success-outline" type="submit" title="Mở lại để nhận hồ sơ và sửa tin">Mở lại</button>
-                            </form>
-                        }
-                    </div>
+                <td class="nowrap">
+                    <a class="btn-sm" href="@($"/jobs/{j.Id}/applicants")">Ứng viên</a>
+                    @if (j.Status == "Open")
+                    {
+                        <a class="btn-sm ghost" href="@($"/jobs/edit/{j.Id}")">Sửa</a>
+                        <form method="post" action="@($"/jobs/{j.Id}/close")" class="inline"
+                              onsubmit="return confirm('Bạn chắc chắn muốn đóng tin tuyển dụng này?');">
+                            <button class="btn-sm danger" type="submit">Đóng</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <span class="btn-sm ghost disabled" title="Mở lại tin trước khi sửa">Sửa</span>
+                        <form method="post" action="@($"/jobs/{j.Id}/reopen")" class="inline">
+                            <button class="btn-sm" type="submit">Mở lại</button>
+                        </form>
+                    }
                 </td>
             </tr>
         }
-        @if (jobs.Count == 0) { <tr><td colspan="9" class="sub">Chưa có tin tuyển dụng.</td></tr> }
+        @if (jobs.Count == 0)
+        {
+            <tr>
+                <td colspan="9" class="sub">Chưa có tin tuyển dụng.</td>
+            </tr>
+        }
     </tbody>
 </table>
 
@@ -78,23 +110,9 @@
 
     private List<Job> jobs = new();
     private Dictionary<int, int> counts = new();
-    private int uid;
-    private bool isAdmin;
-
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        if (AuthState is null) return;
-        var user = (await AuthState).User;
-        uid = CurrentUser.Id(user);
-        isAdmin = CurrentUser.IsAdmin(user);
-
-        // P1-5: Mentor chỉ thấy tin của chính mình. Bản cũ gọi GetAll() cho mọi vai trò, nên
-        // một Mentor đọc được toàn bộ tin của đối thủ KÈM số ứng viên từng tin — vừa lộ
-        // thông tin cạnh tranh, vừa hiện sẵn nút "Ứng viên" dẫn tới một trang báo không có
-        // quyền. Kiểm tra quyền ở service vẫn là lớp bảo vệ thật; thay đổi này chỉ để giao
-        // diện thôi mời người dùng bấm vào thứ họ không được phép.
-        jobs = isAdmin ? Jobs.GetAll() : Jobs.GetByOwner(uid);
-        // Đếm theo đúng những tin đang hiển thị thay vì gộp cả bảng Applications.
-        counts = Applications.CountForJobs(jobs.Select(j => j.Id).ToList());
+        jobs = Jobs.GetAll();
+        counts = Applications.CountAllByJob(); // #2: đếm 1 lần thay vì N+1
     }
 }
